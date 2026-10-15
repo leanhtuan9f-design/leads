@@ -182,7 +182,8 @@ async function callAnthropic(c, text, o = {}) {
   }
   if (resp.stop_reason === 'refusal') throw new AiError('AI từ chối xử lý nội dung hồ sơ. Hãy chỉnh lại mô tả rồi thử lại.', 'refusal');
   if (resp.stop_reason === 'max_tokens' && !o.plain) throw new AiError('AI trả lời chưa xong, hãy thử lại.');
-  const block = resp.content.find((b) => b.type === 'text');
+  const block = Array.isArray(resp?.content) ? resp.content.find((b) => b.type === 'text') : null;
+  if (!block && o.plain) throw new AiError('Máy chủ trả về phản hồi không đúng định dạng Anthropic (thiếu content). Thử đổi Kiểu API sang OpenAI-compatible.');
   return { text: block?.text || '', usage: { input: resp.usage?.input_tokens || 0, output: resp.usage?.output_tokens || 0 } };
 }
 
@@ -203,8 +204,22 @@ async function callOpenAI(c, text, o = {}) {
   if (r.status === 429) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy');
   if (r.status === 404) throw new AiError(`Máy chủ AI không có model “${c.model}” hoặc sai Base URL. Hãy báo quản trị viên.`, 'config');
   if (!r.ok) { console.error('AI error', r.status); throw new AiError('Không gọi được AI, hãy thử lại sau.'); }
+  let raw = await r.text().catch(() => '');
+  if (/^\s*data:/.test(raw)) { // một số proxy luôn trả dạng stream (SSE): ghép các đoạn lại
+    let text = '', usage;
+    for (const line of raw.split('\n')) {
+      const m = /^data:\s*(.+)$/.exec(line.trim());
+      if (!m || m[1] === '[DONE]') continue;
+      try { const j = JSON.parse(m[1]); text += j.choices?.[0]?.delta?.content ?? j.choices?.[0]?.message?.content ?? ''; if (j.usage) usage = j.usage; } catch { /* bỏ qua dòng lỗi */ }
+    }
+    raw = JSON.stringify({ choices: [{ message: { content: text } }], usage });
+  }
   let body;
-  try { body = await r.json(); } catch { throw new AiError('AI trả về dữ liệu không đọc được, hãy thử lại.'); }
+  try { body = JSON.parse(raw); } catch {
+    console.error('AI non-JSON reply', r.status, r.headers.get('content-type'), raw.slice(0, 200));
+    const hint = o.plain ? ` [HTTP ${r.status}, ${r.headers.get('content-type') || 'không rõ loại'}, nội dung đầu: ${raw.replace(/\s+/g, ' ').slice(0, 150) || '(rỗng)'}]` : '';
+    throw new AiError(`AI trả về dữ liệu không đọc được, hãy thử lại.${hint}`);
+  }
   const ch = body?.choices?.[0];
   if (ch?.finish_reason === 'length' && !o.plain) throw new AiError('AI trả lời chưa xong, hãy thử lại.');
   const content = ch?.message?.content;
@@ -248,6 +263,7 @@ export async function testConnection({ baseUrl, apiKey, format, model }) {
   try {
     const o = { system: 'Trả lời đúng một từ: OK', maxTokens: 64, plain: true };
     const r = c.format === 'openai' ? await callOpenAI(c, 'ping', o) : await callAnthropic(c, 'ping', o);
+    if (!r.text.trim()) throw new AiError('Máy chủ trả lời rỗng (không có nội dung). Có thể sai Kiểu API hoặc model không hỗ trợ chat.');
     out.chatOk = true; out.reply = r.text.trim().slice(0, 80);
   } catch (e) { out.chatError = e.message; }
   out.ms = Date.now() - t0;
