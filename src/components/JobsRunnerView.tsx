@@ -145,9 +145,9 @@ export const JobsRunnerView: React.FC<JobsRunnerViewProps> = ({
                   </div>
 
                   <div className="p-2 bg-slate-900/60 rounded">
-                    <span className="text-slate-400 block text-[10px]">Chế độ Proxy</span>
+                    <span className="text-slate-400 block text-[10px]">Bóc tách Email</span>
                     <span className="text-slate-300 font-semibold truncate block">
-                      {job.options.proxyType === 'datacenter_rotating' ? 'Proxy Xoay Vòng' : job.options.proxyType === 'residential_proxy' ? 'Proxy Dân Cư' : 'Trực tiếp'}
+                      {job.options.extractEmails ? 'Có' : 'Không'}
                     </span>
                   </div>
                 </div>

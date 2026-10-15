@@ -118,6 +118,10 @@ print(f"Khởi chạy thành công tác vụ ID: {job_data['job_id']}")`;
         </p>
       </div>
 
+      <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200">
+        <strong>Lưu ý:</strong> Các ví dụ cURL / Node.js / Python bên dưới dùng endpoint <code>api.scraper.gosom.dev</code> và gói <code>@gosom/gmaps-scraper</code> chỉ mang tính minh họa — chúng không tồn tại. API thật của ứng dụng này là <code>POST /api/jobs</code>, <code>GET /api/jobs/:id/events</code> (SSE), <code>DELETE /api/jobs/:id</code>.
+      </div>
+
       {/* Code Playground */}
       <div className="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
         {/* Language Tabs */}

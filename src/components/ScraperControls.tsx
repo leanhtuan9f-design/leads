@@ -23,10 +23,8 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
   const [location, setLocation] = useState('Hà Nội');
   const [maxResults, setMaxResults] = useState(25);
   const [extractEmails, setExtractEmails] = useState(true);
-  const [extractSocials, setExtractSocials] = useState(true);
   const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
   const [skipWithoutWebsite, setSkipWithoutWebsite] = useState(false);
-  const [proxyType, setProxyType] = useState<'direct' | 'datacenter_rotating' | 'residential_proxy'>('datacenter_rotating');
   const [language, setLanguage] = useState('vi');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -41,10 +39,8 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
       location: location.trim(),
       maxResults,
       extractEmails,
-      extractSocials,
       skipWithoutPhone,
       skipWithoutWebsite,
-      proxyType,
       language
     });
 
@@ -155,23 +151,23 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
             <option value={25}>25 Địa điểm (Tiêu chuẩn)</option>
             <option value={50}>50 Địa điểm (Quét sâu)</option>
             <option value={100}>100 Địa điểm (Toàn diện)</option>
+            <option value={200}>200 Địa điểm (Quy mô lớn)</option>
           </select>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-xs font-medium text-slate-300">
-              Chế độ Proxy & Chống chặn
+              Ngôn ngữ kết quả Google Maps
             </label>
           </div>
           <select
-            value={proxyType}
-            onChange={(e) => setProxyType(e.target.value as any)}
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
             className="w-full bg-slate-900 border border-slate-700 rounded-md px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
           >
-            <option value="datacenter_rotating">Proxy Xoay Vòng (~120 địa điểm/phút)</option>
-            <option value="residential_proxy">Pool Proxy Dân Cư (Chống ban IP)</option>
-            <option value="direct">Kết nối trực tiếp (Direct)</option>
+            <option value="vi">Tiếng Việt</option>
+            <option value="en">English</option>
           </select>
         </div>
       </div>
@@ -195,20 +191,7 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
             />
             <div className="flex items-center gap-1.5 text-xs text-slate-200">
               <Mail className="w-3.5 h-3.5 text-blue-400" />
-              <span>Quét sâu website bóc tách Email</span>
-            </div>
-          </label>
-
-          <label className="flex items-center gap-2 p-2 bg-slate-900/60 rounded border border-slate-800 cursor-pointer hover:border-slate-700 transition-colors">
-            <input
-              type="checkbox"
-              checked={extractSocials}
-              onChange={(e) => setExtractSocials(e.target.checked)}
-              className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
-            />
-            <div className="flex items-center gap-1.5 text-xs text-slate-200">
-              <Globe className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Trích xuất link Mạng xã hội</span>
+              <span>Quét website doanh nghiệp để bóc tách Email</span>
             </div>
           </label>
 

@@ -225,7 +225,7 @@ export const JobProgressBanner: React.FC<JobProgressBannerProps> = ({
           <div className="text-right">
             <div className="text-[11px] text-slate-400">Tốc độ quét</div>
             <div className="font-mono text-xs font-semibold text-blue-400 tabular-nums">
-              {progress?.speedPerMin || 120} <span className="font-normal text-[10px] text-slate-400">địa điểm/phút</span>
+              {progress?.speedPerMin || 0} <span className="font-normal text-[10px] text-slate-400">địa điểm/phút</span>
             </div>
           </div>
 

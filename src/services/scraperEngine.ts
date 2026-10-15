@@ -15,10 +15,6 @@ export interface ProgressCallbackData {
   guaranteedQuotaTarget?: number;
   guaranteedQuotaCurrent?: number;
   currentSubdivision?: string;
-  activeProxyIp?: string;
-  activeProxyIsp?: string;
-  concurrencySlot?: string;
-  safetyThrottleMode?: 'safe' | 'balanced' | 'turbo';
 }
 
 export interface AdministrativeDistrict {
@@ -344,6 +340,7 @@ export async function executeScrapingJob(
 
     es.addEventListener('place', (e) => {
       const raw = JSON.parse((e as MessageEvent).data) as ScrapedBusiness;
+      if ((options.skipWithoutPhone && !raw.phone) || (options.skipWithoutWebsite && !raw.website)) return;
       const keys = dedupeKeys(raw);
       const elapsedMin = Math.max((Date.now() - startTime) / 60000, 1 / 60);
 

@@ -43,18 +43,15 @@ export interface ScraperOptions {
   city?: string;
   maxResults: number;
   extractEmails: boolean;
-  extractSocials: boolean;
+  extractSocials?: boolean; // không còn dùng: gosom không trả link mạng xã hội
   skipWithoutPhone: boolean;
   skipWithoutWebsite: boolean;
-  proxyType: 'direct' | 'datacenter_rotating' | 'residential_proxy';
+  proxyType?: 'direct' | 'datacenter_rotating' | 'residential_proxy'; // chỉ để tương thích job cũ trong localStorage
   language: string;
   existingBusinesses?: ScrapedBusiness[];
   scrapeMode?: 'batch' | 'exhaustive';
   useDistrictSubdivision?: boolean;
   selectedDistricts?: string[];
-  guaranteedFullBatch?: boolean; // Tự động quét full 100% quota mỗi đợt, tự động mở rộng phân khu khi Google Maps giới hạn ở 20-25 kết quả
-  safetyThrottleMode?: 'safe' | 'balanced' | 'turbo'; // Bộ điều tốc chống chặn Google: safe (nhiều user), balanced, turbo
-  concurrentWorkers?: number; // Số luồng worker độc lập cho nhiều người dùng
 }
 
 export interface ScraperJob {

@@ -14,7 +14,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
-import { estimateMarketTotal, getDynamicSubdivisions } from '../services/scraperEngine';
+import { estimateMarketTotal, getKnownDistricts } from '../services/scraperEngine';
 import { HelpButton } from './HelpButton';
 
 interface DirectScrapeBarProps {
@@ -52,12 +52,10 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [location, setLocation] = useState('Hà Nội');
   const [maxResults, setMaxResults] = useState(25);
   const [useDistrictSubdivision, setUseDistrictSubdivision] = useState(true);
-  const [guaranteedFullBatch, setGuaranteedFullBatch] = useState(true);
-  const [safetyThrottleMode, setSafetyThrottleMode] = useState<'safe' | 'balanced' | 'turbo'>('safe');
 
-  // Dynamically resolve subdivisions (districts or 9-quadrant spatial grid) for ANY location on Earth
+  // Quận/huyện thật của thành phố đã biết (rỗng nếu chưa có dữ liệu)
   const activeDistricts = useMemo(() => {
-    return getDynamicSubdivisions(location.trim() || 'Hà Nội');
+    return getKnownDistricts(location.trim()) ?? [];
   }, [location]);
 
   // Calculate market saturation and existing listings count in database
@@ -103,17 +101,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       location: location.trim(),
       maxResults,
       extractEmails: true,
-      extractSocials: true,
       skipWithoutPhone: false,
       skipWithoutWebsite: false,
-      proxyType: safetyThrottleMode === 'safe' ? 'residential_proxy' : 'datacenter_rotating',
       language: 'vi',
       existingBusinesses, // Pass database to automatically skip duplicates!
       scrapeMode: 'batch',
       useDistrictSubdivision,
-      guaranteedFullBatch,
-      safetyThrottleMode,
-      concurrentWorkers: 4
     });
   };
 
@@ -128,17 +121,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       location: location.trim(),
       maxResults: marketInfo.remaining > 0 ? marketInfo.remaining : 100,
       extractEmails: true,
-      extractSocials: true,
       skipWithoutPhone: false,
       skipWithoutWebsite: false,
-      proxyType: 'residential_proxy',
       language: 'vi',
       existingBusinesses, // Pass database to automatically skip duplicates!
       scrapeMode: 'exhaustive',
       useDistrictSubdivision: true,
-      guaranteedFullBatch: true,
-      safetyThrottleMode,
-      concurrentWorkers: 4
     });
   };
 
@@ -270,36 +258,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           </div>
         </div>
 
-        {/* CƠ CHẾ QUÉT FULL SỐ LƯỢNG MỖI ĐỢT & BỘ ĐIỀU TỐC AN TOÀN GOOGLE MULTI-USER */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg text-xs">
-          {/* Quét Full Chỉ Tiêu */}
-          <div className="md:col-span-7 flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={guaranteedFullBatch}
-                onChange={(e) => setGuaranteedFullBatch(e.target.checked)}
-                className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
-              />
-              <span className="text-slate-200 font-medium">
-                🔥 <strong>Cơ chế Quét Full Chỉ Tiêu Đợt:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (Tự động mở rộng phân khu, không bị nghẽn ở mốc 20-25 kết quả của Google)
-              </span>
-            </label>
-          </div>
-
-          {/* Bộ điều tốc an toàn Google */}
-          <div className="md:col-span-5 flex items-center gap-2 justify-start md:justify-end">
-            <span className="text-slate-400 text-[11px] whitespace-nowrap">Bộ điều tốc An toàn:</span>
-            <select
-              value={safetyThrottleMode}
-              onChange={(e) => setSafetyThrottleMode(e.target.value as any)}
-              className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-[11px] text-white focus:outline-none focus:border-emerald-500 font-mono"
-            >
-              <option value="safe">🛡️ An toàn cao nhất (Chống chặn IP Đa người dùng)</option>
-              <option value="balanced">⚖️ Cân bằng (Tiêu chuẩn)</option>
-              <option value="turbo">⚡ Tốc độ cao (Turbo)</option>
-            </select>
-          </div>
+        <div className="p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg text-xs text-slate-300">
+          🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.
         </div>
 
         {/* TÙY CHỌN PHÂN RÃ THEO QUẬN/HUYỆN ĐỂ CÀO ĐỦ >100 ĐIỂM */}
@@ -313,7 +273,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
               />
               <span className="font-semibold text-slate-200">
-                ⚡ Tự động quét phân rã theo {activeDistricts.length} Quận / Phân khu của {location || 'khu vực'} (Giải pháp cào sạch &gt;100 cơ sở {category} không sót ngõ ngách nào)
+                ⚡ Tách truy vấn theo {activeDistricts.length} quận/huyện của {location} để vượt trần ~120 kết quả/truy vấn của Google (tối đa 12 quận mỗi lần)
               </span>
             </label>
             <div className="flex flex-wrap gap-1 pl-5">

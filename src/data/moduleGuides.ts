@@ -16,21 +16,21 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     subtitle: 'Cách thiết lập từ khóa, vị trí, độ sâu cào và cơ chế quét email từ website',
     tag: 'Thu thập dữ liệu',
     logicExplanation: [
-      'Giao diện trực tiếp tách biệt thành 2 ô nhập chuẩn xác: [Ngành nghề / Dịch vụ] và [Địa điểm / Tọa độ GPS].',
-      'Hỗ trợ cào theo Tọa độ GPS trực tiếp: Bạn có thể nhập cặp tọa độ ví dụ "21.0285, 105.8542" (Hà Nội) hoặc "10.7769, 106.7009" (TP.HCM) để hệ thống quét chính xác bán kính quanh vị trí mong muốn.',
-      'Bộ cào mô phỏng kiến trúc Golang của gosom/google-maps-scraper: tự động phân tích truy vấn, truy xuất Google Maps Places API và mạng lưới vị trí địa lý.',
-      'Cơ chế Deep Web Crawl: Tự động quét trang web chính thức của doanh nghiệp để bóc tách địa chỉ Email và các mạng xã hội (Facebook, Instagram, LinkedIn, X).',
-      'Hỗ trợ chế độ Proxy xoay vòng (Rotating Proxy) giúp vượt giới hạn tần suất (Rate Limit) và đạt tốc độ trung bình 120 địa điểm/phút.'
+      'Giao diện tách thành 2 ô nhập: [Ngành nghề / Dịch vụ] và [Địa điểm / Tọa độ GPS].',
+      'Hỗ trợ cào theo Tọa độ GPS: nhập cặp tọa độ ví dụ "21.0285, 105.8542" để quét bán kính 10 km quanh điểm đó.',
+      'Engine là gosom/google-maps-scraper chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
+      'Bóc tách Email: engine truy cập website công khai của doanh nghiệp để tìm địa chỉ email. Chỉ có email nếu doanh nghiệp có website và website đó công bố email. Link mạng xã hội hiện CHƯA được bóc tách.',
+      'Mỗi lần chỉ chạy 1 tác vụ; các tác vụ khác xếp hàng chờ (tối đa 3). Tốc độ phụ thuộc Google Maps — thường vài chục giây đến vài phút cho 25 điểm.'
     ],
     steps: [
       'Bước 1: Tại thanh cào trực tiếp ở đầu trang, nhập ô thứ nhất: [Ngành nghề / Dịch vụ] (Ví dụ: "Nha khoa", "Quán cafe", "Thầu xây dựng", "Khách sạn").',
       'Bước 2: Nhập ô thứ hai: [Địa điểm / Tỉnh thành] (Ví dụ: "Hà Nội", "Quận 1 TP.HCM") hoặc [Tọa độ GPS] (Ví dụ: "21.0285, 105.8542").',
-      'Bước 3: Chọn số lượng địa điểm cần cào (10, 25, 50, 100).',
+      'Bước 3: Chọn số lượng địa điểm cần cào (10 đến 150, hoặc "Quét FULL" để lấy toàn bộ phần còn lại).',
       'Bước 4: Nhấn nút màu xanh "⚡ Bắt đầu cào" và theo dõi dữ liệu được trích xuất và hiển thị trực tiếp lên bảng dữ liệu.'
     ],
     proTips: [
       'Mẹo 1: Bạn có thể sao chép kinh độ/vĩ độ từ Google Maps (dạng 21.0285, 105.8542) dán thẳng vào ô Địa điểm/Tọa độ để cào cực kỳ chuẩn xác khu vực mong muốn.',
-      'Mẹo 2: Nếu cần cấu hình chuyên sâu (chọn loại Proxy, bật/tắt quét email, lọc số điện thoại), hãy nhấn nút "Tùy chọn nâng cao".'
+      'Mẹo 2: Nếu cần cấu hình chuyên sâu (ngôn ngữ, bật/tắt quét email, bắt buộc có SĐT hoặc website), hãy nhấn nút "Tùy chọn nâng cao".'
     ]
   },
   deduplication_and_market_exhaustion: {
@@ -61,12 +61,12 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       '',
       '4. LÀM THẾ NÀO ĐỂ BIẾT ĐÃ QUÉT HẾT (3 TÍN HIỆU NHẬN BIẾT 100%):',
       '• Tín hiệu 1 (Tỷ lệ phát hiện mới = 0%): Khi crawler quét qua tất cả các quận/huyện hoặc ô lưới tọa độ, nhưng 100% kết quả Google Maps trả về đều là các địa điểm đã có trong cơ sở dữ liệu -> Hệ thống xác nhận không còn bất kỳ cơ sở nào mới.',
-      '• Tín hiệu 2 (Tín hiệu End-of-List từ Google): Khi thanh cuộn của mọi quận đều trả về tín hiệu kết thúc DOM.',
-      '• Tín hiệu 3 (Thước đo Độ phủ thị trường): Thanh tiến trình hiển thị: "Đã cào: 115 / ~115 điểm (Độ phủ: 100% - ĐÃ QUÉT CẠN KIỆT TOÀN THÀNH PHỐ)".'
+      '• Tín hiệu 2 (Engine tự kết thúc): ở chế độ "Cào cạn kiệt", khi Google hết kết quả cho tất cả quận mà chưa đủ chỉ tiêu, hệ thống báo đã quét hết kết quả Google Maps.',
+      '• Tín hiệu 3 (Độ phủ ước lượng): thanh tiến trình so sánh với con số ƯỚC LƯỢNG theo ngành và quy mô đô thị, chỉ mang tính tham khảo, không phải số liệu thật của Google.'
     ],
     steps: [
       'Bước 1: Nhập [Phòng khám nha khoa] vào ô Ngành nghề, nhập [Hà Nội] vào ô Địa điểm.',
-      'Bước 2: Bật tùy chọn "⚡ Tự động quét phân mảnh theo 12 Quận của Hà Nội" (hệ thống sẽ tự động mở rộng quét Cầu Giấy, Đống Đa, Ba Đình, Thanh Xuân...).',
+      'Bước 2: Bật tùy chọn "Tách truy vấn theo quận/huyện" (chỉ có cho Hà Nội, TP.HCM, Đà Nẵng, Hải Phòng, Cần Thơ, Bình Dương; các nơi khác chạy 1 truy vấn nên thường chỉ lấy được tối đa ~120 điểm).',
       'Bước 3: Bấm nút "🔥 Cào cạn kiệt toàn bộ Hà Nội (>100 điểm)" hoặc cào từng đợt (+25 điểm).',
       'Bước 4: Theo dõi bộ đếm chống trùng: Hệ thống sẽ hiển thị "Đã bỏ qua X địa điểm trùng -> Gom thành công Y địa điểm mới".',
       'Bước 5: Khi thanh trạng thái chuyển sang màu xanh lục báo "🎉 ĐÃ QUÉT HẾT 100% THỊ TRƯỜNG", bạn đã có trong tay danh sách đầy đủ nhất không sót phòng khám nào.'
@@ -77,41 +77,32 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
   },
   multi_user_google_policy: {
     id: 'multi_user_google_policy',
-    title: 'Chính sách Google & Cơ chế cào an toàn khi có nhiều người dùng đồng thời',
-    subtitle: 'Phân tích tính hợp lệ, nguy cơ bị chặn IP khi nhiều người cào cùng lúc và 5 cơ chế khắc phục kỹ thuật chuẩn',
-    tag: 'Chính sách & Kiến trúc Đa người dùng',
+    title: 'Chính sách Google & Giới hạn vận hành hiện tại',
+    subtitle: 'Rủi ro điều khoản, nguy cơ bị chặn IP và những gì hệ thống thực sự đang làm (và chưa làm)',
+    tag: 'Chính sách & Vận hành',
     logicExplanation: [
-      '1. VẤN ĐỀ VỀ CHÍNH SÁCH GOOGLE (GOOGLE TERMS OF SERVICE):',
-      'Theo Điều khoản dịch vụ của Google (Mục 3.3 Google Terms of Service): Google nghiêm cấm hành vi tự động bóc tách (automated scraping), gửi truy vấn tự động bằng robot thu thập dữ liệu trái phép mà không qua Google Maps Platform API chính thức.',
-      'Nếu bạn mở phần mềm này cho NHIỀU NGƯỜI DÙNG cùng bấm cào cùng 1 lúc:',
-      '• Nguy cơ 1: Nếu tất cả người dùng đều gửi yêu cầu thông qua cùng 1 địa chỉ IP máy chủ của bạn -> Google sẽ phát hiện lưu lượng truy cập bất thường (Unusual Traffic).',
-      '• Hậu quả: Google sẽ kích hoạt mã phản hồi HTTP 429 Too Many Requests, bắt giải reCAPTCHA liên tục, hoặc cấm (ban) IP máy chủ của bạn.',
+      '1. RỦI RO VỀ ĐIỀU KHOẢN GOOGLE:',
+      'Điều khoản dịch vụ của Google không cho phép tự động bóc tách (scraping) Google Maps. Công cụ này truy cập Google Maps bằng trình duyệt tự động; việc sử dụng là trách nhiệm của người vận hành. Thông tin công khai (tên, địa chỉ, SĐT) không đồng nghĩa với được phép dùng cho mọi mục đích — khi gửi email/tin nhắn chào hàng cần tuân thủ quy định về quảng cáo và bảo vệ dữ liệu cá nhân.',
       '',
-      '2. CÁC CƠ CHẾ KỸ THUẬT KHẮC PHỤC TRIỆT ĐỂ (DÀNH CHO PHẦN MỀM ĐA NGƯỜI DÙNG):',
-      'Để hệ thống chạy mượt mà, phục vụ hàng trăm đến hàng ngàn người dùng đồng thời mà không bị Google chặn, hệ thống áp dụng các giải pháp kiến trúc sau:',
-      '• Giải pháp 1 (Pool Proxy Dân Cư Xoay Vòng - Residential Rotating Proxies):',
-      'Thay vì dùng IP máy chủ cố định, mỗi truy vấn cào của mỗi người dùng được định tuyến ngẫu nhiên qua hàng triệu địa chỉ IP dân cư (Residential IP) như BrightData, Oxylabs, Smartproxy. Google chỉ thấy các truy vấn đến từ các hộ gia đình cá nhân bình thường rải rác khắp các tỉnh thành, hoàn toàn không phát hiện được hệ thống scraper.',
+      '2. HỆ THỐNG ĐANG LÀM GÌ ĐỂ GIẢM TẢI:',
+      '• Mọi truy vấn ra Google bằng MỘT địa chỉ IP duy nhất của máy chủ (chưa dùng proxy).',
+      '• Chỉ chạy 1 tác vụ tại một thời điểm; tối đa 3 tác vụ xếp hàng, quá số này sẽ báo bận.',
+      '• Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP người dùng, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
+      '• Tốc độ do chính engine gosom/Playwright quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
       '',
-      '• Giải pháp 2 (Mô phỏng hành vi con người & Giãn cách ngẫu nhiên - Human Jitter):',
-      'Không gửi dồn dập hàng loạt request trong 1 mili-giây. Bộ engine tự động chèn độ trễ ngẫu nhiên (Random Delay 90ms - 280ms), mô phỏng thao tác cuộn chuột và đọc trang tự nhiên của con người.',
-      '',
-      '• Giải pháp 3 (Hoán đổi dấu vân tay trình duyệt - Browser Fingerprint & User-Agent Spoofer):',
-      'Tự động xoay vòng danh sách hàng ngàn User-Agent hiện đại (Chrome 128+, Edge, Safari 18, Firefox), kích thước khung nhìn (Viewport) và các tham số Canvas/WebGL để bot không có dấu hiệu nhận dạng cố định.',
-      '',
-      '• Giải pháp 4 (Hàng đợi phân tán - Distributed Job Queue):',
-      'Khi nhiều người dùng nhấn cào cùng lúc, các tác vụ được đưa vào hàng đợi phân luồng độc lập (Worker Isolation), mỗi worker sử dụng một phiên session và pool proxy riêng biệt để không ảnh hưởng lẫn nhau.',
-      '',
-      '• Giải pháp 5 (Tùy chọn kết nối Google Cloud Maps API chính thức - 100% Tuân thủ chính sách):',
-      'Đối với các khách hàng doanh nghiệp hoặc trường hợp cần tuân thủ 100% chính sách của Google, phần mềm hỗ trợ chế độ nhập Google Places API Key chính thức để lấy thông tin địa điểm được cấp phép, sau đó chỉ dùng crawler ngoài để bóc tách thêm Email/Mạng xã hội từ chính website của doanh nghiệp đó (hoàn toàn hợp pháp vì website công khai của doanh nghiệp không thuộc quyền sở hữu của Google).'
+      '3. CHƯA CÓ (CẦN PHÁT TRIỂN NẾU MỞ CHO NHIỀU NGƯỜI):',
+      '• Proxy dân cư xoay vòng (gosom hỗ trợ tham số -proxies nhưng chưa được cấu hình).',
+      '• Tài khoản người dùng và hạn mức theo người dùng (hiện ai truy cập cũng dùng chung hàng đợi).',
+      '• Chế độ Google Places API chính thức (tuân thủ chính sách) kết hợp bóc email/mạng xã hội từ website doanh nghiệp.',
+      'Nếu bị Google yêu cầu CAPTCHA hoặc chặn IP, tác vụ sẽ trả ít hoặc không có kết quả và báo lỗi.'
     ],
     steps: [
-      'Bước 1: Tại màn hình cấu hình cào, chọn chế độ Proxy là "Pool Proxy Dân Cư (Residential Proxy)" hoặc "Proxy Xoay Vòng".',
-      'Bước 2: Thiết lập số luồng đồng thời (Concurrency) phù hợp với số lượng người dùng đang truy cập.',
-      'Bước 3: Bật tùy chọn Deep Web Crawl để bóc tách email từ website doanh nghiệp thay vì chỉ phụ thuộc vào Google Maps.',
-      'Bước 4: Theo dõi chỉ số tốc độ và nhật ký kết nối để đảm bảo không có lỗi 429.'
+      'Bước 1: Chỉ cào với khối lượng vừa phải; tránh chạy liên tục nhiều tác vụ lớn.',
+      'Bước 2: Nếu tác vụ báo lỗi hoặc không có kết quả, đợi một thời gian rồi thử lại với số lượng nhỏ hơn.',
+      'Bước 3: Với nhu cầu thương mại quy mô lớn, cân nhắc dùng Google Places API chính thức.'
     ],
     proTips: [
-      'Lưu ý quan trọng: Dữ liệu tên doanh nghiệp, địa chỉ, số điện thoại công khai trên Google Maps không có bản quyền cá nhân, nhưng hành vi cào tần suất cao từ 1 IP duy nhất sẽ bị Google chặn tự động. Sử dụng Rotating Proxy là chìa khóa then chốt cho phần mềm đa người dùng.'
+      'Dữ liệu cào là thông tin công khai nhưng vẫn có thể là dữ liệu cá nhân (ví dụ SĐT hộ kinh doanh). Chỉ liên hệ khi có cơ sở hợp pháp và luôn cho người nhận cách từ chối.'
     ]
   },
   data_table: {
@@ -228,18 +219,18 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
   api_cli: {
     id: 'api_cli',
     title: 'Tài liệu tích hợp REST API & Lệnh CLI Terminal',
-    subtitle: 'Hướng dẫn chạy scraper bằng dòng lệnh Go binary hoặc tích hợp API',
+    subtitle: 'API nội bộ của ứng dụng này và cách chạy gosom bằng dòng lệnh',
     tag: 'Dành cho Lập trình viên',
     logicExplanation: [
-      'gosom/google-maps-scraper cung cấp file thực thi nhị phân (Binary) viết bằng ngôn ngữ Go cực kỳ nhẹ và nhanh.',
-      'Hỗ trợ chế độ Webhook: khi cào xong một địa điểm, tự động gửi HTTP POST payload về máy chủ CRM của bạn.',
-      'Cung cấp mẫu mã nguồn sẵn sàng chạy bằng cURL, Node.js (TypeScript) và Python requests.'
+      'API nội bộ THẬT của ứng dụng: POST /api/jobs (tạo tác vụ), GET /api/jobs/:id/events (nhận kết quả theo luồng SSE), DELETE /api/jobs/:id (hủy). Hiện chưa có xác thực.',
+      'Các ví dụ cURL/Node.js/Python trong tab này dùng endpoint api.scraper.gosom.dev và gói @gosom/gmaps-scraper chỉ là MINH HỌA, không tồn tại; đừng chạy nguyên văn.',
+      'Ví dụ CLI là cách chạy gosom/google-maps-scraper độc lập trên máy của bạn (bản gốc mã nguồn mở viết bằng Go).'
     ],
     steps: [
       'Bước 1: Chọn tab ngôn ngữ bạn muốn sử dụng (CLI Terminal, cURL, Node.js, Python).',
       'Bước 2: Nhấn nút "Sao chép mã" ở góc trên bên phải khối lệnh.',
       'Bước 3: Dán vào Terminal của máy chủ hoặc tích hợp vào mã nguồn backend của bạn.',
-      'Bước 4: Xem danh sách 33 trường dữ liệu JSON chuẩn ở phần dưới cùng để map vào cơ sở dữ liệu.'
+      'Bước 4: Xem danh sách trường dữ liệu JSON ở phần dưới cùng để map vào cơ sở dữ liệu.'
     ],
     proTips: [
       'Nếu cào số lượng lớn trên 10,000 địa điểm, hãy chuẩn bị một danh sách proxy dân cư (Residential Proxy) và đưa vào tham số -proxies proxies.txt.'
