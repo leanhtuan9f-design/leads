@@ -155,9 +155,10 @@ export const AutoTasks: React.FC = () => {
             <div key={t.id} className="border border-slate-800 rounded-lg bg-slate-900/40">
               <div className="p-3 flex flex-wrap items-center gap-2">
                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cls}`}>{label}</span>
-                <button type="button" onClick={() => toggle(t.id)} className="text-white font-semibold hover:underline text-left">
-                  {t.product} → {t.country}
+                <button type="button" onClick={() => toggle(t.id)} className="text-left hover:underline" title="Bấm để xem báo cáo">
+                  <span className="text-slate-500 font-normal">Mặt hàng: </span><span className="text-white font-semibold">{t.product}</span>
                 </button>
+                <span><span className="text-slate-500">Quốc gia: </span><span className="text-white">{t.country}</span></span>
                 <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}</span>
                 <span className="ml-auto flex items-center gap-2">
                   <span className="font-mono text-slate-300">{finished}/{s.total} cặp ({pct}%)</span>
@@ -193,7 +194,7 @@ export const AutoTasks: React.FC = () => {
       {open && (
         <div className="mt-4 p-3 border border-slate-700 rounded-lg space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="font-semibold text-white">Báo cáo: {open.product} → {open.country}</h4>
+            <h4 className="font-semibold text-white">Báo cáo — mặt hàng: {open.product} · quốc gia: {open.country}</h4>
             <a href={`/api/admin/auto/${open.id}/export.csv`} className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded">Tải toàn bộ lead (CSV)</a>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">

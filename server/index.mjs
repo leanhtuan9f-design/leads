@@ -1266,13 +1266,13 @@ app.get('/api/admin/auto/:id/export.csv', requireAdmin, (req, res) => {
     WHERE r.task_id=? AND r.status='done' ORDER BY r.id, qp.pos`).all(t.id);
   const esc = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return `"${x.replace(/"/g, '""')}"`; };
   const seen = new Set();
-  const lines = [['Tên', 'Danh mục', 'Địa chỉ', 'Điện thoại', 'Website', 'Email', 'Đánh giá', 'Số review', 'Google Maps', 'Từ khóa', 'Thành phố'].map(esc).join(',')];
+  const lines = [['Mặt hàng', 'Quốc gia', 'Tên', 'Danh mục', 'Địa chỉ', 'Điện thoại', 'Website', 'Email', 'Đánh giá', 'Số review', 'Google Maps', 'Từ khóa', 'Thành phố'].map(esc).join(',')];
   for (const r of rows) {
     const p = JSON.parse(r.data);
     const k = p.placeId || p.id;
     if (seen.has(k)) continue;
     seen.add(k);
-    lines.push([p.title, p.category, p.address, p.phone, p.website, p.email, p.rating, p.reviewsCount, p.googleMapsUrl, r.keyword, r.city].map(esc).join(','));
+    lines.push([t.product, t.country, p.title, p.category, p.address, p.phone, p.website, p.email, p.rating, p.reviewsCount, p.googleMapsUrl, r.keyword, r.city].map(esc).join(','));
   }
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="task_${t.id}.csv"` });
   res.send('﻿' + lines.join('\n'));
