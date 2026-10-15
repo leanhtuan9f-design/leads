@@ -7,7 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -864,7 +864,7 @@ app.get('/api/cache/stats', requireAdmin, (_req, res) => {
 app.use('/api/suggest', requireAuth);
 const aiInFlight = new Set();
 const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
-const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes]));
+const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt])); // đổi prompt thì gợi ý cũ hết hiệu lực
 const aiUsedToday = (uid) => stmt.aiUsageGet.get(uid, vnDay())?.calls || 0;
 const savedSuggestions = (uid) => { const r = stmt.getState.get(uid, 'suggestions'); return r ? JSON.parse(r.value) : null; };
 
@@ -914,7 +914,7 @@ app.post('/api/suggest', async (req, res) => {
 // Cấu hình kết nối AI (chỉ admin). Khóa API chỉ ghi vào, không bao giờ đọc ra.
 const aiConfigView = () => {
   const c = getAiConfig();
-  return { format: c.format, baseUrl: c.baseUrl, model: c.model, hasKey: Boolean(c.apiKey), keyHint: c.apiKey ? c.apiKey.slice(-4) : '', keySource: c.keySource, enabled: aiEnabled() };
+  return { format: c.format, baseUrl: c.baseUrl, model: c.model, hasKey: Boolean(c.apiKey), keyHint: c.apiKey ? c.apiKey.slice(-4) : '', keySource: c.keySource, enabled: aiEnabled(), systemPrompt: c.systemPrompt, customPrompt: c.customPrompt, defaultPrompt: DEFAULT_SYSTEM_PROMPT, fixedSuffix: FIXED_SUFFIX };
 };
 app.get('/api/admin/ai-config', requireAdmin, (_req, res) => res.json(aiConfigView()));
 
@@ -926,6 +926,7 @@ app.put('/api/admin/ai-config', requireAdmin, (req, res) => {
       format: b.format === 'openai' ? 'openai' : 'anthropic',
       baseUrl: normalizeBaseUrl(b.baseUrl),
       model: String(b.model || '').trim().slice(0, 200),
+      systemPrompt: (() => { const t = String(b.systemPrompt || '').trim(); return t === DEFAULT_SYSTEM_PROMPT.trim() ? '' : t.slice(0, 6000); })(),
       apiKey: b.clearKey ? '' : typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim().slice(0, 500) : (cur.keySource === 'db' ? cur.apiKey : ''),
     };
     if (/[\s\u0000-\u001f]/.test(next.model)) return res.status(400).json({ error: 'Tên model không được chứa khoảng trắng.' });

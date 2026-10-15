@@ -65,7 +65,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onSaved }) 
           <div>
             <h2 className="text-base font-bold text-white">Hồ sơ của bạn</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Chỉ cần nhập sản phẩm/dịch vụ, AI sẽ tự suy ra ai là khách hàng và gợi ý ngành + khu vực nên tìm. Các ô khác giúp gợi ý chính xác hơn. Không nhập thông tin bí mật hay mật khẩu.
+              Chỉ cần nhập sản phẩm xuất khẩu, AI sẽ tự suy ra thị trường và loại đối tác (nhà nhập khẩu, phân phối, bán lẻ…) ở nước ngoài nên tìm. Các ô khác giúp gợi ý chính xác hơn. Không nhập thông tin bí mật hay mật khẩu.
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded" aria-label="Đóng">
@@ -75,10 +75,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onSaved }) 
 
         {loading ? <div className="text-xs text-slate-400">Đang tải…</div> : (
           <>
-            {field('offer', 'Bạn bán sản phẩm / dịch vụ gì? * (chỉ cần ô này)', 'Ví dụ: Thiết kế website và chạy quảng cáo Google cho doanh nghiệp nhỏ', 3, 600)}
-            {field('customers', 'Khách hàng lý tưởng (không bắt buộc — để trống AI tự suy luận)', 'Ví dụ: Phòng khám, spa, nhà hàng chưa có website hoặc ít đánh giá trên Google Maps', 3, 600)}
-            {field('area', 'Khu vực hoạt động', 'Ví dụ: Hà Nội và các quận nội thành', 2, 300)}
-            {field('notes', 'Ghi chú thêm', 'Ví dụ: ưu tiên doanh nghiệp có SĐT, tránh chuỗi lớn', 2, 600)}
+            {field('offer', 'Bạn xuất khẩu sản phẩm gì? * (chỉ cần ô này)', 'Ví dụ: Cà phê rang xay Robusta, hạt điều rang muối, đồ gỗ nội thất ngoài trời', 3, 600)}
+            {field('customers', 'Đối tác / người mua mong muốn (không bắt buộc — để trống AI tự suy luận)', 'Ví dụ: Nhà nhập khẩu và phân phối cỡ vừa, siêu thị châu Á, quán cà phê specialty', 3, 600)}
+            {field('area', 'Thị trường mục tiêu (nước / thành phố)', 'Ví dụ: Mỹ (California, Texas), Nhật Bản, Đức', 2, 300)}
+            {field('notes', 'Ghi chú thêm', 'Ví dụ: MOQ 1 container, có chứng nhận HACCP/Organic, ưu tiên doanh nghiệp có website', 2, 600)}
           </>
         )}
 

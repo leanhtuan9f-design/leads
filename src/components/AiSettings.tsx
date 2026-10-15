@@ -9,6 +9,10 @@ interface AiConfigView {
   keyHint: string;
   keySource: 'db' | 'env' | 'none';
   enabled: boolean;
+  systemPrompt: string;
+  customPrompt: boolean;
+  defaultPrompt: string;
+  fixedSuffix: string;
 }
 
 interface TestReport { models: string[]; modelsError: string; chatOk: boolean; chatError: string; reply: string; ms: number; model: string }
@@ -22,6 +26,8 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [defaults, setDefaults] = useState({ prompt: '', suffix: '', custom: false });
   const [models, setModels] = useState<string[]>([]);
   const [meta, setMeta] = useState<{ hasKey: boolean; keyHint: string; keySource: string } | null>(null);
   const [report, setReport] = useState<TestReport | null>(null);
@@ -30,6 +36,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
 
   const apply = (c: AiConfigView) => {
     setFormat(c.format); setBaseUrl(c.baseUrl); setModel(c.model);
+    setPrompt(c.systemPrompt); setDefaults({ prompt: c.defaultPrompt, suffix: c.fixedSuffix, custom: c.customPrompt });
     setMeta({ hasKey: c.hasKey, keyHint: c.keyHint, keySource: c.keySource });
   };
 
@@ -53,7 +60,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const save = async (clearKey = false) => {
     setBusy('save'); setMsg(null);
     try {
-      const c = await apiJson<AiConfigView>('/admin/ai-config', 'PUT', { format, baseUrl, model, apiKey, clearKey });
+      const c = await apiJson<AiConfigView>('/admin/ai-config', 'PUT', { format, baseUrl, model, apiKey, clearKey, systemPrompt: prompt });
       apply(c); setApiKey('');
       setMsg({ ok: true, text: c.enabled ? 'Đã lưu. Tính năng gợi ý AI đang bật.' : 'Đã lưu, nhưng còn thiếu API key hoặc model nên AI chưa bật.' });
       onSaved();
@@ -104,6 +111,18 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
         {models.length > 0 && model && !models.includes(model) && (
           <div className="text-amber-300 mt-1">Model “{model}” không có trong danh sách của máy chủ — hãy chọn một model ở trên.</div>
         )}
+      </div>
+      <div className="block">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-slate-400">System prompt (chỉ dẫn gửi cho AI){defaults.custom ? ' — đang dùng bản tùy chỉnh' : ' — đang dùng mặc định'}</span>
+          <button type="button" onClick={() => setPrompt(defaults.prompt)} disabled={prompt === defaults.prompt} className="text-blue-300 hover:text-blue-200 disabled:text-slate-600">Khôi phục mặc định</button>
+        </div>
+        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={16} maxLength={6000} spellCheck={false} className={`${inputCls} font-mono text-[11px] leading-relaxed mt-1`} />
+        <details className="mt-1 text-slate-500">
+          <summary className="cursor-pointer">Phần cố định luôn được nối vào cuối prompt (không sửa được)</summary>
+          <pre className="whitespace-pre-wrap font-mono text-[11px] mt-1 p-2 bg-slate-900/60 border border-slate-800 rounded">{defaults.suffix}</pre>
+        </details>
+        <p className="text-slate-500 mt-1">Hồ sơ người dùng được gửi kèm trong thẻ <code className="font-mono">&lt;profile&gt;</code>. Lưu prompt mới sẽ làm các gợi ý đã lưu của mọi người dùng cũ đi (lần gợi ý kế tiếp gọi lại AI).</p>
       </div>
       {report && (
         <div className="p-2 rounded border border-slate-700 bg-slate-900/60 space-y-0.5">
