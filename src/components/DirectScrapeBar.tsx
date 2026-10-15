@@ -1,387 +1,209 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Search, 
-  MapPin, 
-  Briefcase, 
-  Zap, 
-  SlidersHorizontal, 
-  HelpCircle, 
-  CheckCircle2, 
-  Layers, 
-  Flame, 
-  ShieldCheck,
-  Building,
-  RotateCcw
-} from 'lucide-react';
+import { Search, MapPin, Briefcase, ChevronRight } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
 import { Quota } from '../auth/types';
-import { estimateMarketTotal, getKnownDistricts } from '../services/scraperEngine';
-import { HelpButton } from './HelpButton';
+import { estimateMarketTotal } from '../services/scraperEngine';
 
 interface DirectScrapeBarProps {
   existingBusinesses?: ScrapedBusiness[];
   onStartScrape: (options: ScraperOptions) => void;
   isRunning: boolean;
-  onOpenAdvancedModal: () => void;
+  proxiesText: string;
+  onChangeProxies: (text: string) => void;
   proxyCount?: number;
   quota?: Quota | null;
-  onOpenGuide: (guideId: string) => void;
 }
 
-// Giá trị đặc biệt của ô "Số lượng mỗi đợt": quét FULL toàn bộ thị trường còn lại
+// Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
 const FULL_BATCH = 0;
 
+// Gợi ý chỉ hiện khi chưa có lead nào
 const QUICK_SEARCH_EXAMPLES = [
   { category: 'Phòng khám nha khoa', location: 'Hà Nội' },
   { category: 'Quán cà phê', location: 'Quận 1, TP.HCM' },
-  { category: 'Công ty cơ khí', location: 'Bình Dương' },
   { category: 'Spa làm đẹp', location: 'Hải Phòng' },
-  { category: 'Thầu xây dựng', location: 'Cần Thơ' },
-  { category: 'Công ty luật', location: 'Đà Nẵng' },
-  { category: 'Khách sạn', location: 'Đà Lạt' },
-  { category: 'Kho vận Logistics', location: '21.0285, 105.8542' },
-  { category: 'Trung tâm Ngoại ngữ', location: 'Quận Cầu Giấy, Hà Nội' },
-  { category: 'Đại lý nông sản', location: 'Đắk Lắk' }
+  { category: 'Khách sạn', location: 'Đà Lạt' }
 ];
 
 export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   existingBusinesses = [],
   onStartScrape,
   isRunning,
-  onOpenAdvancedModal,
+  proxiesText,
+  onChangeProxies,
   proxyCount = 0,
-  quota = null,
-  onOpenGuide
+  quota = null
 }) => {
-  const [category, setCategory] = useState('Phòng khám nha khoa');
-  const [location, setLocation] = useState('Hà Nội');
+  const [category, setCategory] = useState('');
+  const [location, setLocation] = useState('');
   const [maxResults, setMaxResults] = useState(25);
-  const [useDistrictSubdivision, setUseDistrictSubdivision] = useState(true);
+  const [showOptions, setShowOptions] = useState(false);
+  const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
+  const [skipWithoutWebsite, setSkipWithoutWebsite] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
 
-  // Quận/huyện thật của thành phố đã biết (rỗng nếu chưa có dữ liệu)
-  const activeDistricts = useMemo(() => {
-    return getKnownDistricts(location.trim()) ?? [];
-  }, [location]);
-
-  // Calculate market saturation and existing listings count in database
-  const marketInfo = useMemo(() => {
-    const list = Array.isArray(existingBusinesses) ? existingBusinesses : [];
-    if (!category.trim() || !location.trim()) {
-      return { totalEstimated: 115, existingCount: 0, coveragePct: 0, remaining: 115, isExhausted: false };
-    }
-
-    const totalEstimated = estimateMarketTotal(category, location);
+  // Số lượng dùng cho "Tất cả có thể": ước lượng thị trường trừ số đã có (heuristic)
+  const fullTarget = useMemo(() => {
+    if (!category.trim() || !location.trim()) return 100;
     const normCat = category.toLowerCase().trim();
-
-    // Match businesses already in DB matching category or title
-    const matchingBusinesses = list.filter(b => {
-      const matchCat = (b.category && b.category.toLowerCase().includes(normCat)) || 
-                       (b.title && b.title.toLowerCase().includes(normCat));
-      return matchCat;
-    });
-
-    const existingCount = matchingBusinesses.length;
-    const coveragePct = Math.min(100, Math.round((existingCount / totalEstimated) * 100));
-    const remaining = Math.max(0, totalEstimated - existingCount);
-    const isExhausted = existingCount >= totalEstimated || coveragePct >= 95;
-
-    return { totalEstimated, existingCount, coveragePct, remaining, isExhausted };
+    const have = existingBusinesses.filter(b =>
+      (b.category && b.category.toLowerCase().includes(normCat)) ||
+      (b.title && b.title.toLowerCase().includes(normCat))
+    ).length;
+    const remaining = estimateMarketTotal(category, location) - have;
+    return remaining > 0 ? remaining : 100;
   }, [category, location, existingBusinesses]);
 
-  const handleStartBatch = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!category.trim() || !location.trim() || isRunning) return;
+  const quotaFull = quota ? quota.newUsed >= quota.newLimit : false;
+  const canSubmit = !isRunning && category.trim() !== '' && location.trim() !== '';
 
-    // Chọn "Quét FULL": cào toàn bộ phần thị trường còn lại (chế độ exhaustive)
-    if (maxResults === FULL_BATCH) {
-      handleStartExhaustive();
-      return;
-    }
-
-    const fullQuery = `${category.trim()} tại ${location.trim()}`;
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    const isFull = maxResults === FULL_BATCH;
 
     onStartScrape({
-      query: fullQuery,
+      query: `${category.trim()} tại ${location.trim()}`,
       category: category.trim(),
       location: location.trim(),
-      maxResults,
+      maxResults: isFull ? fullTarget : maxResults,
       extractEmails: true,
-      skipWithoutPhone: false,
-      skipWithoutWebsite: false,
+      skipWithoutPhone,
+      skipWithoutWebsite,
       language: 'vi',
-      existingBusinesses, // Pass database to automatically skip duplicates!
-      scrapeMode: 'batch',
-      useDistrictSubdivision,
-      forceRefresh,
-    });
-  };
-
-  const handleStartExhaustive = () => {
-    if (!category.trim() || !location.trim() || isRunning) return;
-
-    const fullQuery = `${category.trim()} tại ${location.trim()}`;
-
-    onStartScrape({
-      query: fullQuery,
-      category: category.trim(),
-      location: location.trim(),
-      maxResults: marketInfo.remaining > 0 ? marketInfo.remaining : 100,
-      extractEmails: true,
-      skipWithoutPhone: false,
-      skipWithoutWebsite: false,
-      language: 'vi',
-      existingBusinesses, // Pass database to automatically skip duplicates!
-      scrapeMode: 'exhaustive',
+      existingBusinesses, // tự bỏ qua cơ sở đã có
+      scrapeMode: isFull ? 'exhaustive' : 'batch',
       useDistrictSubdivision: true,
-      forceRefresh,
+      forceRefresh
     });
   };
 
-  const handleQuickSelect = (cat: string, loc: string) => {
-    setCategory(cat);
-    setLocation(loc);
-  };
+  const inputCls =
+    'w-full bg-slate-900 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors';
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 shadow-xl mb-5 space-y-3.5">
-      {/* Title & Help */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-blue-600/20 text-blue-400 rounded-md">
-            <Zap className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-sm font-bold text-white tracking-tight">
-                Khu vực Cào Dữ Liệu Google Maps & Bóc tách Lead
-              </h2>
-              <button
-                type="button"
-                onClick={() => onOpenGuide('deduplication_and_market_exhaustion')}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition-colors"
-                title="Bấm để xem hướng dẫn cách không cào lại & cách cào đủ hơn 100 điểm"
-              >
-                <HelpCircle className="w-3 h-3 text-amber-400" />
-                <span>Cách cào đủ &gt;100 điểm &amp; không cào trùng?</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onOpenGuide('multi_user_google_policy')}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 transition-colors"
-                title="Xem giải pháp chống chặn IP & chính sách Google khi nhiều người dùng quét cùng lúc"
-              >
-                <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                <span>Chính sách Google &amp; Chống chặn IP Đa người dùng</span>
-              </button>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Nhập riêng <strong className="text-slate-200">[Ngành nghề]</strong> và <strong className="text-slate-200">[Địa điểm hoặc Tọa độ GPS]</strong> — Tự động lọc bỏ các cơ sở đã có trong cơ sở dữ liệu!
-            </p>
-          </div>
+    <form onSubmit={handleSubmit} className="bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 mb-4 space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+        <div className="md:col-span-4 relative">
+          <Briefcase className="w-4 h-4 absolute left-3 top-3 text-blue-400 pointer-events-none" />
+          <input
+            type="text"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="Ngành nghề (vd: nha khoa)"
+            aria-label="Ngành nghề"
+            className={`${inputCls} pl-9`}
+          />
+        </div>
+
+        <div className="md:col-span-4 relative">
+          <MapPin className="w-4 h-4 absolute left-3 top-3 text-emerald-400 pointer-events-none" />
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="Khu vực (vd: Hà Nội, Quận 1)"
+            aria-label="Khu vực"
+            className={`${inputCls} pl-9`}
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <select
+            value={maxResults}
+            onChange={(e) => setMaxResults(Number(e.target.value))}
+            aria-label="Số lượng"
+            className={`${inputCls} px-2.5`}
+          >
+            <option value={10}>10 lead</option>
+            <option value={25}>25 lead</option>
+            <option value={50}>50 lead</option>
+            <option value={100}>100 lead</option>
+            <option value={150}>150 lead</option>
+            <option value={FULL_BATCH}>Tất cả có thể</option>
+          </select>
         </div>
 
         <button
-          type="button"
-          onClick={onOpenAdvancedModal}
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-md transition-colors self-start sm:self-auto"
-          title="Tùy chỉnh Proxy, lọc bắt buộc SĐT hoặc website"
+          type="submit"
+          disabled={!canSubmit}
+          className="md:col-span-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
         >
-          <SlidersHorizontal className="w-3.5 h-3.5 text-blue-400" />
-          <span>Tùy chọn nâng cao</span>
+          <Search className="w-4 h-4" />
+          <span>{isRunning ? 'Đang tìm…' : 'Tìm lead'}</span>
         </button>
       </div>
 
-      {/* Main Scrape Form with 2 Explicit Inputs */}
-      <form onSubmit={handleStartBatch} className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-          {/* Ô nhập 1: [Ngành nghề / Dịch vụ] */}
-          <div className="md:col-span-5">
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-              <Briefcase className="w-3.5 h-3.5 text-blue-400" />
-              <span>1. Nhập [Ngành nghề / Dịch vụ]</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="Ví dụ: Phòng khám nha khoa, Quán cafe, Xây dựng..."
-                className="w-full bg-slate-900 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
-                required
-              />
-            </div>
-          </div>
+      {quotaFull && (
+        <div className="text-xs text-red-300">
+          Hôm nay đã hết hạn mức địa điểm mới ({quota!.newUsed}/{quota!.newLimit}) — chỉ lấy được dữ liệu đã có sẵn trong kho.
+        </div>
+      )}
 
-          {/* Ô nhập 2: [Địa điểm / Tọa độ GPS] */}
-          <div className="md:col-span-4">
-            <label className="block text-[11px] font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-              <span>2. Nhập [Địa điểm / Tọa độ GPS]</span>
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="Ví dụ: Hà Nội, Quận 1 TP.HCM hoặc 21.0285, 105.8542"
-                className="w-full bg-slate-900 border border-slate-700 hover:border-slate-600 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors font-mono"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Số lượng địa điểm & Nút Bắt đầu */}
-          <div className="md:col-span-3 flex items-end gap-2">
-            <div className="flex-1">
-              <label className="block text-[11px] font-semibold text-slate-300 mb-1">
-                Số lượng mỗi đợt
-              </label>
-              <select
-                value={maxResults}
-                onChange={(e) => setMaxResults(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-mono"
-              >
-                <option value={10}>10 địa điểm</option>
-                <option value={25}>25 địa điểm (Chuẩn)</option>
-                <option value={50}>50 địa điểm (Quét sâu)</option>
-                <option value={100}>100 địa điểm (Lớn)</option>
-                <option value={150}>150 địa điểm (Quy mô cao)</option>
-                <option value={FULL_BATCH}>
-                  {`Quét FULL (còn ~${marketInfo.remaining > 0 ? marketInfo.remaining : 'toàn bộ'} điểm)`}
-                </option>
-              </select>
-            </div>
-
-            {/* Nút cào đợt mới */}
+      {existingBusinesses.length === 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-slate-500">Thử:</span>
+          {QUICK_SEARCH_EXAMPLES.map((ex) => (
             <button
-              type="submit"
-              disabled={isRunning || !category.trim() || !location.trim()}
-              className="py-2 px-3.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-xs rounded-lg shadow-md transition-all flex items-center justify-center gap-1.5 whitespace-nowrap h-[37px]"
-              title="Bắt đầu cào đợt mới (Tự động lọc bỏ các địa điểm đã có)"
-            >
-              <Zap className="w-4 h-4 fill-current text-amber-300" />
-              <span>{maxResults === FULL_BATCH ? 'Quét FULL' : marketInfo.existingCount > 0 ? `Cào tiếp +${maxResults}` : 'Bắt đầu cào'}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg text-xs text-slate-300 space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className={proxyCount > 0 ? 'text-emerald-300' : 'text-amber-300'}>
-              {proxyCount > 0 ? `🛡️ Đang dùng ${proxyCount} proxy của bạn` : '⚠️ Chưa cấu hình proxy — đang cào bằng IP máy chủ (dễ bị Google chặn khi cào nhiều)'}
-            </span>
-            <button type="button" onClick={onOpenAdvancedModal} className="text-blue-400 hover:text-blue-300 underline shrink-0">Cấu hình proxy</button>
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-400">
-            <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
-            <span>Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn{quota ? ` (đã dùng ${quota.refreshUsed}/${quota.refreshLimit} lần hôm nay)` : ''}</span>
-          </label>
-          {quota && (
-            <div className={quota.newUsed >= quota.newLimit ? 'text-red-300' : 'text-slate-400'}>
-              Hạn mức hôm nay: <strong className="font-mono text-white">{quota.newUsed}/{quota.newLimit}</strong> địa điểm mới — dữ liệu lấy từ kho đã lưu không bị tính.
-            </div>
-          )}
-          <div>🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.</div>
-        </div>
-
-        {/* TÙY CHỌN PHÂN RÃ THEO QUẬN/HUYỆN ĐỂ CÀO ĐỦ >100 ĐIỂM */}
-        {activeDistricts.length > 0 && (
-          <div className="p-2.5 bg-slate-900/60 border border-slate-800/80 rounded-lg text-xs space-y-1.5">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useDistrictSubdivision}
-                onChange={(e) => setUseDistrictSubdivision(e.target.checked)}
-                className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
-              />
-              <span className="font-semibold text-slate-200">
-                ⚡ Tách truy vấn theo {activeDistricts.length} quận/huyện của {location} để vượt trần ~120 kết quả/truy vấn của Google (tối đa 12 quận mỗi lần)
-              </span>
-            </label>
-            <div className="flex flex-wrap gap-1 pl-5">
-              {activeDistricts.map((d: { name: string }, idx: number) => (
-                <span key={idx} className="text-[10px] bg-slate-800/80 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700/60 font-mono">
-                  {d.name.replace('Quận ', '')}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* MARKET COVERAGE & DEDUPLICATION BANNER (Giải quyết triệt để câu hỏi của bạn!) */}
-        <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-lg text-xs space-y-2">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <div className="text-slate-200">
-                <span className="text-slate-400">Tiến độ thu thập {category} tại {location}: </span>
-                <strong className="text-white font-mono tabular-nums">
-                  Đã có {marketInfo.existingCount} / ~{marketInfo.totalEstimated} địa điểm
-                </strong>
-                <span className={`font-mono ml-1.5 font-bold ${marketInfo.isExhausted ? 'text-emerald-400' : 'text-blue-400'}`}>
-                  ({marketInfo.coveragePct}% độ phủ)
-                </span>
-              </div>
-            </div>
-
-            {/* Chế độ cào cạn kiệt toàn bộ nếu còn điểm chưa cào */}
-            {!marketInfo.isExhausted && marketInfo.remaining > 0 ? (
-              <button
-                type="button"
-                onClick={handleStartExhaustive}
-                disabled={isRunning}
-                className="px-2.5 py-1 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-600/50 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 self-start sm:self-auto shadow-sm"
-                title="Quét liên tục qua tất cả các quận cho tới khi lấy sạch toàn bộ các địa điểm còn lại trên Google Maps"
-              >
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
-                <span>Cào cạn kiệt toàn bộ (~{marketInfo.remaining} điểm còn lại)</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1 text-emerald-400 text-[11px] font-semibold">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Đã cào sạch 100% thị trường (Không còn địa điểm mới)</span>
-              </div>
-            )}
-          </div>
-
-          {/* Progress bar of market coverage */}
-          <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 rounded-full ${
-                marketInfo.isExhausted ? 'bg-emerald-400' : 'bg-blue-500'
-              }`}
-              style={{ width: `${marketInfo.coveragePct}%` }}
-            />
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 gap-1">
-            <span>
-              🛡️ <strong>Cơ chế chống cào trùng:</strong> Bộ cào tự động đối chiếu Place ID &amp; SĐT. Nếu cơ sở đã có trong máy sẽ <strong>BỎ QUA</strong> và chỉ gom các điểm <strong>MỚI TINH</strong>.
-            </span>
-            <span className="font-mono text-slate-300 tabular-nums shrink-0">
-              {marketInfo.remaining > 0 ? `Còn khoảng ~${marketInfo.remaining} cơ sở chưa cào` : 'Đã bao phủ cạn kiệt 100%'}
-            </span>
-          </div>
-        </div>
-
-        {/* Quick Suggestion Pills */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[11px]">
-          <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
-          {QUICK_SEARCH_EXAMPLES.map((ex, idx) => (
-            <button
-              key={idx}
+              key={ex.category}
               type="button"
-              onClick={() => handleQuickSelect(ex.category, ex.location)}
-              className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
+              onClick={() => { setCategory(ex.category); setLocation(ex.location); }}
+              className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
             >
-              <span className="text-blue-400">{ex.category}</span>
-              <span className="text-slate-500 mx-1">@</span>
-              <span className="font-mono text-emerald-400">{ex.location}</span>
+              {ex.category} · {ex.location}
             </button>
           ))}
         </div>
-      </form>
-    </div>
+      )}
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowOptions(o => !o)}
+          className="flex items-center gap-1 text-xs text-slate-400 hover:text-white"
+          aria-expanded={showOptions}
+        >
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showOptions ? 'rotate-90' : ''}`} />
+          <span>Tuỳ chọn{proxyCount > 0 ? ` · ${proxyCount} proxy` : ''}</span>
+        </button>
+
+        {showOptions && (
+          <div className="mt-2 p-3 bg-slate-900/60 border border-slate-800 rounded-lg space-y-3 text-xs text-slate-300">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-x-5 gap-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={skipWithoutPhone} onChange={(e) => setSkipWithoutPhone(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+                <span>Chỉ lấy lead có số điện thoại</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={skipWithoutWebsite} onChange={(e) => setSkipWithoutWebsite(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+                <span>Chỉ lấy lead có website</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+                <span>
+                  Bỏ qua dữ liệu đã lưu, tìm mới hoàn toàn
+                  {quota ? ` (đã dùng ${quota.refreshUsed}/${quota.refreshLimit} lần hôm nay)` : ''}
+                </span>
+              </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block font-medium text-slate-300">Proxy (mỗi dòng một proxy, tối đa 10)</label>
+              <textarea
+                value={proxiesText}
+                onChange={(e) => onChangeProxies(e.target.value)}
+                rows={3}
+                spellCheck={false}
+                placeholder={'http://user:pass@host:port\nsocks5://user:pass@host:port'}
+                className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+              />
+              <p className="text-[11px] text-slate-500">
+                Hỗ trợ http, https, socks5. Để trống = dùng IP máy chủ (dễ bị Google chặn khi tìm nhiều). Proxy lưu theo tài khoản của bạn.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </form>
   );
 };

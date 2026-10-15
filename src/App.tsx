@@ -5,11 +5,9 @@ import { MapView } from './components/MapView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { JobsRunnerView } from './components/JobsRunnerView';
 import { ApiDocsModal } from './components/ApiDocsModal';
-import { ScraperControls } from './components/ScraperControls';
 import { JobProgressBanner } from './components/JobProgressBanner';
 import { LeadDrawer } from './components/LeadDrawer';
 import { OutreachModal } from './components/OutreachModal';
-import { ExportModal } from './components/ExportModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
 import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
@@ -84,8 +82,6 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const [dataNote, setDataNote] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Modal and drawer states
-  const [isScraperModalOpen, setIsScraperModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedBusiness, setSelectedBusiness] = useState<ScrapedBusiness | null>(null);
   const [outreachLeads, setOutreachLeads] = useState<ScrapedBusiness[] | null>(null);
   const [activeGuideId, setActiveGuideId] = useState<string | null>(null);
@@ -242,6 +238,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         // Play pleasant completion sound chime
         playCompletionSound();
+      } else if (!isCancelledRef.current && scraped.length === 0) {
+        setNotice('Không tìm thấy lead mới (có thể toàn bộ đã có trong danh sách, hoặc bộ lọc quá chặt).');
       }
     } catch (err) {
       setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, status: 'failed' } : j)));
@@ -252,6 +250,13 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       refreshQuota(); // cập nhật hạn mức đã dùng
     }
   };
+
+  // Banner hoàn tất tự ẩn sau 20 giây
+  useEffect(() => {
+    if (!completionSummary) return;
+    const t = setTimeout(() => setCompletionSummary(null), 20000);
+    return () => clearTimeout(t);
+  }, [completionSummary]);
 
   const handleCancelScrape = () => {
     isCancelledRef.current = true;
@@ -287,14 +292,21 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     });
   };
 
+  const inLeads = activeTab === 'leads' || activeTab === 'map' || activeTab === 'analytics';
+  const VIEWS: { id: ActiveTab; label: string }[] = [
+    { id: 'leads', label: 'Bảng' },
+    { id: 'map', label: 'Bản đồ' },
+    { id: 'analytics', label: 'Phân tích' }
+  ];
+  // Chỉ một thông báo chính tại một thời điểm: lỗi > đang chạy/hoàn tất > cảnh báo đồng bộ
+  const infoNote = notice ? `⚠️ ${notice}` : dataNote ? `📦 ${dataNote}` : null;
+  const showProgress = Boolean(activeJobId) || Boolean(completionSummary);
+
   return (
     <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Top Navigation Bar */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenNewJob={() => setIsScraperModalOpen(true)}
-        onExportClick={() => setIsExportModalOpen(true)}
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         totalLeadsCount={businesses.length}
         user={user}
@@ -302,152 +314,111 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         onLogout={onLogout}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 flex flex-col">
-        {/* Direct Scrape Input Bar (Always Visible: Industry + Location/Coordinates + Scrape Button) */}
-        <DirectScrapeBar
-          existingBusinesses={businesses}
-          onStartScrape={handleStartScrape}
-          isRunning={Boolean(activeJobId)}
-          onOpenAdvancedModal={() => setIsScraperModalOpen(true)}
-          proxyCount={parseProxies(proxiesText).length}
-          quota={quota}
-          onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-        />
-
-        {syncError && (
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200">⚠️ {syncError}</div>
+      <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-6 flex flex-col">
+        {inLeads && (
+          <DirectScrapeBar
+            existingBusinesses={businesses}
+            onStartScrape={handleStartScrape}
+            isRunning={Boolean(activeJobId)}
+            proxiesText={proxiesText}
+            onChangeProxies={setProxiesText}
+            proxyCount={parseProxies(proxiesText).length}
+            quota={quota}
+          />
         )}
 
-        {notice && (
-          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200 flex items-start justify-between gap-3">
-            <span>⚠️ {notice}</span>
-            <button type="button" onClick={() => setNotice(null)} className="text-amber-300 hover:text-white shrink-0">Đóng</button>
-          </div>
-        )}
-
-        {dataNote && (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-start justify-between gap-3">
-            <span>📦 {dataNote}</span>
-            <button type="button" onClick={() => setDataNote(null)} className="text-blue-300 hover:text-white shrink-0">Đóng</button>
-          </div>
-        )}
-
-        {scrapeError && (
+        {/* Vùng thông báo duy nhất */}
+        {scrapeError ? (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/40 rounded-lg text-xs text-red-200 flex items-start justify-between gap-3">
-            <span><strong>Cào thất bại:</strong> {scrapeError}</span>
+            <span><strong>Tìm thất bại:</strong> {scrapeError}</span>
             <button type="button" onClick={() => setScrapeError(null)} className="text-red-300 hover:text-white shrink-0">Đóng</button>
           </div>
+        ) : showProgress ? (
+          <JobProgressBanner
+            progress={jobProgress}
+            isRunning={Boolean(activeJobId)}
+            completionSummary={completionSummary}
+            info={infoNote}
+            onCancel={handleCancelScrape}
+            onCloseCompletion={() => setCompletionSummary(null)}
+            onExportCsv={(results) => exportToCsv(results, `leads_${Date.now()}.csv`)}
+            onViewResults={(results) => { setCompletionSummary(null); handleSelectJobResults(results); }}
+          />
+        ) : syncError ? (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200">⚠️ {syncError}</div>
+        ) : infoNote ? (
+          <div className="mb-4 p-3 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-300 flex items-start justify-between gap-3">
+            <span>{infoNote}</span>
+            <button type="button" onClick={() => { setNotice(null); setDataNote(null); }} className="text-slate-400 hover:text-white shrink-0">Đóng</button>
+          </div>
+        ) : null}
+
+        {inLeads && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1 p-0.5 bg-slate-900 rounded-md border border-slate-800 text-xs">
+              {VIEWS.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => setActiveTab(v.id)}
+                  className={`px-3 py-1 rounded transition-colors ${activeTab === v.id ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'}`}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            {!viewJob && (
+              <button type="button" onClick={() => setTrashKind('leads')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
+            )}
+          </div>
         )}
 
-        {/* Active Scraping Progress Tracker & Completion Banner */}
-        <JobProgressBanner
-          progress={jobProgress}
-          isRunning={Boolean(activeJobId)}
-          completionSummary={completionSummary}
-          onCancel={handleCancelScrape}
-          onCloseCompletion={() => setCompletionSummary(null)}
-          onExportCsv={(results) => exportToCsv(results, `gmaps_leads_hoan_thanh_${Date.now()}.csv`)}
-          onOpenOutreach={(results) => setOutreachLeads(results)}
-          onViewOnMap={() => setActiveTab('map')}
-          onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-        />
-
-        {/* Tab 1: Leads Data Explorer */}
-        {activeTab === 'leads' && viewJob && (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-center justify-between gap-3">
-            <span>Đang xem kết quả của một job ({viewJob.results.length} lead). Bảng lead đã lưu không bị thay đổi.</span>
+        {inLeads && viewJob && (
+          <div className="mb-3 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-center justify-between gap-3">
+            <span>Đang xem kết quả của một lần tìm ({viewJob.results.length} lead). Danh sách lead đã lưu không bị thay đổi.</span>
             <button type="button" onClick={() => setViewJob(null)} className="text-blue-300 hover:text-white shrink-0">Xem tất cả lead</button>
           </div>
         )}
 
-        {activeTab === 'leads' && !viewJob && (
-          <div className="mb-2 flex justify-end">
-            <button type="button" onClick={() => setTrashKind('leads')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
-          </div>
-        )}
-
         {activeTab === 'leads' && (
-          <div className="space-y-4 flex-1 flex flex-col">
-            <DataTable
-              businesses={shown}
-              onSelectBusiness={(biz) => setSelectedBusiness(biz)}
-              onOpenOutreachModal={(selected) => setOutreachLeads(selected)}
-              onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-            />
-          </div>
+          <DataTable
+            businesses={shown}
+            onSelectBusiness={(biz) => setSelectedBusiness(biz)}
+            onOpenOutreachModal={(selected) => setOutreachLeads(selected)}
+          />
         )}
 
-        {/* Tab 2: Live Map View */}
         {activeTab === 'map' && (
-          <div className="space-y-4">
-            <MapView
-              businesses={shown}
-              onSelectBusiness={(biz) => setSelectedBusiness(biz)}
-              onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-            />
-          </div>
+          <MapView
+            businesses={shown}
+            onSelectBusiness={(biz) => setSelectedBusiness(biz)}
+            onOpenGuide={(guideId) => setActiveGuideId(guideId)}
+          />
         )}
 
-        {/* Tab 3: Scraping Jobs & Queue Runner */}
-        {activeTab === 'jobs' && (
-          <div className="mb-2 flex justify-end">
-            <button type="button" onClick={() => setTrashKind('jobs')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục job đã xóa</button>
-          </div>
-        )}
-
-        {activeTab === 'jobs' && (
-          <div className="space-y-4">
-            <JobsRunnerView
-              jobs={jobs}
-              activeJobId={activeJobId}
-              onOpenNewJob={() => setIsScraperModalOpen(true)}
-              onSelectJobResults={handleSelectJobResults}
-              onDeleteJob={handleDeleteJob}
-              onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-            />
-          </div>
-        )}
-
-        {/* Tab 4: Lead Analytics & Metrics */}
         {activeTab === 'analytics' && (
-          <div className="space-y-4">
-            <AnalyticsView
-              businesses={shown}
-              onOpenOutreachModal={(leads) => setOutreachLeads(leads)}
-              onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-            />
-          </div>
+          <AnalyticsView
+            businesses={shown}
+            onOpenOutreachModal={(leads) => setOutreachLeads(leads)}
+            onOpenGuide={(guideId) => setActiveGuideId(guideId)}
+          />
         )}
 
-        {/* Tab 5: REST API & CLI Documentation */}
-        {activeTab === 'admin' && user.role === 'admin' && (
-          <div className="space-y-4">
-            <AdminUsersView currentUserId={user.id} />
-          </div>
+        {activeTab === 'jobs' && (
+          <JobsRunnerView
+            jobs={jobs}
+            activeJobId={activeJobId}
+            onOpenNewJob={() => setActiveTab('leads')}
+            onSelectJobResults={handleSelectJobResults}
+            onDeleteJob={handleDeleteJob}
+            onOpenTrash={() => setTrashKind('jobs')}
+          />
         )}
 
-        {activeTab === 'api' && (
-          <div className="space-y-4">
-            <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />
-          </div>
-        )}
+        {activeTab === 'admin' && user.role === 'admin' && <AdminUsersView currentUserId={user.id} />}
+
+        {activeTab === 'api' && <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
       </main>
 
-      {/* Scraper Configuration Modal */}
-      {isScraperModalOpen && (
-        <ScraperControls
-          isModal={true}
-          proxiesText={proxiesText}
-          onChangeProxies={setProxiesText}
-          isRunning={Boolean(activeJobId)}
-          onStartScrape={handleStartScrape}
-          onClose={() => setIsScraperModalOpen(false)}
-          onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-        />
-      )}
-
-      {/* Inspect Lead Drawer */}
       <LeadDrawer
         business={selectedBusiness}
         onClose={() => setSelectedBusiness(null)}
@@ -458,7 +429,6 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
       />
 
-      {/* Outreach Email Composer Modal */}
       {outreachLeads && (
         <OutreachModal
           leads={outreachLeads}
@@ -467,18 +437,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         />
       )}
 
-      {/* Export Options Modal */}
-      {isExportModalOpen && (
-        <ExportModal
-          businesses={shown}
-          onClose={() => setIsExportModalOpen(false)}
-          onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-        />
-      )}
-
       {trashKind && <TrashModal kind={trashKind} onRestore={trashKind === 'leads' ? handleRestoreLeads : handleRestoreJobs} onClose={() => setTrashKind(null)} />}
 
-      {/* Module Help Guide Modal */}
       {activeGuideId && (
         <ModuleHelpModal
           guideId={activeGuideId}

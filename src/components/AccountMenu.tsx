@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { User, LogOut, KeyRound } from 'lucide-react';
+import { User, LogOut, KeyRound, Terminal, Users } from 'lucide-react';
 import { apiJson, AuthUser, Quota } from '../auth/types';
+import { ActiveTab } from '../types/scraper';
 
 interface AccountMenuProps {
   user: AuthUser;
   quota: Quota | null;
   onLogout: () => void;
+  activeTab: ActiveTab;
+  onNavigate: (tab: ActiveTab) => void;
 }
 
-export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout, activeTab, onNavigate }) => {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const [cur, setCur] = useState('');
@@ -40,7 +43,9 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout 
         )}
       </button>
       {open && (
-        <div className="absolute right-0 mt-2 w-72 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl p-3 space-y-3 z-50 text-xs">
+        <>
+        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+        <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-1.5rem)] bg-slate-950 border border-slate-800 rounded-lg shadow-2xl p-3 space-y-3 z-50 text-xs">
           <div>
             <div className="text-white font-semibold break-all">{user.email}</div>
             <div className="text-slate-500">{user.role === 'admin' ? 'Quản trị viên' : 'Người dùng'}</div>
@@ -66,10 +71,25 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout 
               <KeyRound className="w-3.5 h-3.5" /> Đổi mật khẩu
             </button>
           )}
+          <button
+            onClick={() => { onNavigate('api'); setOpen(false); }}
+            className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'api' ? 'text-blue-400' : 'text-slate-300'}`}
+          >
+            <Terminal className="w-3.5 h-3.5" /> Tài liệu API
+          </button>
+          {user.role === 'admin' && (
+            <button
+              onClick={() => { onNavigate('admin'); setOpen(false); }}
+              className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'admin' ? 'text-blue-400' : 'text-slate-300'}`}
+            >
+              <Users className="w-3.5 h-3.5" /> Quản lý người dùng
+            </button>
+          )}
           <button onClick={onLogout} className="w-full flex items-center gap-1.5 text-red-300 hover:text-red-200">
             <LogOut className="w-3.5 h-3.5" /> Đăng xuất
           </button>
         </div>
+        </>
       )}
     </div>
   );
