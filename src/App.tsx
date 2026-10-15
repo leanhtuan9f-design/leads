@@ -13,7 +13,6 @@ import { ExportModal } from './components/ExportModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
-import { INITIAL_LEADS } from './data/seedData';
 import { executeScrapingJob, ProgressCallbackData } from './services/scraperEngine';
 import { exportToCsv } from './services/exporter';
 import { playCompletionSound } from './utils/sound';
@@ -21,8 +20,14 @@ import { playCompletionSound } from './utils/sound';
 import { DirectScrapeBar } from './components/DirectScrapeBar';
 import { CompletionSummaryData } from './components/JobProgressBanner';
 
-const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v2';
-const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v2';
+const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v3';
+const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v3';
+
+// Xóa dữ liệu v2 (gồm lead mẫu/lead giả do engine mô phỏng cũ sinh ra) để chỉ còn dữ liệu cào thật
+try {
+  localStorage.removeItem('gmaps_scraper_leads_v2');
+  localStorage.removeItem('gmaps_scraper_jobs_v2');
+} catch (e) {}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('leads');
@@ -36,7 +41,7 @@ export default function App() {
     } catch (e) {
       // fallback
     }
-    return INITIAL_LEADS;
+    return [];
   });
 
   const [jobs, setJobs] = useState<ScraperJob[]>(() => {
@@ -49,31 +54,7 @@ export default function App() {
     } catch (e) {
       // fallback
     }
-    return [
-      {
-        id: 'job_initial_seed',
-        name: 'Dữ liệu mẫu nạp sẵn: Doanh nghiệp, Nha khoa & Nhà thầu',
-        query: 'Nha khoa, Nhà thầu xây dựng & Quán cà phê',
-        status: 'completed',
-        totalFound: INITIAL_LEADS.length,
-        scrapedCount: INITIAL_LEADS.length,
-        targetCount: INITIAL_LEADS.length,
-        speedPerMin: 122,
-        startedAt: '16:30',
-        finishedAt: '16:35',
-        options: {
-          query: 'Nha khoa, Nhà thầu & Quán cafe',
-          maxResults: 12,
-          extractEmails: true,
-          extractSocials: true,
-          skipWithoutPhone: false,
-          skipWithoutWebsite: false,
-          proxyType: 'datacenter_rotating',
-          language: 'vi'
-        },
-        results: INITIAL_LEADS
-      }
-    ];
+    return [];
   });
 
   // Modal and drawer states
