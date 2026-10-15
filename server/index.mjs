@@ -1292,6 +1292,15 @@ app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
   if (running?.spec.auto?.taskId === id) { running.stopRequested = true; running.abort(); } // dừng luôn cặp đang cào
   res.json({ ok: true });
 });
+// Sửa thông số nghỉ của tác vụ đang có (áp dụng từ cặp kế tiếp)
+app.patch('/api/admin/auto/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const n = Number(req.body?.burstN), m = Number(req.body?.restMin);
+  if (!Number.isInteger(n) || n < 0 || n > 100 || !Number.isInteger(m) || m < 0 || m > 240) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
+  const r = db.prepare('UPDATE auto_tasks SET burst_n=?, rest_min=?, since_rest=0, rest_until=0 WHERE id=?').run(n, m, id);
+  if (!r.changes) return res.status(404).json({ error: 'Không có tác vụ' });
+  res.json({ ok: true });
+});
 app.post('/api/admin/auto/:id/resume', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const left = db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND (status='pending' OR split_state='todo')").get(id).n;

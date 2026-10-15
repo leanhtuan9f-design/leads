@@ -109,6 +109,18 @@ export const AutoTasks: React.FC = () => {
     }
   };
 
+  const [editRest, setEditRest] = useState<{ id: number; n: string; m: string } | null>(null);
+  const saveRest = async () => {
+    if (!editRest) return;
+    try {
+      await apiJson(`/admin/auto/${editRest.id}`, 'PATCH', { burstN: Number(editRest.n), restMin: Number(editRest.m) });
+      setEditRest(null); setError('');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không lưu được');
+    }
+  };
+
   const toggle = async (id: number) => {
     if (openId === id) { setOpenId(null); return; }
     setOpenId(id); setRuns([]);
@@ -187,9 +199,22 @@ export const AutoTasks: React.FC = () => {
                   <span className="font-mono text-slate-300">{finished}/{s.total} cặp ({pct}%)</span>
                   {t.status === 'running' && <button type="button" onClick={() => act(t.id, 'stop')} className="px-2 py-0.5 border border-amber-500/50 text-amber-300 hover:bg-amber-500/20 rounded">Dừng</button>}
                   {t.status === 'stopped' && s.pending > 0 && <button type="button" onClick={() => act(t.id, 'resume')} className="px-2 py-0.5 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/20 rounded">Tiếp tục</button>}
+                  {t.status !== 'done' && <button type="button" onClick={() => setEditRest(editRest?.id === t.id ? null : { id: t.id, n: String(t.burstN), m: String(t.restMin) })} className="px-2 py-0.5 border border-slate-700 text-slate-300 hover:text-white rounded">Chỉnh nghỉ</button>}
                   <button type="button" onClick={() => act(t.id, 'delete')} className="px-2 py-0.5 border border-slate-700 text-slate-400 hover:text-red-300 rounded">Xóa</button>
                 </span>
               </div>
+              {editRest?.id === t.id && (
+                <div className="px-3 pb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+                  Sau mỗi
+                  <input type="number" min={0} max={100} value={editRest.n} onChange={e => setEditRest({ ...editRest, n: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Số cặp" />
+                  cặp, nghỉ
+                  <input type="number" min={0} max={240} value={editRest.m} onChange={e => setEditRest({ ...editRest, m: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Số phút" />
+                  phút (0 = không nghỉ)
+                  <button type="button" onClick={saveRest} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded">Lưu</button>
+                  <button type="button" onClick={() => setEditRest(null)} className="px-2 py-1 text-slate-400 hover:text-white">Hủy</button>
+                  <span className="text-slate-500">Áp dụng từ cặp kế tiếp; cặp đang cào không bị ngắt.</span>
+                </div>
+              )}
               <div className="h-1 bg-slate-800 mx-3 rounded"><div className="h-1 bg-emerald-500 rounded" style={{ width: `${pct}%` }} /></div>
               {t.note && t.status !== 'running' && <div className="px-3 pt-2 text-[11px] text-amber-300">{t.note}</div>}
               {t.status === 'running' && (
