@@ -90,7 +90,23 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_state (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, key)
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS user_items (
+  user_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  data TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  seq INTEGER NOT NULL,
+  PRIMARY KEY (user_id, kind, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_items_seq ON user_items (user_id, kind, seq)`);
 const stmt = {
+  itemCount: db.prepare('SELECT COUNT(*) AS n FROM user_items WHERE user_id = ? AND kind = ?'),
+  itemMaxSeq: db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM user_items WHERE user_id = ? AND kind = ?'),
+  itemsAfter: db.prepare('SELECT item_id, data, deleted, seq FROM user_items WHERE user_id = ? AND kind = ? AND seq > ? ORDER BY seq LIMIT ?'),
+  upsertItem: db.prepare(`INSERT INTO user_items (user_id, kind, item_id, data, deleted, seq) VALUES (?, ?, ?, ?, 0, ?)
+    ON CONFLICT(user_id, kind, item_id) DO UPDATE SET data = excluded.data, deleted = 0, seq = excluded.seq`),
+  removeItem: db.prepare('UPDATE user_items SET deleted = 1, seq = ? WHERE user_id = ? AND kind = ? AND item_id = ? AND deleted = 0'),
   getState: db.prepare('SELECT value, updated_at FROM user_state WHERE user_id = ? AND key = ?'),
   setState: db.prepare(`INSERT INTO user_state (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)
     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
@@ -147,7 +163,7 @@ const neededDepth = (maxResults, nQueries) => {
 };
 
 const app = express();
-app.use('/api/state', express.json({ limit: '25mb' })); // lead/job của người dùng có thể lớn
+app.use(['/api/state', '/api/items'], express.json({ limit: '25mb' })); // lead/job của người dùng có thể lớn
 app.use(express.json({ limit: '32kb' }));
 
 // ===== Xác thực =====
@@ -180,14 +196,63 @@ const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).jso
 const requireAdmin = (req, res, next) => (!req.user ? res.status(401).json({ error: 'Chưa đăng nhập' }) : req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Không có quyền' }));
 const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.userId === user.id));
 app.use('/api/jobs', requireAuth);
-app.use('/api/state', requireAuth);
+app.use(['/api/state', '/api/items'], requireAuth);
 
 // ===== Dữ liệu riêng của từng người dùng (lead, lịch sử job, proxy) =====
-const STATE_KEYS = new Set(['leads', 'jobs', 'proxies']);
+const STATE_KEYS = new Set(['proxies']);
 app.get('/api/state/:key', (req, res) => {
   if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });
   const row = stmt.getState.get(req.user.id, req.params.key);
   res.json(row ? { value: JSON.parse(row.value), updatedAt: row.updated_at } : { value: null, updatedAt: 0 });
+});
+
+// Lead và job lưu từng dòng (đồng bộ theo phần thay đổi, xóa mềm để các thiết bị khác biết)
+const ITEM_KINDS = { leads: 'lead', jobs: 'job' };
+const MAX_SYNC_ITEMS = 2000;
+const inTx = (fn) => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
+app.get('/api/items/:kind', (req, res) => {
+  const kind = ITEM_KINDS[req.params.kind];
+  if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
+  const uid = req.user.id;
+  const after = toInt(req.query.after, 0, Number.MAX_SAFE_INTEGER);
+  const limit = Math.max(1, toInt(req.query.limit, 1000, 2000));
+  if (after === 0 && stmt.itemCount.get(uid, kind).n === 0) {
+    // Chuyển dữ liệu dạng mảng cũ (user_state) sang từng dòng, một lần
+    const old = stmt.getState.get(uid, req.params.kind);
+    if (old) {
+      inTx(() => {
+        const arr = JSON.parse(old.value);
+        if (!Array.isArray(arr)) return;
+        let seq = 0;
+        // mảng cũ xếp mới nhất trước → ghi ngược để seq lớn nhất = mới nhất
+        for (let i = arr.length - 1; i >= 0; i--) {
+          const id = arr[i]?.id;
+          if (typeof id === 'string' && id && id.length <= 200) stmt.upsertItem.run(uid, kind, id, JSON.stringify(arr[i]), ++seq);
+        }
+      });
+    }
+  }
+  const rows = stmt.itemsAfter.all(uid, kind, after, limit + 1);
+  const more = rows.length > limit;
+  const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : JSON.parse(r.data), deleted: Boolean(r.deleted), seq: r.seq }));
+  res.json({ items, more, last: items.length ? items[items.length - 1].seq : after });
+});
+app.post('/api/items/:kind', (req, res) => {
+  const kind = ITEM_KINDS[req.params.kind];
+  if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
+  const upsert = Array.isArray(req.body?.upsert) ? req.body.upsert : [];
+  const remove = Array.isArray(req.body?.remove) ? req.body.remove : [];
+  if (upsert.length + remove.length > MAX_SYNC_ITEMS) return res.status(400).json({ error: 'Gửi quá nhiều dòng một lần' });
+  const validId = (id) => typeof id === 'string' && id && id.length <= 200;
+  if (!upsert.every((x) => x && typeof x === 'object' && validId(x.id)) || !remove.every(validId)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
+  const uid = req.user.id;
+  const last = inTx(() => {
+    let seq = stmt.itemMaxSeq.get(uid, kind).m;
+    for (const x of upsert) stmt.upsertItem.run(uid, kind, x.id, JSON.stringify(x), ++seq);
+    for (const id of remove) stmt.removeItem.run(++seq, uid, kind, id);
+    return seq;
+  });
+  res.json({ ok: true, last });
 });
 app.put('/api/state/:key', (req, res) => {
   if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });

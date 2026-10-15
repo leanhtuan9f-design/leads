@@ -16,6 +16,7 @@ import { AuthUser, Quota, apiJson } from './auth/types';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
 import { executeScrapingJob, ProgressCallbackData } from './services/scraperEngine';
+import { useSyncedList } from './services/useSyncedList';
 import { exportToCsv } from './services/exporter';
 import { playCompletionSound } from './utils/sound';
 
@@ -95,58 +96,52 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const isCancelledRef = useRef<boolean>(false);
 
   // Đồng bộ: localStorage làm bộ đệm nhanh, server (SQLite theo tài khoản) là nơi lưu chính.
-  // Chỉ ghi lên server sau khi đã tải xong dữ liệu server, tránh ghi đè bằng state rỗng.
-  const [serverReady, setServerReady] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const stateRef = useRef({ businesses, jobs, proxiesText });
-  stateRef.current = { businesses, jobs, proxiesText };
+  // Lead/job đồng bộ từng dòng (useSyncedList); proxy là chuỗi nhỏ nên ghi nguyên khối.
+  const jobSort = React.useCallback((a: ScraperJob, b: ScraperJob) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0), []);
+  const leadsSync = useSyncedList<ScrapedBusiness>('leads', businesses, setBusinesses);
+  const jobsSync = useSyncedList<ScraperJob>('jobs', jobs, setJobs, jobSort);
+  const [proxiesReady, setProxiesReady] = useState(false);
+  const [proxySyncError, setProxySyncError] = useState<string | null>(null);
+  const proxiesRef = useRef(proxiesText);
+  proxiesRef.current = proxiesText;
+  const syncError = leadsSync.error || jobsSync.error || proxySyncError;
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [l, j, p] = await Promise.all([
-          apiJson<{ value: ScrapedBusiness[] | null }>('/state/leads'),
-          apiJson<{ value: ScraperJob[] | null }>('/state/jobs'),
-          apiJson<{ value: string | null }>('/state/proxies'),
-        ]);
-        if (cancelled) return;
-        const cur = stateRef.current;
-        if (l.value && l.value.length > 0) setBusinesses(l.value);
-        else if (cur.businesses.length > 0) apiJson('/state/leads', 'PUT', { value: cur.businesses }).catch(() => {});
-        if (j.value && j.value.length > 0) setJobs(j.value);
-        else if (cur.jobs.length > 0) apiJson('/state/jobs', 'PUT', { value: cur.jobs }).catch(() => {});
+    apiJson<{ value: string | null }>('/state/proxies')
+      .then(p => {
         if (p.value) setProxiesText(p.value);
-        else if (cur.proxiesText) apiJson('/state/proxies', 'PUT', { value: cur.proxiesText }).catch(() => {});
-        // Đã chuyển dữ liệu key cũ (không hậu tố user) vào tài khoản này → xóa để không bị nhận nhầm bởi tài khoản khác
-        try {
-          localStorage.removeItem(STORAGE_KEY_LEADS);
-          localStorage.removeItem(STORAGE_KEY_JOBS);
-          localStorage.removeItem(STORAGE_KEY_PROXIES);
-        } catch (e) {}
-        setServerReady(true);
-      } catch (e) {
-        if (!cancelled) setSyncError('Không tải được dữ liệu từ máy chủ — đang dùng bản lưu trong trình duyệt.');
-      }
-    })();
-    return () => { cancelled = true; };
+        else if (proxiesRef.current) apiJson('/state/proxies', 'PUT', { value: proxiesRef.current }).catch(() => {});
+        setProxiesReady(true);
+      })
+      .catch(() => setProxySyncError('Không tải được dữ liệu từ máy chủ — đang dùng bản lưu trong trình duyệt.'));
   }, []);
 
-  const useSyncedSave = (key: 'leads' | 'jobs' | 'proxies', localKey: string, value: unknown) => {
-    useEffect(() => {
-      try { localStorage.setItem(localKey, typeof value === 'string' ? value : JSON.stringify(value)); } catch (e) {}
-      if (!serverReady) return;
-      const t = setTimeout(() => {
-        apiJson('/state/' + key, 'PUT', { value })
-          .then(() => setSyncError(null))
-          .catch(() => setSyncError('Chưa lưu được lên máy chủ — sẽ thử lại ở lần thay đổi sau.'));
-      }, 1000);
-      return () => clearTimeout(t);
-    }, [value, serverReady]);
-  };
-  useSyncedSave('leads', keyLeads, businesses);
-  useSyncedSave('jobs', keyJobs, jobs);
-  useSyncedSave('proxies', keyProxies, proxiesText);
+  useEffect(() => {
+    if (!(leadsSync.ready && jobsSync.ready && proxiesReady)) return;
+    // Đã chuyển dữ liệu key cũ (không hậu tố user) vào tài khoản này → xóa để tài khoản khác không nhận nhầm
+    try {
+      localStorage.removeItem(STORAGE_KEY_LEADS);
+      localStorage.removeItem(STORAGE_KEY_JOBS);
+      localStorage.removeItem(STORAGE_KEY_PROXIES);
+    } catch (e) {}
+  }, [leadsSync.ready, jobsSync.ready, proxiesReady]);
+
+  useEffect(() => {
+    try { localStorage.setItem(keyLeads, JSON.stringify(businesses)); } catch (e) {}
+  }, [businesses]);
+  useEffect(() => {
+    try { localStorage.setItem(keyJobs, JSON.stringify(jobs)); } catch (e) {}
+  }, [jobs]);
+  useEffect(() => {
+    try { localStorage.setItem(keyProxies, proxiesText); } catch (e) {}
+    if (!proxiesReady) return;
+    const t = setTimeout(() => {
+      apiJson('/state/proxies', 'PUT', { value: proxiesText })
+        .then(() => setProxySyncError(null))
+        .catch(() => setProxySyncError('Chưa lưu được lên máy chủ — sẽ thử lại ở lần thay đổi sau.'));
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [proxiesText, proxiesReady]);
 
   // Handle Starting a Scrape Job
   const handleStartScrape = async (options: ScraperOptions) => {
