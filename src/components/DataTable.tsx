@@ -1,3 +1,4 @@
+import { countryCode, countryLabel } from '../utils/country';
 import React, { useState, useMemo } from 'react';
 import {
   Search,
@@ -47,14 +48,32 @@ export const DataTable: React.FC<DataTableProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<FilterType>('all');
+  const [countryFilter, setCountryFilter] = useState(''); // mã ISO; '' = mọi quốc gia; '?' = chưa xác định
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>('leadScore');
   const [sortAsc, setSortAsc] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Quốc gia từng lead + danh sách để lọc (nhiều lead nhất lên trước)
+  const codeById = useMemo(() => new Map(businesses.map(b => [b.id, countryCode(b)])), [businesses]);
+  const countryOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const code of codeById.values()) counts.set(code, (counts.get(code) || 0) + 1);
+    const unknown = counts.get('') || 0;
+    counts.delete('');
+    const list = [...counts.entries()].map(([code, n]) => ({ code, n, label: countryLabel(code) })).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label));
+    return { list, unknown };
+  }, [codeById]);
+  // Quốc gia đang lọc không còn lead nào (ví dụ vừa xóa) thì quay về 'Tất cả'
+  const activeCountry = countryFilter && (countryFilter === '?' ? countryOptions.unknown > 0 : countryOptions.list.some(c => c.code === countryFilter)) ? countryFilter : '';
+
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(b => {
+      if (activeCountry) {
+        const code = codeById.get(b.id) || '';
+        if (activeCountry === '?' ? code !== '' : code !== activeCountry) return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matches =
@@ -81,7 +100,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       }
       return sortAsc ? valA - valB : valB - valA;
     });
-  }, [businesses, searchQuery, filterType, sortField, sortAsc]);
+  }, [businesses, codeById, activeCountry, searchQuery, filterType, sortField, sortAsc]);
 
   const isAllSelected = filteredBusinesses.length > 0 && filteredBusinesses.every(b => selectedIds.has(b.id));
   const toggleSelectAll = () => {
@@ -168,6 +187,19 @@ export const DataTable: React.FC<DataTableProps> = ({
               </button>
             ))}
           </div>
+
+          {(countryOptions.list.length > 0) && (
+            <select
+              value={activeCountry}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              aria-label="Lọc theo quốc gia"
+              className={`bg-slate-900 border rounded-md px-2 py-1.5 text-[11px] focus:outline-none focus:border-blue-500 max-w-[11rem] ${activeCountry ? 'border-blue-500 text-white' : 'border-slate-800 text-slate-300'}`}
+            >
+              <option value="">Mọi quốc gia ({businesses.length})</option>
+              {countryOptions.list.map(c => <option key={c.code} value={c.code}>{c.label} ({c.n})</option>)}
+              {countryOptions.unknown > 0 && <option value="?">Chưa rõ quốc gia ({countryOptions.unknown})</option>}
+            </select>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -284,7 +316,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                       <>
                         <p className="text-sm font-medium text-slate-300">Không có lead phù hợp bộ lọc</p>
                         <button
-                          onClick={() => { setSearchQuery(''); setFilterType('all'); }}
+                          onClick={() => { setSearchQuery(''); setFilterType('all'); setCountryFilter(''); }}
                           className="mt-1 px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded transition-colors"
                         >
                           Xóa bộ lọc
