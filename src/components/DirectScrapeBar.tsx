@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Search, MapPin, Briefcase, ChevronRight, Sparkles, Globe } from 'lucide-react';
+import { Search, MapPin, Briefcase, ChevronRight, Sparkles, Globe, Package } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
 import { Quota, apiJson } from '../auth/types';
 import { citiesFor } from '../data/cities';
@@ -24,6 +24,7 @@ interface AiCountry { country: string; keywords: string[]; reason: string }
 interface AiState {
   enabled: boolean;
   hasProfile: boolean;
+  profileOffer?: string;
   used: number;
   limit: number;
   countries: AiCountry[];
@@ -64,6 +65,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   profileVersion = 0,
   onOpenProfile
 }) => {
+  const [product, setProduct] = useState(''); // sản phẩm xuất khẩu — AI dựa vào đây để gợi ý
+  const [aiProduct, setAiProduct] = useState(''); // sản phẩm mà danh sách gợi ý hiện tại được tạo cho
   const [category, setCategory] = useState('');
   const [country, setCountry] = useState('');
   const [city, setCity] = useState(''); // thành phố / khu vực trong quốc gia
@@ -80,7 +83,14 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [showSamples, setShowSamples] = useState(false);
 
   const loadAi = useCallback(() => {
-    apiJson<AiState>('/suggest').then(setAi).catch(() => setAi(null));
+    apiJson<AiState>('/suggest')
+      .then(r => {
+        setAi(r);
+        // lần đầu: điền sẵn sản phẩm từ Hồ sơ (nếu có) và hiện luôn gợi ý đã lưu
+        setProduct(prev => prev || r.profileOffer || '');
+        if (r.countries.length) setAiProduct(r.profileOffer || '');
+      })
+      .catch(() => setAi(null));
   }, []);
   useEffect(() => { loadAi(); }, [loadAi, profileVersion]);
 
@@ -89,8 +99,11 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; used: number; limit: number }>('/suggest', 'POST', {});
+      const r = await apiJson<{ countries: AiCountry[]; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
       setAi(prev => (prev ? { ...prev, countries: r.countries, used: r.used, limit: r.limit, stale: false } : prev));
+      setAiProduct(product.trim());
+      setCountry('');
+      setCity('');
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Không lấy được gợi ý');
       loadAi();
@@ -188,6 +201,33 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
 
   return (
     <form onSubmit={handleSubmit} className="bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 mb-4 space-y-3">
+      {ai?.enabled && (
+        <div className="flex flex-col sm:flex-row gap-2.5">
+          <div className="relative flex-1">
+            <Package className="w-4 h-4 absolute left-3 top-3 text-amber-300 pointer-events-none" />
+            <input
+              type="text"
+              value={product}
+              onChange={(e) => setProduct(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (product.trim() && !aiBusy) askAi(); } }}
+              placeholder="Sản phẩm của bạn (vd: cà phê rang xay, hạt điều, gạo ST25) — nhập xong AI sẽ gợi ý thị trường và từ khóa"
+              aria-label="Sản phẩm"
+              maxLength={600}
+              className={`${inputCls} pl-9`}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => askAi()}
+            disabled={aiBusy || !product.trim() || ai.used >= ai.limit}
+            className="py-2.5 px-4 bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>{aiBusy ? 'AI đang nghĩ…' : 'AI gợi ý'}</span>
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
         <div className="md:col-span-3 relative">
           <Briefcase className="w-4 h-4 absolute left-3 top-3 text-blue-400 pointer-events-none" />
@@ -267,16 +307,16 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            {!ai.hasProfile ? (
+            {ai.countries.length === 0 ? (
               <>
                 <span className="text-slate-300 font-medium">Gợi ý cho bạn:</span>
-                <button type="button" onClick={onOpenProfile} className="text-blue-400 hover:text-blue-300 underline">
-                  Nhập sản phẩm xuất khẩu của bạn để AI gợi ý thị trường và đối tác nên tìm
-                </button>
+                <span className="text-slate-400">
+                  {product.trim() ? 'Bấm “AI gợi ý” để xem thị trường và từ khóa nên tìm' : 'Nhập sản phẩm ở ô trên, AI sẽ gợi ý thị trường và từ khóa để bạn bấm chọn'}
+                </span>
               </>
             ) : !country.trim() ? (
               <>
-                <span className="text-slate-300 font-medium">Thị trường nên tìm:</span>
+                <span className="text-slate-300 font-medium">Thị trường nên tìm{aiProduct ? ` cho “${aiProduct}”` : ''}:</span>
                 {ai.countries.map((c) => (
                   <button
                     key={c.country}
@@ -289,15 +329,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                     {c.country}
                   </button>
                 ))}
-                {ai.countries.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => askAi()}
-                    disabled={aiBusy || ai.used >= ai.limit}
-                    className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
-                  >
-                    {aiBusy ? 'AI đang nghĩ…' : ai.stale ? 'Cập nhật gợi ý theo hồ sơ mới' : 'AI gợi ý thị trường cho tôi'}
-                  </button>
+                {product.trim() && aiProduct !== product.trim() && (
+                  <span className="text-amber-300">Sản phẩm đã đổi — bấm “AI gợi ý” để cập nhật.</span>
                 )}
                 <span className="text-slate-500">hoặc tự nhập ô Quốc gia</span>
               </>
@@ -354,13 +387,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 <button type="button" onClick={() => { setCountry(''); setCity(''); }} className="text-slate-400 hover:text-white underline">Chọn nước khác</button>
               </>
             )}
-            {ai.hasProfile && (
-              <>
-                <span className="text-slate-500">({ai.used}/{ai.limit} lượt hôm nay)</span>
-                <button type="button" onClick={onOpenProfile} className="text-slate-400 hover:text-white underline">Sửa hồ sơ</button>
-              </>
-            )}
-            {ai.hasProfile && ai.countries.length > 0 && !country.trim() && (
+            <span className="text-slate-500">({ai.used}/{ai.limit} lượt hôm nay)</span>
+            {ai.countries.length > 0 && !country.trim() && (
               <button type="button" onClick={() => setShowSamples(v => !v)} className="text-slate-500 hover:text-slate-300 underline ml-auto">
                 {showSamples ? 'Ẩn gợi ý mẫu' : 'Gợi ý mẫu'}
               </button>
@@ -371,7 +399,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         </div>
       )}
 
-      {(!ai?.enabled || !ai.hasProfile || ai.countries.length === 0 || showSamples) && (
+      {(!ai?.enabled || ai.countries.length === 0 || showSamples) && (
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
         {QUICK_SEARCH_EXAMPLES.map((ex) => (

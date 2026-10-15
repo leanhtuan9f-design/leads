@@ -865,16 +865,22 @@ app.use('/api/suggest', requireAuth);
 const aiInFlight = new Set();
 const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
 const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt])); // đổi prompt thì gợi ý cũ hết hiệu lực
+// Sản phẩm gõ trực tiếp ở ô tìm (ưu tiên) hoặc lấy từ Hồ sơ
+const subjectOf = (uid, product) => {
+  const t = typeof product === 'string' ? product.trim().slice(0, 600) : '';
+  return t ? { offer: t } : profileOf(uid);
+};
 const aiUsedToday = (uid) => stmt.aiUsageGet.get(uid, vnDay())?.calls || 0;
 const savedSuggestions = (uid) => { const r = stmt.getState.get(uid, 'suggestions'); return r ? JSON.parse(r.value) : null; };
 
 
 app.get('/api/suggest', (req, res) => {
-  const p = profileOf(req.user.id);
+  const p = subjectOf(req.user.id, req.query.product);
   const saved = savedSuggestions(req.user.id);
   const fresh = Boolean(saved && p && saved.hash === profileHash(p) && saved.countries?.length);
   res.json({
     enabled: aiEnabled(), hasProfile: !profileIsEmpty(p), used: aiUsedToday(req.user.id), limit: AI_DAILY_LIMIT,
+    profileOffer: profileOf(req.user.id)?.offer || '',
     countries: fresh ? saved.countries : [], stale: Boolean(saved?.countries?.length && p && !fresh),
   });
 });
@@ -883,8 +889,8 @@ app.get('/api/suggest', (req, res) => {
 app.post('/api/suggest', async (req, res) => {
   const user = req.user;
   if (!aiEnabled()) return res.status(503).json({ error: 'Tính năng gợi ý AI chưa được bật trên máy chủ.' });
-  const p = profileOf(user.id);
-  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm xuất khẩu của bạn trong Hồ sơ trước.' });
+  const p = subjectOf(user.id, req.body?.product);
+  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm xuất khẩu của bạn (vd: cà phê rang xay, hạt điều) rồi bấm AI gợi ý.' });
   const hash = profileHash(p);
   const saved = savedSuggestions(user.id);
   const used = () => ({ used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT });
