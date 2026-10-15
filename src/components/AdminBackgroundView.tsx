@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
-import { AiSettings } from './AiSettings';
 
 interface JobRow {
   id: string;
@@ -130,9 +129,8 @@ export const AdminBackgroundView: React.FC = () => {
             )}
           </>
         ) : (
-          <div className="text-amber-300">Chưa bật: thiếu API key hoặc model. Điền cấu hình kết nối bên dưới.</div>
+          <div className="text-amber-300">Chưa bật: thiếu API key hoặc model. Cấu hình trong menu tài khoản → <strong>Cấu hình AI</strong>.</div>
         )}
-        <AiSettings onSaved={load} />
       </section>
 
       <section className={card}>
