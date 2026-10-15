@@ -85,19 +85,19 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Điều khoản dịch vụ của Google không cho phép tự động bóc tách (scraping) Google Maps. Công cụ này truy cập Google Maps bằng trình duyệt tự động; việc sử dụng là trách nhiệm của người vận hành. Thông tin công khai (tên, địa chỉ, SĐT) không đồng nghĩa với được phép dùng cho mọi mục đích — khi gửi email/tin nhắn chào hàng cần tuân thủ quy định về quảng cáo và bảo vệ dữ liệu cá nhân.',
       '',
       '2. HỆ THỐNG ĐANG LÀM GÌ ĐỂ GIẢM TẢI:',
-      '• Mọi truy vấn ra Google bằng MỘT địa chỉ IP duy nhất của máy chủ (chưa dùng proxy).',
+      '• Nếu bạn nhập proxy (Tùy chọn nâng cao → "Proxy của bạn"), mọi truy vấn của bạn đi qua các proxy đó. Nếu để trống, truy vấn ra Google bằng IP máy chủ — dễ bị CAPTCHA/chặn khi cào nhiều.',
       '• Chỉ chạy 1 tác vụ tại một thời điểm; tối đa 3 tác vụ xếp hàng, quá số này sẽ báo bận.',
       '• Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP người dùng, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
       '• Tốc độ do chính engine gosom/Playwright quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
       '',
       '3. CHƯA CÓ (CẦN PHÁT TRIỂN NẾU MỞ CHO NHIỀU NGƯỜI):',
-      '• Proxy dân cư xoay vòng (gosom hỗ trợ tham số -proxies nhưng chưa được cấu hình).',
+      '• Kho proxy dùng chung/tự xoay vòng (hiện mỗi người tự cung cấp proxy; nên dùng proxy dân cư để ít bị chặn).',
       '• Tài khoản người dùng và hạn mức theo người dùng (hiện ai truy cập cũng dùng chung hàng đợi).',
       '• Chế độ Google Places API chính thức (tuân thủ chính sách) kết hợp bóc email/mạng xã hội từ website doanh nghiệp.',
       'Nếu bị Google yêu cầu CAPTCHA hoặc chặn IP, tác vụ sẽ trả ít hoặc không có kết quả và báo lỗi.'
     ],
     steps: [
-      'Bước 1: Chỉ cào với khối lượng vừa phải; tránh chạy liên tục nhiều tác vụ lớn.',
+      'Bước 1: Nếu cào nhiều, hãy nhập proxy dân cư của bạn ở "Tùy chọn nâng cao"; chỉ cào khối lượng vừa phải, tránh chạy liên tục nhiều tác vụ lớn.',
       'Bước 2: Nếu tác vụ báo lỗi hoặc không có kết quả, đợi một thời gian rồi thử lại với số lượng nhỏ hơn.',
       'Bước 3: Với nhu cầu thương mại quy mô lớn, cân nhắc dùng Google Places API chính thức.'
     ],

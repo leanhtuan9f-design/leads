@@ -4,6 +4,8 @@ import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 
 const PORT = Number(process.env.PORT || 3150);
 const HOST = '127.0.0.1';
@@ -13,6 +15,31 @@ const MAX_RESULTS = 300;
 const MAX_QUERIES = 12;
 const JOB_TIMEOUT_MS = 20 * 60 * 1000;
 const MAX_QUEUE = 3;
+const MAX_PROXIES = 10;
+
+const isPrivateIp = (ip) => {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  const v = ip.toLowerCase();
+  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80') || v.startsWith('::ffff:');
+};
+
+// Kiểm tra proxy do người dùng nhập: chỉ http/https/socks5, không cho trỏ vào mạng nội bộ của máy chủ
+async function validateProxy(raw) {
+  const line = String(raw).trim();
+  if (!line || line.length > 300 || /\s/.test(line)) throw new Error('Proxy sai định dạng');
+  let u;
+  try { u = new URL(line); } catch { throw new Error('Proxy sai định dạng (cần dạng http://user:pass@host:port)'); }
+  if (!['http:', 'https:', 'socks5:', 'socks5h:'].includes(u.protocol)) throw new Error('Proxy chỉ hỗ trợ http, https, socks5');
+  if (!u.hostname || !u.port) throw new Error('Proxy cần có host và port');
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (host.toLowerCase() === 'localhost') throw new Error('Không cho phép proxy nội bộ');
+  const addrs = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true }).then((r) => r.map((x) => x.address)).catch(() => { throw new Error(`Không phân giải được host proxy: ${host}`); }));
+  if (addrs.some(isPrivateIp)) throw new Error('Không cho phép proxy trỏ vào mạng nội bộ');
+  return line;
+}
 
 mkdirSync(WORK_DIR, { recursive: true, mode: 0o777 });
 
@@ -135,11 +162,13 @@ function next() {
 }
 
 function start(job) {
-  const { queries, geo, radius, depth, extractEmails, lang } = job.spec;
+  const { queries, geo, radius, depth, extractEmails, lang, proxies } = job.spec;
   mkdirSync(job.dir, { recursive: true, mode: 0o777 });
   writeFileSync(path.join(job.dir, 'q.txt'), queries.join('\n') + '\n');
+  // Proxy ghi vào file (không đưa lên dòng lệnh để tránh lộ user:pass qua ps/docker inspect); file bị xóa cùng thư mục job
+  if (proxies.length) writeFileSync(path.join(job.dir, 'proxies.txt'), proxies.join('\n') + '\n', { mode: 0o644 });
   job.status = 'running';
-  job.emit('status', { status: 'running', message: `Đang mở trình duyệt Google Maps (${queries.length} truy vấn)...` });
+  job.emit('status', { status: 'running', message: `Đang mở trình duyệt Google Maps (${queries.length} truy vấn${proxies.length ? `, qua ${proxies.length} proxy` : ', IP máy chủ'})...` });
 
   const args = [
     'run', '--rm', '--name', job.container,
@@ -152,6 +181,7 @@ function start(job) {
     '-exit-on-inactivity', '90s',
   ];
   if (extractEmails) args.push('-email');
+  if (proxies.length) args.push('-proxies-file', '/d/proxies.txt');
   if (geo) args.push('-geo', geo, '-radius', String(radius));
 
   const proc = spawn('docker', args, { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -164,13 +194,19 @@ function start(job) {
     clearInterval(poll);
     clearTimeout(timer);
     if (job.status === 'cancelled') return;
-    if (code === 0 || job.count > 0) job.finish('done');
-    else job.finish('failed', `Engine thoát với mã ${code}. ${errTail.split('\n').slice(-2).join(' ').slice(0, 300)}`);
+    job.readNew();
+    if (job.count > 0) return job.finish('done');
+    if (code === 0) return job.finish('failed', proxies.length
+      ? 'Không nhận được kết quả: proxy có thể lỗi/sai thông tin, hoặc Google đang chặn, hoặc truy vấn không có kết quả.'
+      : 'Không nhận được kết quả: Google có thể đang chặn IP máy chủ (CAPTCHA) hoặc truy vấn không có kết quả. Hãy thử cấu hình proxy.');
+    let tail = errTail.split('\n').slice(-2).join(' ');
+    for (const px of proxies) tail = tail.split(px).join('[proxy]');
+    job.finish('failed', `Engine thoát với mã ${code}. ${tail.slice(0, 300)}`);
   });
   proc.on('error', (e) => { clearInterval(poll); clearTimeout(timer); job.finish('failed', e.message); });
 }
 
-app.post('/api/jobs', (req, res) => {
+app.post('/api/jobs', async (req, res) => {
   const b = req.body || {};
   const queries = (Array.isArray(b.queries) ? b.queries : [])
     .map((q) => clean(q)).filter(Boolean).slice(0, MAX_QUERIES);
@@ -184,13 +220,19 @@ app.post('/api/jobs', (req, res) => {
     geo = `${m[1]},${m[2]}`;
     radius = Math.min(50000, Math.max(500, Number(b.radius) || 10000));
   }
+  let proxies = [];
+  if (b.proxies !== undefined && b.proxies !== null) {
+    if (!Array.isArray(b.proxies) || b.proxies.length > MAX_PROXIES) return res.status(400).json({ error: `Tối đa ${MAX_PROXIES} proxy` });
+    try { proxies = await Promise.all(b.proxies.filter((x) => String(x).trim()).map(validateProxy)); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+  }
   const maxResults = Math.min(MAX_RESULTS, Math.max(1, Number(b.maxResults) || 25));
   // mỗi lần cuộn ~7-20 kết quả; chia đều cho các truy vấn, dư để bù trùng
   const depth = Math.min(40, Math.max(1, Math.ceil((maxResults * 1.5) / queries.length / 7)));
   const lang = /^[a-z]{2}(-[A-Za-z]{2})?$/.test(b.lang || '') ? b.lang : 'vi';
 
   if (queue.length >= MAX_QUEUE) return res.status(429).json({ error: 'Hàng đợi đầy, thử lại sau' });
-  const job = new Job({ queries, geo, radius, depth, extractEmails: Boolean(b.extractEmails), lang });
+  const job = new Job({ queries, geo, radius, depth, extractEmails: Boolean(b.extractEmails), lang, proxies });
   jobs.set(job.id, job);
   queue.push(job);
   job.emit('status', { status: 'queued', position: queue.length + (running ? 1 : 0) });

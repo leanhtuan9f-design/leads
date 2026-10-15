@@ -22,6 +22,10 @@ import { CompletionSummaryData } from './components/JobProgressBanner';
 
 const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v3';
 const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v3';
+const STORAGE_KEY_PROXIES = 'gmaps_scraper_proxies_v1';
+
+const parseProxies = (text: string): string[] =>
+  text.split('\n').map(l => l.trim()).filter(Boolean);
 
 // Xóa dữ liệu v2 (gồm lead mẫu/lead giả do engine mô phỏng cũ sinh ra) để chỉ còn dữ liệu cào thật
 try {
@@ -56,6 +60,15 @@ export default function App() {
     }
     return [];
   });
+
+  // Proxy do người dùng nhập (mỗi dòng một proxy), lưu trong trình duyệt này
+  const [proxiesText, setProxiesText] = useState<string>(() => {
+    try { return localStorage.getItem(STORAGE_KEY_PROXIES) || ''; } catch (e) { return ''; }
+  });
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_PROXIES, proxiesText); } catch (e) {}
+  }, [proxiesText]);
 
   // Modal and drawer states
   const [isScraperModalOpen, setIsScraperModalOpen] = useState(false);
@@ -92,7 +105,8 @@ export default function App() {
 
     const effectiveOptions: ScraperOptions = {
       ...options,
-      existingBusinesses: options.existingBusinesses || businesses
+      existingBusinesses: options.existingBusinesses || businesses,
+      proxies: options.proxies ?? parseProxies(proxiesText)
     };
 
     const newJob: ScraperJob = {
@@ -112,6 +126,7 @@ export default function App() {
     setJobs(prev => [newJob, ...prev]);
     setActiveJobId(jobId);
     setCompletionSummary(null); // Clear previous summary
+    setScrapeError(null);
     isCancelledRef.current = false;
 
     const progressRef = { current: null as ProgressCallbackData | null };
@@ -170,6 +185,7 @@ export default function App() {
       }
     } catch (err) {
       setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, status: 'failed' } : j)));
+      setScrapeError(err instanceof Error ? err.message : 'Cào thất bại');
     } finally {
       setActiveJobId(null);
       setJobProgress(null);
@@ -214,8 +230,16 @@ export default function App() {
           onStartScrape={handleStartScrape}
           isRunning={Boolean(activeJobId)}
           onOpenAdvancedModal={() => setIsScraperModalOpen(true)}
+          proxyCount={parseProxies(proxiesText).length}
           onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         />
+
+        {scrapeError && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/40 rounded-lg text-xs text-red-200 flex items-start justify-between gap-3">
+            <span><strong>Cào thất bại:</strong> {scrapeError}</span>
+            <button type="button" onClick={() => setScrapeError(null)} className="text-red-300 hover:text-white shrink-0">Đóng</button>
+          </div>
+        )}
 
         {/* Active Scraping Progress Tracker & Completion Banner */}
         <JobProgressBanner
@@ -290,6 +314,8 @@ export default function App() {
       {isScraperModalOpen && (
         <ScraperControls
           isModal={true}
+          proxiesText={proxiesText}
+          onChangeProxies={setProxiesText}
           isRunning={Boolean(activeJobId)}
           onStartScrape={handleStartScrape}
           onClose={() => setIsScraperModalOpen(false)}

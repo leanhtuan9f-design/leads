@@ -22,6 +22,7 @@ interface DirectScrapeBarProps {
   onStartScrape: (options: ScraperOptions) => void;
   isRunning: boolean;
   onOpenAdvancedModal: () => void;
+  proxyCount?: number;
   onOpenGuide: (guideId: string) => void;
 }
 
@@ -46,6 +47,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   onStartScrape,
   isRunning,
   onOpenAdvancedModal,
+  proxyCount = 0,
   onOpenGuide
 }) => {
   const [category, setCategory] = useState('Phòng khám nha khoa');
@@ -258,8 +260,14 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           </div>
         </div>
 
-        <div className="p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg text-xs text-slate-300">
-          🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.
+        <div className="p-2.5 bg-slate-900/70 border border-slate-800 rounded-lg text-xs text-slate-300 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className={proxyCount > 0 ? 'text-emerald-300' : 'text-amber-300'}>
+              {proxyCount > 0 ? `🛡️ Đang dùng ${proxyCount} proxy của bạn` : '⚠️ Chưa cấu hình proxy — đang cào bằng IP máy chủ (dễ bị Google chặn khi cào nhiều)'}
+            </span>
+            <button type="button" onClick={onOpenAdvancedModal} className="text-blue-400 hover:text-blue-300 underline shrink-0">Cấu hình proxy</button>
+          </div>
+          <div>🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.</div>
         </div>
 
         {/* TÙY CHỌN PHÂN RÃ THEO QUẬN/HUYỆN ĐỂ CÀO ĐỦ >100 ĐIỂM */}

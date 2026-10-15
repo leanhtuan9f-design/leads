@@ -10,6 +10,8 @@ interface ScraperControlsProps {
   onClose?: () => void;
   onOpenGuide: (guideId: string) => void;
   isModal?: boolean;
+  proxiesText?: string;
+  onChangeProxies?: (text: string) => void;
 }
 
 export const ScraperControls: React.FC<ScraperControlsProps> = ({
@@ -17,7 +19,9 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
   isRunning,
   onClose,
   onOpenGuide,
-  isModal = false
+  isModal = false,
+  proxiesText = '',
+  onChangeProxies
 }) => {
   const [category, setCategory] = useState('Phòng khám nha khoa');
   const [location, setLocation] = useState('Hà Nội');
@@ -171,6 +175,26 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
           </select>
         </div>
       </div>
+
+      {/* Proxy do người dùng nhập */}
+      {onChangeProxies && (
+        <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+          <label className="text-xs font-medium text-slate-300 block">
+            Proxy của bạn (mỗi dòng một proxy, tối đa 10)
+          </label>
+          <textarea
+            value={proxiesText}
+            onChange={(e) => onChangeProxies(e.target.value)}
+            rows={3}
+            spellCheck={false}
+            placeholder={'http://user:pass@host:port\nsocks5://user:pass@host:port'}
+            className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+          />
+          <p className="text-[10px] text-slate-500">
+            Hỗ trợ http, https, socks5. Để trống = cào bằng IP máy chủ (dễ bị Google chặn khi cào nhiều). Proxy được lưu trong trình duyệt này và gửi qua HTTPS tới máy chủ khi cào; máy chủ không lưu lại. Nên dùng proxy dân cư (residential).
+          </p>
+        </div>
+      )}
 
       {/* Enrichment Options */}
       <div className="space-y-2 pt-1 border-t border-slate-800/80">

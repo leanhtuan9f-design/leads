@@ -295,7 +295,8 @@ export async function executeScrapingJob(
       geo,
       maxResults: targetCount,
       extractEmails: options.extractEmails,
-      lang: options.language || 'vi'
+      lang: options.language || 'vi',
+      proxies: options.proxies && options.proxies.length ? options.proxies : undefined
     })
   });
   if (!resp.ok) {

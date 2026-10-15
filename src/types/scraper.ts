@@ -48,6 +48,7 @@ export interface ScraperOptions {
   skipWithoutWebsite: boolean;
   proxyType?: 'direct' | 'datacenter_rotating' | 'residential_proxy'; // chỉ để tương thích job cũ trong localStorage
   language: string;
+  proxies?: string[]; // proxy do người dùng nhập (http/https/socks5), mỗi lần cào đi qua các proxy này
   existingBusinesses?: ScrapedBusiness[];
   scrapeMode?: 'batch' | 'exhaustive';
   useDistrictSubdivision?: boolean;
