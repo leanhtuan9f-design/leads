@@ -54,6 +54,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [location, setLocation] = useState('Hà Nội');
   const [maxResults, setMaxResults] = useState(25);
   const [useDistrictSubdivision, setUseDistrictSubdivision] = useState(true);
+  const [forceRefresh, setForceRefresh] = useState(false);
 
   // Quận/huyện thật của thành phố đã biết (rỗng nếu chưa có dữ liệu)
   const activeDistricts = useMemo(() => {
@@ -109,6 +110,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       existingBusinesses, // Pass database to automatically skip duplicates!
       scrapeMode: 'batch',
       useDistrictSubdivision,
+      forceRefresh,
     });
   };
 
@@ -129,6 +131,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       existingBusinesses, // Pass database to automatically skip duplicates!
       scrapeMode: 'exhaustive',
       useDistrictSubdivision: true,
+      forceRefresh,
     });
   };
 
@@ -267,6 +270,10 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
             </span>
             <button type="button" onClick={onOpenAdvancedModal} className="text-blue-400 hover:text-blue-300 underline shrink-0">Cấu hình proxy</button>
           </div>
+          <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-400">
+            <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+            <span>Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn (tối đa 3 lần/ngày)</span>
+          </label>
           <div>🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.</div>
         </div>
 

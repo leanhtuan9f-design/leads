@@ -20,6 +20,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Hỗ trợ cào theo Tọa độ GPS: nhập cặp tọa độ ví dụ "21.0285, 105.8542" để quét bán kính 10 km quanh điểm đó.',
       'Engine cào chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
       'Bóc tách Email: engine truy cập website công khai của doanh nghiệp để tìm địa chỉ email. Chỉ có email nếu doanh nghiệp có website và website đó công bố email. Link mạng xã hội hiện CHƯA được bóc tách.',
+      'Kho dữ liệu dùng chung: kết quả mỗi truy vấn (ngành + khu vực) được lưu trên máy chủ. Ai tìm trùng sẽ nhận ngay dữ liệu đã lưu (không cần chờ cào). Dữ liệu quá 14 ngày vẫn được trả ngay, đồng thời hệ thống tự cập nhật bản mới ở nền cho lần tìm sau. Muốn dữ liệu mới nhất ngay, tick "Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn" (tối đa 3 lần/ngày).',
       'Mỗi lần chỉ chạy 1 tác vụ; các tác vụ khác xếp hàng chờ (tối đa 3). Tốc độ phụ thuộc Google Maps — thường vài chục giây đến vài phút cho 25 điểm.'
     ],
     steps: [

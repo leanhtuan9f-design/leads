@@ -14,6 +14,7 @@ export interface ProgressCallbackData {
   isMarketExhausted?: boolean;
   guaranteedQuotaTarget?: number;
   guaranteedQuotaCurrent?: number;
+  cacheInfo?: { source: 'cache' | 'live' | 'mixed'; oldestAt: number | null; refreshing: boolean };
   currentSubdivision?: string;
 }
 
@@ -267,8 +268,8 @@ export async function executeScrapingJob(
       const wanted = options.selectedDistricts?.length
         ? districts.filter(d => options.selectedDistricts!.includes(d.name))
         : districts;
-      const need = isExhaustive ? MAX_DISTRICT_QUERIES : Math.max(1, Math.ceil(targetCount / 20));
-      queries = wanted.slice(0, Math.min(MAX_DISTRICT_QUERIES, need)).map(d => `${category} ${d.name}, ${city}`);
+      // Luôn gửi đủ danh sách quận: kho dữ liệu trả nhanh những quận đã có, chỉ cào mới quận còn thiếu; dừng khi đủ chỉ tiêu
+      queries = wanted.slice(0, MAX_DISTRICT_QUERIES).map(d => `${category} ${d.name}, ${city}`);
     } else {
       queries = [`${category} ${city}`];
     }
@@ -296,7 +297,8 @@ export async function executeScrapingJob(
       maxResults: targetCount,
       extractEmails: options.extractEmails,
       lang: options.language || 'vi',
-      proxies: options.proxies && options.proxies.length ? options.proxies : undefined
+      proxies: options.proxies && options.proxies.length ? options.proxies : undefined,
+      refresh: options.forceRefresh || undefined
     })
   });
   if (!resp.ok) {
@@ -308,24 +310,30 @@ export async function executeScrapingJob(
   const results: ScrapedBusiness[] = [];
   let skippedDuplicatesCount = 0;
   let endedNaturally = false;
+  let cacheMeta: { oldestAt: number | null; refreshing: boolean } | null = null;
+  let fromCacheCount = 0;
 
   await new Promise<void>((resolve, reject) => {
     const es = new EventSource(`${API_BASE}/jobs/${jobId}/events`);
     let settled = false;
 
-    const stop = (err?: Error) => {
+    // hard=true: người dùng bấm hủy → dừng ngay; graceful: đủ chỉ tiêu → để truy vấn đang cào kịp lưu vào kho
+    const stop = (err?: Error, mode: 'hard' | 'graceful' | 'none' = 'graceful') => {
       if (settled) return;
       settled = true;
       clearInterval(cancelTimer);
       es.close();
-      fetch(`${API_BASE}/jobs/${jobId}`, { method: 'DELETE' }).catch(() => {});
+      if (mode !== 'none') {
+        fetch(`${API_BASE}/jobs/${jobId}${mode === 'graceful' ? '?graceful=1' : ''}`, { method: 'DELETE' }).catch(() => {});
+      }
       err ? reject(err) : resolve();
     };
 
-    const cancelTimer = setInterval(() => { if (isCancelled()) stop(); }, 500);
+    const cancelTimer = setInterval(() => { if (isCancelled()) stop(undefined, 'hard'); }, 500);
 
     es.addEventListener('status', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
+      if (d.cache) cacheMeta = { oldestAt: d.cache.oldestAt ?? null, refreshing: Boolean(d.cache.refreshing) };
       if (d.status === 'queued') {
         onProgress({
           scrapedCount: results.length, totalFound: targetCount, currentQuery: effectiveQuery, speedPerMin: 0,
@@ -340,7 +348,7 @@ export async function executeScrapingJob(
     });
 
     es.addEventListener('place', (e) => {
-      const raw = JSON.parse((e as MessageEvent).data) as ScrapedBusiness;
+      const { fromCache, ...raw } = JSON.parse((e as MessageEvent).data) as ScrapedBusiness & { fromCache?: boolean };
       if ((options.skipWithoutPhone && !raw.phone) || (options.skipWithoutWebsite && !raw.website)) return;
       const keys = dedupeKeys(raw);
       const elapsedMin = Math.max((Date.now() - startTime) / 60000, 1 / 60);
@@ -361,6 +369,7 @@ export async function executeScrapingJob(
       const { score, status } = calculateLeadScore(raw);
       const business: ScrapedBusiness = { ...raw, leadScore: score, leadStatus: status };
       results.push(business);
+      if (fromCache) fromCacheCount++;
 
       const totalInMarket = existingCountInDb + results.length;
       onProgress({
@@ -381,10 +390,11 @@ export async function executeScrapingJob(
     es.addEventListener('end', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
       if (d.status === 'failed' && results.length === 0) {
-        return stop(new Error(d.message || 'Engine cào thất bại'));
+        return stop(new Error(d.message || 'Engine cào thất bại'), 'none');
       }
       endedNaturally = d.status === 'done';
-      stop();
+      if (!cacheMeta && d.source && d.source !== 'live') cacheMeta = { oldestAt: d.oldestAt ?? null, refreshing: Boolean(d.refreshing) };
+      stop(undefined, 'none');
     });
 
     es.onerror = () => {
@@ -405,6 +415,20 @@ export async function executeScrapingJob(
       marketCoveragePercent: 100,
       isMarketExhausted: true,
       statusMessage: `Đã cào hết kết quả Google Maps cho "${effectiveQuery}" (${total} cơ sở).`
+    });
+  }
+
+  if (results.length > 0 && fromCacheCount > 0) {
+    const meta = cacheMeta as { oldestAt: number | null; refreshing: boolean } | null; // gán trong callback SSE
+    const info = {
+      source: (fromCacheCount === results.length ? 'cache' : 'mixed') as 'cache' | 'mixed',
+      oldestAt: meta?.oldestAt ?? null,
+      refreshing: meta?.refreshing ?? false
+    };
+    onProgress({
+      scrapedCount: results.length, totalFound: targetCount, currentQuery: effectiveQuery, speedPerMin: 0,
+      skippedDuplicates: skippedDuplicatesCount, cacheInfo: info,
+      statusMessage: info.source === 'cache' ? 'Lấy từ kho dữ liệu đã lưu' : 'Hoàn tất (kho + cào mới)'
     });
   }
 

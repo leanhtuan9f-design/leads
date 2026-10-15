@@ -66,6 +66,7 @@ export default function App() {
     try { return localStorage.getItem(STORAGE_KEY_PROXIES) || ''; } catch (e) { return ''; }
   });
   const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [dataNote, setDataNote] = useState<string | null>(null);
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY_PROXIES, proxiesText); } catch (e) {}
   }, [proxiesText]);
@@ -127,6 +128,7 @@ export default function App() {
     setActiveJobId(jobId);
     setCompletionSummary(null); // Clear previous summary
     setScrapeError(null);
+    setDataNote(null);
     isCancelledRef.current = false;
 
     const progressRef = { current: null as ProgressCallbackData | null };
@@ -136,6 +138,15 @@ export default function App() {
         effectiveOptions,
         (progress) => {
           progressRef.current = progress;
+          if (progress.cacheInfo) {
+            const ci = progress.cacheInfo;
+            const age = ci.oldestAt ? Math.max(0, Math.floor((Date.now() - ci.oldestAt) / 86400000)) : null;
+            setDataNote(
+              (ci.source === 'cache' ? 'Dữ liệu lấy từ kho đã lưu' : 'Dữ liệu gồm kho đã lưu và cào mới') +
+              (age !== null ? ` (bản cũ nhất cập nhật ${age === 0 ? 'hôm nay' : age + ' ngày trước'})` : '') +
+              (ci.refreshing ? ' · đang cập nhật bản mới ở nền, lần tìm sau sẽ có dữ liệu mới hơn.' : '.')
+            );
+          }
           setJobProgress(progress);
           // Stream new results to live table
           if (progress.newPlace) {
@@ -233,6 +244,13 @@ export default function App() {
           proxyCount={parseProxies(proxiesText).length}
           onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         />
+
+        {dataNote && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-start justify-between gap-3">
+            <span>📦 {dataNote}</span>
+            <button type="button" onClick={() => setDataNote(null)} className="text-blue-300 hover:text-white shrink-0">Đóng</button>
+          </div>
+        )}
 
         {scrapeError && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/40 rounded-lg text-xs text-red-200 flex items-start justify-between gap-3">
