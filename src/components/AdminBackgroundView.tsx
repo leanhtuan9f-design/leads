@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
+import { AiSettings } from './AiSettings';
 
 interface JobRow {
   id: string;
@@ -129,8 +130,9 @@ export const AdminBackgroundView: React.FC = () => {
             )}
           </>
         ) : (
-          <div className="text-amber-300">Chưa bật: máy chủ chưa có <code className="font-mono">ANTHROPIC_API_KEY</code> (đặt trong <code className="font-mono">/opt/maps/.env</code> rồi khởi động lại <code className="font-mono">maps-api</code>).</div>
+          <div className="text-amber-300">Chưa bật: thiếu API key hoặc model. Điền cấu hình kết nối bên dưới.</div>
         )}
+        <AiSettings onSaved={load} />
       </section>
 
       <section className={card}>

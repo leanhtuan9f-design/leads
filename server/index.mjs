@@ -7,7 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_MODEL, AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -129,6 +129,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_log (
   message TEXT
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS ai_log_at ON ai_log(at)');
+db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+try { // cấu hình AI do admin đặt trong giao diện (khóa API nằm trong DB, không bao giờ trả về trình duyệt)
+  const r = db.prepare("SELECT value FROM app_settings WHERE key = 'ai'").get();
+  if (r) setAiConfig(JSON.parse(r.value));
+} catch (e) { console.error('Không đọc được cấu hình AI', e?.message); }
 db.exec(`CREATE TABLE IF NOT EXISTS user_items (
   user_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -906,6 +911,46 @@ app.post('/api/suggest', async (req, res) => {
   }
 });
 
+// Cấu hình kết nối AI (chỉ admin). Khóa API chỉ ghi vào, không bao giờ đọc ra.
+const aiConfigView = () => {
+  const c = getAiConfig();
+  return { format: c.format, baseUrl: c.baseUrl, model: c.model, hasKey: Boolean(c.apiKey), keyHint: c.apiKey ? c.apiKey.slice(-4) : '', keySource: c.keySource, enabled: aiEnabled() };
+};
+app.get('/api/admin/ai-config', requireAdmin, (_req, res) => res.json(aiConfigView()));
+
+app.put('/api/admin/ai-config', requireAdmin, (req, res) => {
+  const b = req.body || {};
+  try {
+    const cur = getAiConfig();
+    const next = {
+      format: b.format === 'openai' ? 'openai' : 'anthropic',
+      baseUrl: normalizeBaseUrl(b.baseUrl),
+      model: String(b.model || '').trim().slice(0, 200),
+      apiKey: b.clearKey ? '' : typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim().slice(0, 500) : (cur.keySource === 'db' ? cur.apiKey : ''),
+    };
+    if (/[\s\u0000-\u001f]/.test(next.model)) return res.status(400).json({ error: 'Tên model không được chứa khoảng trắng.' });
+    if (next.format === 'openai' && !next.baseUrl) return res.status(400).json({ error: 'Kiểu OpenAI cần nhập Base URL.' });
+    db.prepare("INSERT INTO app_settings (key, value) VALUES ('ai', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(next));
+    setAiConfig(next);
+    res.json(aiConfigView());
+  } catch (e) {
+    res.status(400).json({ error: e instanceof AiError ? e.message : 'Không lưu được cấu hình' });
+  }
+});
+
+// Thử kết nối + tải danh sách model (dùng khóa đã lưu nếu ô khóa để trống)
+app.post('/api/admin/ai-config/models', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  try {
+    const cur = getAiConfig();
+    const apiKey = typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim() : cur.apiKey;
+    const models = await listModels({ baseUrl: b.baseUrl, apiKey, format: b.format === 'openai' ? 'openai' : 'anthropic' });
+    res.json({ ok: true, models });
+  } catch (e) {
+    res.status(400).json({ error: e instanceof AiError ? e.message : 'Không tải được danh sách model' });
+  }
+});
+
 // Theo dõi việc chạy ngầm (chỉ admin)
 app.get('/api/admin/background', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
@@ -923,7 +968,7 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     ai: (() => {
       const st = stmt.aiLogStats.get(Date.now() - JOB_LOG_KEEP_MS);
       return {
-        enabled: aiEnabled(), model: AI_MODEL, dailyLimit: AI_DAILY_LIMIT,
+        enabled: aiEnabled(), model: getAiConfig().model, dailyLimit: AI_DAILY_LIMIT,
         calls30d: st.calls, ok30d: st.ok, inputTokens30d: st.inp, outputTokens30d: st.outp,
         recent: stmt.aiLogRecent.all().map((r) => ({ at: r.at, user: r.user_email, ok: Boolean(r.ok), input: r.input_tokens, output: r.output_tokens, items: r.items, message: r.message || '' })),
       };
