@@ -5,6 +5,8 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', dailyNew: 200, dailyRefresh: 3, role: 'user' });
 
   const load = useCallback(async () => {
@@ -17,15 +19,29 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const copyCreds = async () => {
+    if (!creds) return;
+    const text = `Đăng nhập: ${window.location.origin}\nEmail: ${creds.email}\nMật khẩu: ${creds.password}`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea'); // trình duyệt không cho clipboard API (http / quyền)
+      ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setNotice('');
+    setError(''); setNotice(''); setCreds(null);
     try {
       const r = await apiJson<{ email: string; password: string }>('/admin/users', 'POST', {
         email: form.email, password: form.password || undefined,
         dailyNew: Number(form.dailyNew), dailyRefresh: Number(form.dailyRefresh), role: form.role
       });
-      setNotice(`Đã tạo ${r.email}. Mật khẩu (chỉ hiện một lần, hãy gửi cho người dùng): ${r.password}`);
+      setNotice(`Đã tạo tài khoản ${r.email}. Mật khẩu chỉ hiện một lần — hãy sao chép gửi cho người dùng.`);
+      setCreds({ email: r.email, password: r.password });
       setForm({ ...form, email: '', password: '' });
       load();
     } catch (err) {
@@ -34,10 +50,14 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   };
 
   const patch = async (id: number, body: Record<string, unknown>) => {
-    setError(''); setNotice('');
+    setError(''); setNotice(''); setCreds(null);
     try {
       const r = await apiJson<{ newPassword?: string }>(`/admin/users/${id}`, 'PATCH', body);
-      if (r.newPassword) setNotice(`Mật khẩu mới (chỉ hiện một lần): ${r.newPassword}`);
+      if (r.newPassword) {
+        const target = users.find(x => x.id === id);
+        setNotice(`Đã đặt lại mật khẩu cho ${target?.email ?? 'tài khoản'}. Mật khẩu chỉ hiện một lần — hãy sao chép gửi cho người dùng.`);
+        setCreds({ email: target?.email ?? '', password: r.newPassword });
+      }
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi');
@@ -73,7 +93,21 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
           </label>
           <button type="submit" className="col-span-2 md:col-span-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo tài khoản</button>
         </form>
-        {notice && <div className="mt-3 p-2 bg-emerald-500/10 border border-emerald-500/40 rounded text-emerald-200 break-all">{notice}</div>}
+        {notice && (
+          <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/40 rounded text-emerald-200 space-y-2">
+            <div>{notice}</div>
+            {creds && (
+              <>
+                <div className="font-mono bg-slate-950/60 rounded p-2 break-all select-all">
+                  Email: {creds.email}<br />Mật khẩu: {creds.password}
+                </div>
+                <button type="button" onClick={copyCreds} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md">
+                  {copied ? '✓ Đã sao chép' : 'Sao chép thông tin đăng nhập'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {error && <div className="mt-3 p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </div>
 
