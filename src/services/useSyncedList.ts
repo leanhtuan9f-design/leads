@@ -7,6 +7,7 @@ interface PullResponse<T> { items: { id: string; data: T | null; deleted: boolea
 
 const CHUNK = 500;
 const PUSH_DELAY_MS = 800;
+const POLL_MS = 15000;
 
 // Đồng bộ một danh sách (lead/job) với server theo từng dòng:
 // - mở trang: kéo toàn bộ từ server, dòng chỉ có ở máy này (localStorage/khóa cũ) được đẩy lên
@@ -71,12 +72,13 @@ export function useSyncedList<T extends Item>(
     return () => { cancelled = true; };
   }, [pull]);
 
-  // Quay lại tab → lấy thay đổi từ thiết bị khác
+  // Quay lại tab + hỏi định kỳ → lấy thay đổi từ thiết bị khác (gần realtime)
   useEffect(() => {
     if (!ready) return;
-    const onVisible = () => { if (document.visibilityState === 'visible') pull().catch(() => {}); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    const tick = () => { if (document.visibilityState === 'visible') pull().catch(() => {}); };
+    document.addEventListener('visibilitychange', tick);
+    const iv = setInterval(tick, POLL_MS);
+    return () => { document.removeEventListener('visibilitychange', tick); clearInterval(iv); };
   }, [ready, pull]);
 
   // Đẩy phần thay đổi

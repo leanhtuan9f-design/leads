@@ -106,6 +106,7 @@ const stmt = {
   itemsAfter: db.prepare('SELECT item_id, data, deleted, seq FROM user_items WHERE user_id = ? AND kind = ? AND seq > ? ORDER BY seq LIMIT ?'),
   upsertItem: db.prepare(`INSERT INTO user_items (user_id, kind, item_id, data, deleted, seq) VALUES (?, ?, ?, ?, 0, ?)
     ON CONFLICT(user_id, kind, item_id) DO UPDATE SET data = excluded.data, deleted = 0, seq = excluded.seq`),
+  trashItems: db.prepare('SELECT data FROM user_items WHERE user_id = ? AND kind = ? AND deleted = 1 ORDER BY seq DESC LIMIT 2000'),
   removeItem: db.prepare('UPDATE user_items SET deleted = 1, seq = ? WHERE user_id = ? AND kind = ? AND item_id = ? AND deleted = 0'),
   getState: db.prepare('SELECT value, updated_at FROM user_state WHERE user_id = ? AND key = ?'),
   setState: db.prepare(`INSERT INTO user_state (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)
@@ -236,6 +237,11 @@ app.get('/api/items/:kind', (req, res) => {
   const more = rows.length > limit;
   const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : JSON.parse(r.data), deleted: Boolean(r.deleted), seq: r.seq }));
   res.json({ items, more, last: items.length ? items[items.length - 1].seq : after });
+});
+app.get('/api/items/:kind/trash', (req, res) => {
+  const kind = ITEM_KINDS[req.params.kind];
+  if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
+  res.json({ items: stmt.trashItems.all(req.user.id, kind).map((r) => JSON.parse(r.data)) });
 });
 app.post('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];

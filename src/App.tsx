@@ -11,6 +11,7 @@ import { LeadDrawer } from './components/LeadDrawer';
 import { OutreachModal } from './components/OutreachModal';
 import { ExportModal } from './components/ExportModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
+import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
 import { AuthUser, Quota, apiJson } from './auth/types';
 
@@ -265,9 +266,19 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     setJobs(prev => prev.filter(j => j.id !== jobId));
   };
 
+  // Xem kết quả một job = chỉ lọc hiển thị, không thay/xóa bảng lead đã lưu
+  const [viewJob, setViewJob] = useState<{ results: ScrapedBusiness[] } | null>(null);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const shown = viewJob ? viewJob.results : businesses;
   const handleSelectJobResults = (jobResults: ScrapedBusiness[]) => {
-    setBusinesses(jobResults);
+    setViewJob({ results: jobResults });
     setActiveTab('leads');
+  };
+  const handleRestoreLeads = (restored: ScrapedBusiness[]) => {
+    setBusinesses(prev => {
+      const have = new Set(prev.map(b => b.id));
+      return [...restored.filter(b => !have.has(b.id)), ...prev];
+    });
   };
 
   return (
@@ -337,10 +348,23 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         />
 
         {/* Tab 1: Leads Data Explorer */}
+        {activeTab === 'leads' && viewJob && (
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-center justify-between gap-3">
+            <span>Đang xem kết quả của một job ({viewJob.results.length} lead). Bảng lead đã lưu không bị thay đổi.</span>
+            <button type="button" onClick={() => setViewJob(null)} className="text-blue-300 hover:text-white shrink-0">Xem tất cả lead</button>
+          </div>
+        )}
+
+        {activeTab === 'leads' && !viewJob && (
+          <div className="mb-2 flex justify-end">
+            <button type="button" onClick={() => setIsTrashOpen(true)} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
+          </div>
+        )}
+
         {activeTab === 'leads' && (
           <div className="space-y-4 flex-1 flex flex-col">
             <DataTable
-              businesses={businesses}
+              businesses={shown}
               onSelectBusiness={(biz) => setSelectedBusiness(biz)}
               onOpenOutreachModal={(selected) => setOutreachLeads(selected)}
               onOpenGuide={(guideId) => setActiveGuideId(guideId)}
@@ -352,7 +376,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         {activeTab === 'map' && (
           <div className="space-y-4">
             <MapView
-              businesses={businesses}
+              businesses={shown}
               onSelectBusiness={(biz) => setSelectedBusiness(biz)}
               onOpenGuide={(guideId) => setActiveGuideId(guideId)}
             />
@@ -377,7 +401,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         {activeTab === 'analytics' && (
           <div className="space-y-4">
             <AnalyticsView
-              businesses={businesses}
+              businesses={shown}
               onOpenOutreachModal={(leads) => setOutreachLeads(leads)}
               onOpenGuide={(guideId) => setActiveGuideId(guideId)}
             />
@@ -434,11 +458,13 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       {/* Export Options Modal */}
       {isExportModalOpen && (
         <ExportModal
-          businesses={businesses}
+          businesses={shown}
           onClose={() => setIsExportModalOpen(false)}
           onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         />
       )}
+
+      {isTrashOpen && <TrashModal onRestore={handleRestoreLeads} onClose={() => setIsTrashOpen(false)} />}
 
       {/* Module Help Guide Modal */}
       {activeGuideId && (
