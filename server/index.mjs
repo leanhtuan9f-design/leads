@@ -881,7 +881,7 @@ app.post('/api/suggest', async (req, res) => {
   const user = req.user;
   if (!aiEnabled()) return res.status(503).json({ error: 'Tính năng gợi ý AI chưa được bật trên máy chủ.' });
   const p = profileOf(user.id);
-  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy điền Hồ sơ (dịch vụ và khách hàng lý tưởng) trước.' });
+  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm/dịch vụ của bạn trong Hồ sơ trước.' });
   const hash = profileHash(p);
   const saved = savedSuggestions(user.id);
   if (saved && saved.hash === hash && saved.items?.length) { // hồ sơ không đổi: dùng lại, không gọi AI, không trừ lượt

@@ -48,6 +48,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onSaved }) 
       <label className="block text-xs font-semibold text-slate-200 mb-1">{label}</label>
       <textarea
         value={form[key]}
+        required={key === 'offer'}
         onChange={(e) => setForm({ ...form, [key]: e.target.value })}
         rows={rows}
         maxLength={max}
@@ -64,7 +65,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onSaved }) 
           <div>
             <h2 className="text-base font-bold text-white">Hồ sơ của bạn</h2>
             <p className="text-[11px] text-slate-400 mt-0.5">
-              AI dựa vào hồ sơ này để gợi ý ngành nghề và khu vực nên tìm. Không nhập thông tin bí mật hay mật khẩu.
+              Chỉ cần nhập sản phẩm/dịch vụ, AI sẽ tự suy ra ai là khách hàng và gợi ý ngành + khu vực nên tìm. Các ô khác giúp gợi ý chính xác hơn. Không nhập thông tin bí mật hay mật khẩu.
             </p>
           </div>
           <button type="button" onClick={onClose} className="p-1 text-slate-400 hover:text-white rounded" aria-label="Đóng">
@@ -74,8 +75,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ onClose, onSaved }) 
 
         {loading ? <div className="text-xs text-slate-400">Đang tải…</div> : (
           <>
-            {field('offer', 'Bạn bán gì / làm dịch vụ gì? *', 'Ví dụ: Thiết kế website và chạy quảng cáo Google cho doanh nghiệp nhỏ', 3, 600)}
-            {field('customers', 'Khách hàng lý tưởng của bạn là ai? *', 'Ví dụ: Phòng khám, spa, nhà hàng chưa có website hoặc ít đánh giá trên Google Maps', 3, 600)}
+            {field('offer', 'Bạn bán sản phẩm / dịch vụ gì? * (chỉ cần ô này)', 'Ví dụ: Thiết kế website và chạy quảng cáo Google cho doanh nghiệp nhỏ', 3, 600)}
+            {field('customers', 'Khách hàng lý tưởng (không bắt buộc — để trống AI tự suy luận)', 'Ví dụ: Phòng khám, spa, nhà hàng chưa có website hoặc ít đánh giá trên Google Maps', 3, 600)}
             {field('area', 'Khu vực hoạt động', 'Ví dụ: Hà Nội và các quận nội thành', 2, 300)}
             {field('notes', 'Ghi chú thêm', 'Ví dụ: ưu tiên doanh nghiệp có SĐT, tránh chuỗi lớn', 2, 600)}
           </>

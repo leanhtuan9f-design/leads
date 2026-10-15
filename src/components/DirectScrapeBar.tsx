@@ -191,7 +191,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
             <span className="text-slate-300 font-medium">Gợi ý cho bạn:</span>
             {!ai.hasProfile ? (
               <button type="button" onClick={onOpenProfile} className="text-blue-400 hover:text-blue-300 underline">
-                Điền Hồ sơ để AI gợi ý ngành và khu vực nên tìm
+                Nhập sản phẩm của bạn để AI gợi ý ngành và khu vực nên tìm
               </button>
             ) : (
               <>
