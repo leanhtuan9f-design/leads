@@ -1,7 +1,7 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
 import { spawn, execFile } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import dns from 'node:dns/promises';
@@ -29,6 +29,14 @@ const JOB_LOG_KEEP_MS = 30 * 24 * 3600 * 1000; // giữ lịch sử job 30 ngày
 const BG_QUERIES_PER_HOUR = 6; // trần số truy vấn cập nhật nền mỗi giờ
 const PURGE_AFTER_MS = 180 * 24 * 3600 * 1000; // xóa dữ liệu không ai dùng sau 180 ngày
 const DEPTHS = [1, 2, 4, 8, 16, 32, 40];
+const AUTO_GAP_MS = 20 * 1000; // nghỉ giữa hai lần cào thật của tác vụ tự động (tránh dồn dập lên Google)
+const AUTO_MAX_PAIRS = 80;
+const CITY_DATA = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'data', 'cities.json'), 'utf8'));
+const citiesOfCountry = (country) => {
+  const k = String(country).trim().toLowerCase();
+  const name = Object.keys(CITY_DATA.cities).find((n) => n.toLowerCase() === k) || Object.keys(CITY_DATA.cities).find((n) => n.toLowerCase() === String(CITY_DATA.alias[k] || '').toLowerCase());
+  return name ? { name, cities: CITY_DATA.cities[name] } : null;
+};
 
 const isPrivateIp = (ip) => {
   if (net.isIPv4(ip)) {
@@ -130,6 +138,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_log (
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS ai_log_at ON ai_log(at)');
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+db.exec(`CREATE TABLE IF NOT EXISTS auto_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, created_by INTEGER, created_email TEXT, product TEXT NOT NULL, country TEXT NOT NULL,
+  max_results INTEGER NOT NULL, keywords TEXT NOT NULL, cities TEXT NOT NULL, buyer_types TEXT NOT NULL DEFAULT '[]', proxies TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL, created_at INTEGER NOT NULL, finished_at INTEGER, note TEXT NOT NULL DEFAULT '')`);
+db.exec(`CREATE TABLE IF NOT EXISTS auto_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, keyword TEXT NOT NULL, city TEXT NOT NULL, qtext TEXT NOT NULL, qkey TEXT NOT NULL,
+  status TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, cache_n INTEGER NOT NULL DEFAULT 0, live_n INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER, finished_at INTEGER, message TEXT NOT NULL DEFAULT '')`);
+db.exec('CREATE INDEX IF NOT EXISTS auto_runs_task ON auto_runs(task_id, status)');
+db.exec("UPDATE auto_runs SET status='pending' WHERE status='running'"); // khởi động lại giữa chừng → chạy lại cặp dở
 try { // cấu hình AI do admin đặt trong giao diện (khóa API nằm trong DB, không bao giờ trả về trình duyệt)
   const r = db.prepare("SELECT value FROM app_settings WHERE key = 'ai'").get();
   if (r) setAiConfig(JSON.parse(r.value));
@@ -195,6 +213,11 @@ const stmt = {
   aiLogStats: db.prepare('SELECT COUNT(*) AS calls, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(input_tokens),0) AS inp, COALESCE(SUM(output_tokens),0) AS outp FROM ai_log WHERE at >= ?'),
   aiLogPurge: db.prepare('DELETE FROM ai_log WHERE at < ?'),
   aiUsagePurge: db.prepare('DELETE FROM ai_usage WHERE day < ?'),
+  autoNextRun: db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 1"),
+  autoRunStart: db.prepare("UPDATE auto_runs SET status='running', started_at=? WHERE id=?"),
+  autoRunEnd: db.prepare('UPDATE auto_runs SET status=?, count=?, cache_n=?, live_n=?, finished_at=?, message=? WHERE id=?'),
+  autoLeft: db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND status IN ('pending','running')"),
+  autoTaskEnd: db.prepare("UPDATE auto_tasks SET status=?, finished_at=?, note=? WHERE id=? AND status='running'"),
   purgeRuns: db.prepare('DELETE FROM query_runs WHERE last_used_at < ?'),
   purgeLinks: db.prepare('DELETE FROM query_places WHERE qkey NOT IN (SELECT qkey FROM query_runs)'),
   purgePlaces: db.prepare('DELETE FROM places WHERE place_id NOT IN (SELECT place_id FROM query_places)'),
@@ -544,7 +567,7 @@ setInterval(() => { bgDoneThisHour = 0; }, 3600 * 1000).unref();
 function logJob(job) {
   try {
     const v = jobView(job);
-    const kind = job.spec.background ? 'background' : job.cacheOnly ? 'cache' : job.spec.force ? 'force' : 'user';
+    const kind = job.spec.auto ? 'auto' : job.spec.background ? 'background' : job.cacheOnly ? 'cache' : job.spec.force ? 'force' : 'user';
     stmt.logJob.run(job.id, job.startedAt || job.createdAt, Date.now(), job.userId, v.user, kind, JSON.stringify(v.queries),
       job.count, job.source.cache, job.source.live, v.proxies, job.endStatus || (job.aborted ? 'cancelled' : 'done'), job.endMessage || '');
   } catch (e) { console.error('logJob error', e); }
@@ -582,7 +605,7 @@ function next() {
     jobs.set(job.id, job);
     job.live = prepareCached(job);
   }
-  if (!job) return;
+  if (!job) { pickAuto(); return; }
   running = job;
   job.startedAt = Date.now();
   runJob(job).catch((e) => {
@@ -591,6 +614,7 @@ function next() {
   }).finally(() => {
     rmSync(job.dir, { recursive: true, force: true });
     logJob(job);
+    if (job.spec.auto) finishAutoRun(job);
     running = null;
     next();
   });
@@ -718,6 +742,7 @@ function prepareCached(job) {
 
 async function runJob(job) {
   const live = job.live;
+  const background = Boolean(job.spec.background);
   job.status = 'running';
   mkdirSync(job.dir, { recursive: true, mode: 0o777 });
   if (live.length === job.spec.queries.length) {
@@ -745,6 +770,7 @@ async function runJob(job) {
     }
   }
 
+  job.errNote = lastErr;
   if (job.aborted) { job.endClients('cancelled'); return; }
   if (job.count === 0 && !background && !job.detached) {
     const msg = lastErr || (job.spec.proxies.length
@@ -984,7 +1010,7 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
     recent: stmt.recentLog.all().map((r) => ({
-      id: r.id, kind: r.kind, background: r.kind === 'background', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
+      id: r.id, kind: r.kind, background: r.kind === 'background' || r.kind === 'auto', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
       user: r.user_email, queries: JSON.parse(r.queries), count: r.count, cache: r.cache_n, live: r.live_n, proxies: r.proxies,
       createdAt: r.started_at, startedAt: r.started_at, finishedAt: r.finished_at, status: r.status, message: r.message || '', detached: false,
     })),
@@ -1000,6 +1026,191 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     cache: { places: s.places, queries: s.queries, hits: s.hits },
   });
 });
+
+
+// ===== Tác vụ tự động (admin): sản phẩm + quốc gia → từ khóa AI × thành phố, chạy lần lượt khi máy rảnh =====
+let autoNotBefore = 0;
+let autoPicking = false;
+
+async function pickAuto() {
+  if (running || autoPicking) return;
+  const wait = autoNotBefore - Date.now();
+  if (wait > 0) { setTimeout(next, wait + 50).unref(); return; }
+  const r = stmt.autoNextRun.get();
+  if (!r) return;
+  autoPicking = true;
+  try {
+    let proxies = [];
+    try { proxies = JSON.parse(r.proxies || '[]'); } catch { proxies = []; }
+    stmt.autoRunStart.run(Date.now(), r.id);
+    const job = new Job({
+      queries: [{ text: r.qtext, key: r.qkey }], geo: '', radius: 10000, depth: neededDepth(r.max_results, 1), maxResults: r.max_results,
+      extractEmails: true, lang: 'vi', proxies, force: false, background: true, auto: { runId: r.id, taskId: r.task_id },
+    });
+    jobs.set(job.id, job);
+    setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
+    job.live = prepareCached(job);
+    if (job.live.length === 0) { // cặp này đã có đủ trong kho → báo cáo luôn, không mở trình duyệt
+      job.cacheOnly = true;
+      job.endClients('done');
+      logJob(job);
+      finishAutoRun(job);
+      setImmediate(next);
+      return;
+    }
+    running = job;
+    job.startedAt = Date.now();
+    runJob(job).catch((e) => { console.error('auto runJob error', e); job.endClients('failed', 'Lỗi nội bộ máy chủ'); }).finally(() => {
+      rmSync(job.dir, { recursive: true, force: true });
+      logJob(job);
+      finishAutoRun(job);
+      autoNotBefore = Date.now() + AUTO_GAP_MS;
+      running = null;
+      next();
+    });
+  } finally {
+    autoPicking = false;
+  }
+}
+
+function finishAutoRun(job) {
+  const { runId, taskId } = job.spec.auto;
+  let status = job.aborted ? 'error' : 'done';
+  let msg = job.endMessage || '';
+  if (job.count === 0) {
+    status = job.errNote ? 'error' : 'empty';
+    msg = job.errNote || msg || 'Google không trả kết quả cho cặp này';
+  } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
+  stmt.autoRunEnd.run(status, job.count, job.source.cache, job.source.live, Date.now(), String(msg).slice(0, 300), runId);
+  if (stmt.autoLeft.get(taskId).n === 0) stmt.autoTaskEnd.run('done', Date.now(), '', taskId);
+}
+
+const parseJsonCol = (v, d) => { try { return JSON.parse(v); } catch { return d; } };
+function taskStats(t) {
+  const runs = db.prepare('SELECT status, COUNT(*) AS n, SUM(count) AS cnt, SUM(cache_n) AS c, SUM(live_n) AS l FROM auto_runs WHERE task_id=? GROUP BY status').all(t.id);
+  const by = Object.fromEntries(runs.map((x) => [x.status, x]));
+  const total = runs.reduce((a, x) => a + x.n, 0);
+  const u = db.prepare(`SELECT COUNT(DISTINCT qp.place_id) AS places,
+      COUNT(DISTINCT CASE WHEN json_extract(p.data,'$.phone')<>'' THEN qp.place_id END) AS phone,
+      COUNT(DISTINCT CASE WHEN json_extract(p.data,'$.website')<>'' THEN qp.place_id END) AS website,
+      COUNT(DISTINCT CASE WHEN json_extract(p.data,'$.email')<>'' THEN qp.place_id END) AS email
+    FROM query_places qp JOIN places p ON p.place_id=qp.place_id WHERE qp.qkey IN (SELECT qkey FROM auto_runs WHERE task_id=? AND status IN ('done'))`).get(t.id);
+  return {
+    total, pending: by.pending?.n || 0, running: by.running?.n || 0, done: by.done?.n || 0, empty: by.empty?.n || 0, error: by.error?.n || 0,
+    found: runs.reduce((a, x) => a + (x.cnt || 0), 0), fromCache: runs.reduce((a, x) => a + (x.c || 0), 0), fromLive: runs.reduce((a, x) => a + (x.l || 0), 0),
+    uniquePlaces: u.places, withPhone: u.phone, withWebsite: u.website, withEmail: u.email,
+  };
+}
+const taskView = (t) => ({
+  id: t.id, product: t.product, country: t.country, maxResults: t.max_results, status: t.status, by: t.created_email,
+  keywords: parseJsonCol(t.keywords, []), cities: parseJsonCol(t.cities, []), buyerTypes: parseJsonCol(t.buyer_types, []),
+  proxies: parseJsonCol(t.proxies, []).length, // chỉ trả số lượng, không lộ user:pass
+  createdAt: t.created_at, finishedAt: t.finished_at, note: t.note, stats: taskStats(t),
+});
+
+app.get('/api/admin/auto', requireAdmin, (_req, res) => {
+  const tasks = db.prepare('SELECT * FROM auto_tasks ORDER BY id DESC LIMIT 50').all();
+  res.json({ tasks: tasks.map(taskView), aiEnabled: aiEnabled(), gapSec: AUTO_GAP_MS / 1000, maxPairs: AUTO_MAX_PAIRS });
+});
+
+app.get('/api/admin/auto/:id', requireAdmin, (req, res) => {
+  const t = db.prepare('SELECT * FROM auto_tasks WHERE id=?').get(Number(req.params.id));
+  if (!t) return res.status(404).json({ error: 'Không có tác vụ' });
+  const runs = db.prepare('SELECT id, keyword, city, status, count, cache_n, live_n, started_at, finished_at, message FROM auto_runs WHERE task_id=? ORDER BY id').all(t.id);
+  res.json({ task: taskView(t), runs: runs.map((r) => ({ id: r.id, keyword: r.keyword, city: r.city, status: r.status, count: r.count, cache: r.cache_n, live: r.live_n, startedAt: r.started_at, finishedAt: r.finished_at, message: r.message })) });
+});
+
+app.post('/api/admin/auto', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const product = clean(b.product, 300), country = clean(b.country, 60);
+  if (!product || !country) return res.status(400).json({ error: 'Cần nhập sản phẩm và quốc gia.' });
+  if (!aiEnabled()) return res.status(503).json({ error: 'AI chưa được cấu hình (menu tài khoản → Cấu hình AI).' });
+  const maxResults = Math.min(MAX_RESULTS, Math.max(5, Number(b.maxResults) || 50));
+
+  // thành phố: nhập tay (ưu tiên) hoặc bảng có sẵn của nước đó
+  const extra = String(b.cities || '').split(/[\n,;]+/).map((x) => clean(x, 60)).filter(Boolean);
+  const known = citiesOfCountry(country);
+  const cities = [...new Set(extra.length ? extra : known?.cities || [])];
+  if (cities.length === 0) return res.status(400).json({ error: `Chưa có danh sách thành phố cho "${country}". Hãy nhập thành phố vào ô Thành phố (cách nhau bằng dấu phẩy).` });
+
+  let proxies = [];
+  const rawProxies = String(b.proxies || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+  if (rawProxies.length > MAX_PROXIES) return res.status(400).json({ error: `Tối đa ${MAX_PROXIES} proxy` });
+  try { proxies = await Promise.all(rawProxies.map(validateProxy)); } catch (e) { return res.status(400).json({ error: e.message }); }
+
+  // AI: từ khóa của nước này + loại khách hàng (một lần gọi, có yêu cầu bắt buộc có nước đã chọn)
+  let ai;
+  const t0 = Date.now();
+  try {
+    ai = await suggestCountries({ offer: product, area: `Bắt buộc có "${known?.name || country}" trong danh sách quốc gia trả về.` });
+  } catch (e) {
+    const msg = e instanceof AiError ? e.message : 'Lỗi nội bộ khi gọi AI';
+    stmt.aiLogAdd.run(Date.now(), req.user.id, req.user.email, 0, 0, 0, 0, msg);
+    return res.status(502).json({ error: msg });
+  }
+  stmt.aiLogAdd.run(Date.now(), req.user.id, req.user.email, 1, ai.usage.input, ai.usage.output, ai.countries.length, `tác vụ tự động ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const want = (known?.name || country).toLowerCase();
+  const hit = ai.countries.find((c) => c.country.toLowerCase() === want || c.country.toLowerCase() === country.toLowerCase());
+  if (!hit) return res.status(422).json({ error: `AI không đưa "${country}" vào thị trường phù hợp với sản phẩm này (AI gợi ý: ${ai.countries.map((c) => c.country).join(', ')}). Hãy thử nước khác hoặc mô tả sản phẩm cụ thể hơn.` });
+  const keywords = [...new Set([...hit.keywords, ...ai.buyerTypes.map((x) => x.keyword)].map((k) => k.trim()).filter(Boolean))].slice(0, 6);
+  if (keywords.length * cities.length > AUTO_MAX_PAIRS) cities.length = Math.max(1, Math.floor(AUTO_MAX_PAIRS / keywords.length));
+
+  const suffix = known?.name || country;
+  const now = Date.now();
+  const id = inTx(() => {
+    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .run(req.user.id, req.user.email, product, suffix, maxResults, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(proxies), 'running', now);
+    const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
+    for (const city of cities) for (const kw of keywords) {
+      const qtext = `${kw} ${city}${new RegExp(`(^|,\\s*)${suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(city) ? '' : `, ${suffix}`}`;
+      ins.run(Number(r.lastInsertRowid), kw, city, qtext, makeKey(qtext, 'vi', ''), 'pending');
+    }
+    return Number(r.lastInsertRowid);
+  });
+  next();
+  res.json({ id });
+});
+
+app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  stmt.autoTaskEnd.run('stopped', Date.now(), 'Admin dừng', id);
+  res.json({ ok: true });
+});
+app.post('/api/admin/auto/:id/resume', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const left = db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND status='pending'").get(id).n;
+  if (!left) return res.status(400).json({ error: 'Không còn cặp nào chờ chạy.' });
+  db.prepare("UPDATE auto_tasks SET status='running', finished_at=NULL, note='' WHERE id=? AND status='stopped'").run(id);
+  next();
+  res.json({ ok: true });
+});
+app.delete('/api/admin/auto/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  inTx(() => { db.prepare('DELETE FROM auto_runs WHERE task_id=?').run(id); db.prepare('DELETE FROM auto_tasks WHERE id=?').run(id); });
+  res.json({ ok: true });
+});
+
+// Xuất toàn bộ lead của một tác vụ (CSV); ô bắt đầu bằng = + - @ được thêm ' để không bị Excel chạy như công thức
+app.get('/api/admin/auto/:id/export.csv', requireAdmin, (req, res) => {
+  const t = db.prepare('SELECT * FROM auto_tasks WHERE id=?').get(Number(req.params.id));
+  if (!t) return res.status(404).end();
+  const rows = db.prepare(`SELECT r.keyword, r.city, p.data FROM auto_runs r JOIN query_places qp ON qp.qkey=r.qkey JOIN places p ON p.place_id=qp.place_id
+    WHERE r.task_id=? AND r.status='done' ORDER BY r.id, qp.pos`).all(t.id);
+  const esc = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = `'${x}`; return `"${x.replace(/"/g, '""')}"`; };
+  const seen = new Set();
+  const lines = [['Tên', 'Danh mục', 'Địa chỉ', 'Điện thoại', 'Website', 'Email', 'Đánh giá', 'Số review', 'Google Maps', 'Từ khóa', 'Thành phố'].map(esc).join(',')];
+  for (const r of rows) {
+    const p = JSON.parse(r.data);
+    const k = p.placeId || p.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    lines.push([p.title, p.category, p.address, p.phone, p.website, p.email, p.rating, p.reviewsCount, p.googleMapsUrl, r.keyword, r.city].map(esc).join(','));
+  }
+  res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="task_${t.id}.csv"` });
+  res.send('﻿' + lines.join('\n'));
+});
+
+setTimeout(next, 5000).unref(); // sau khi khởi động, tiếp tục các tác vụ đang dở
 
 // (health không cần đăng nhập)
 app.get('/api/health', (_req, res) => res.json({ ok: true, running: Boolean(running), queued: queue.length }));

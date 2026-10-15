@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
+import { AutoTasks } from './AutoTasks';
 
 interface JobRow {
   id: string;
@@ -106,6 +107,8 @@ export const AdminBackgroundView: React.FC = () => {
         Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại ở nền khi máy rảnh (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
+
+      <AutoTasks />
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-1">Gợi ý AI từ hồ sơ</h3>

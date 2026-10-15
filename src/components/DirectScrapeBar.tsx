@@ -8,9 +8,6 @@ import { estimateMarketTotal } from '../services/scraperEngine';
 interface DirectScrapeBarProps {
   existingBusinesses?: ScrapedBusiness[];
   onStartScrape: (options: ScraperOptions) => void;
-  onStartBatch: (items: ScraperOptions[]) => void;
-  batch: { done: number; total: number; label: string } | null;
-  onStopBatch: () => void;
   isRunning: boolean;
   proxiesText: string;
   onChangeProxies: (text: string) => void;
@@ -56,9 +53,6 @@ const QUICK_SEARCH_EXAMPLES = [
 export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   existingBusinesses = [],
   onStartScrape,
-  onStartBatch,
-  batch,
-  onStopBatch,
   isRunning,
   proxiesText,
   onChangeProxies,
@@ -147,35 +141,6 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
 
   const quotaFull = quota ? quota.newUsed >= quota.newLimit : false;
   const canSubmit = !isRunning && category.trim() !== '' && fullLocation !== '';
-
-  // Chạy ngầm: ghép mọi từ khóa AI của nước đã chọn với mọi thành phố của nước đó
-  const batchItems = (): ScraperOptions[] => {
-    const n = country.trim();
-    if (!n || !countryInfo) return [];
-    const isFull = maxResults === FULL_BATCH;
-    const out: ScraperOptions[] = [];
-    for (const kw of countryInfo.keywords) {
-      for (const c of cityOptions) {
-        const loc = new RegExp(`(^|,\\s*)${escRe(n)}$`, 'i').test(c) ? c : `${c}, ${n}`;
-        out.push({
-          query: `${kw} tại ${loc}`,
-          category: kw,
-          location: loc,
-          maxResults: isFull ? 100 : maxResults,
-          extractEmails: true,
-          skipWithoutPhone,
-          skipWithoutWebsite,
-          language: 'vi',
-          existingBusinesses,
-          scrapeMode: isFull ? 'exhaustive' : 'batch',
-          useDistrictSubdivision: true,
-          forceRefresh: false
-        });
-      }
-    }
-    return out;
-  };
-  const batchCount = countryInfo ? countryInfo.keywords.length * cityOptions.length : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -369,22 +334,6 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                       </button>
                     ))}
                   </>
-                )}
-                {batch ? (
-                  <span className="flex items-center gap-1.5 text-emerald-300">
-                    Đang chạy ngầm {batch.done + 1}/{batch.total}: {batch.label}
-                    <button type="button" onClick={onStopBatch} className="px-2 py-0.5 border border-red-500/50 text-red-300 hover:bg-red-500/20 rounded">Dừng</button>
-                  </span>
-                ) : batchCount > 0 && (
-                  <button
-                    type="button"
-                    disabled={isRunning}
-                    onClick={() => onStartBatch(batchItems())}
-                    title="AI ghép từng từ khóa với từng thành phố của nước này, rồi tìm lần lượt từng cặp (giữ trang mở). Mỗi cặp là một lần tìm trong Lịch sử."
-                    className="px-2 py-0.5 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/50 rounded disabled:opacity-50"
-                  >
-                    Chạy ngầm tất cả ({countryInfo!.keywords.length} từ khóa × {cityOptions.length} thành phố = {batchCount} lượt)
-                  </button>
                 )}
                 <button type="button" onClick={() => { setCountry(''); setCity(''); }} className="text-slate-400 hover:text-white underline">Chọn nước khác</button>
               </>
