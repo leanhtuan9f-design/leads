@@ -25,6 +25,9 @@ interface DirectScrapeBarProps {
   onOpenGuide: (guideId: string) => void;
 }
 
+// Giá trị đặc biệt của ô "Số lượng mỗi đợt": quét FULL toàn bộ thị trường còn lại
+const FULL_BATCH = 0;
+
 const QUICK_SEARCH_EXAMPLES = [
   { category: 'Phòng khám nha khoa', location: 'Hà Nội' },
   { category: 'Quán cà phê', location: 'Quận 1, TP.HCM' },
@@ -85,6 +88,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const handleStartBatch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!category.trim() || !location.trim() || isRunning) return;
+
+    // Chọn "Quét FULL": cào toàn bộ phần thị trường còn lại (chế độ exhaustive)
+    if (maxResults === FULL_BATCH) {
+      handleStartExhaustive();
+      return;
+    }
 
     const fullQuery = `${category.trim()} tại ${location.trim()}`;
 
@@ -242,6 +251,9 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 <option value={50}>50 địa điểm (Quét sâu)</option>
                 <option value={100}>100 địa điểm (Lớn)</option>
                 <option value={150}>150 địa điểm (Quy mô cao)</option>
+                <option value={FULL_BATCH}>
+                  {`Quét FULL (còn ~${marketInfo.remaining > 0 ? marketInfo.remaining : 'toàn bộ'} điểm)`}
+                </option>
               </select>
             </div>
 
@@ -253,7 +265,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
               title="Bắt đầu cào đợt mới (Tự động lọc bỏ các địa điểm đã có)"
             >
               <Zap className="w-4 h-4 fill-current text-amber-300" />
-              <span>{marketInfo.existingCount > 0 ? `Cào tiếp +${maxResults}` : 'Bắt đầu cào'}</span>
+              <span>{maxResults === FULL_BATCH ? 'Quét FULL' : marketInfo.existingCount > 0 ? `Cào tiếp +${maxResults}` : 'Bắt đầu cào'}</span>
             </button>
           </div>
         </div>
@@ -270,7 +282,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0"
               />
               <span className="text-slate-200 font-medium">
-                🔥 <strong>Cơ chế Quét Full Chỉ Tiêu Đợt:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults} địa điểm MỚI</strong> (Tự động mở rộng phân khu, không bị nghẽn ở mốc 20-25 kết quả của Google)
+                🔥 <strong>Cơ chế Quét Full Chỉ Tiêu Đợt:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (Tự động mở rộng phân khu, không bị nghẽn ở mốc 20-25 kết quả của Google)
               </span>
             </label>
           </div>
