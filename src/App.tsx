@@ -12,6 +12,7 @@ import { ModuleHelpModal } from './components/ModuleHelpModal';
 import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
 import { AdminBackgroundView } from './components/AdminBackgroundView';
+import { ProfileModal } from './components/ProfileModal';
 import { AuthUser, Quota, apiJson } from './auth/types';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
@@ -86,6 +87,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const [selectedBusiness, setSelectedBusiness] = useState<ScrapedBusiness | null>(null);
   const [outreachLeads, setOutreachLeads] = useState<ScrapedBusiness[] | null>(null);
   const [activeGuideId, setActiveGuideId] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileVersion, setProfileVersion] = useState(0); // tăng khi lưu hồ sơ → thanh tìm kiếm tải lại gợi ý
 
   // Active Job Execution state
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -309,6 +312,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
+        onOpenProfile={() => setProfileOpen(true)}
         totalLeadsCount={businesses.length}
         user={user}
         quota={quota}
@@ -325,6 +329,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
             onChangeProxies={setProxiesText}
             proxyCount={parseProxies(proxiesText).length}
             quota={quota}
+            profileVersion={profileVersion}
+            onOpenProfile={() => setProfileOpen(true)}
           />
         )}
 
@@ -441,6 +447,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       )}
 
       {trashKind && <TrashModal kind={trashKind} onRestore={trashKind === 'leads' ? handleRestoreLeads : handleRestoreJobs} onClose={() => setTrashKind(null)} />}
+
+      {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} onSaved={() => setProfileVersion(v => v + 1)} />}
 
       {activeGuideId && (
         <ModuleHelpModal

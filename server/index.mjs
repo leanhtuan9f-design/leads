@@ -7,7 +7,11 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
+import { AI_MODEL, AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
+
+// Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
+try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
 
 const PORT = Number(process.env.PORT || 3150);
 const HOST = '127.0.0.1';
@@ -107,6 +111,24 @@ db.exec(`CREATE TABLE IF NOT EXISTS job_log (
   message TEXT
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS job_log_finished ON job_log(finished_at)');
+db.exec(`CREATE TABLE IF NOT EXISTS ai_usage (
+  user_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, day)
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  user_id INTEGER,
+  user_email TEXT,
+  ok INTEGER NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  items INTEGER NOT NULL DEFAULT 0,
+  message TEXT
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS ai_log_at ON ai_log(at)');
 db.exec(`CREATE TABLE IF NOT EXISTS user_items (
   user_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -161,6 +183,13 @@ const stmt = {
   recentLog: db.prepare('SELECT * FROM job_log ORDER BY finished_at DESC LIMIT 100'),
   countLog: db.prepare('SELECT COUNT(*) AS n FROM job_log'),
   purgeLog: db.prepare('DELETE FROM job_log WHERE finished_at < ?'),
+  aiUsageGet: db.prepare('SELECT calls FROM ai_usage WHERE user_id = ? AND day = ?'),
+  aiUsageAdd: db.prepare('INSERT INTO ai_usage (user_id, day, calls) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET calls = calls + 1'),
+  aiLogAdd: db.prepare('INSERT INTO ai_log (at, user_id, user_email, ok, input_tokens, output_tokens, items, message) VALUES (?,?,?,?,?,?,?,?)'),
+  aiLogRecent: db.prepare('SELECT * FROM ai_log ORDER BY at DESC LIMIT 20'),
+  aiLogStats: db.prepare('SELECT COUNT(*) AS calls, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(input_tokens),0) AS inp, COALESCE(SUM(output_tokens),0) AS outp FROM ai_log WHERE at >= ?'),
+  aiLogPurge: db.prepare('DELETE FROM ai_log WHERE at < ?'),
+  aiUsagePurge: db.prepare('DELETE FROM ai_usage WHERE day < ?'),
   purgeRuns: db.prepare('DELETE FROM query_runs WHERE last_used_at < ?'),
   purgeLinks: db.prepare('DELETE FROM query_places WHERE qkey NOT IN (SELECT qkey FROM query_runs)'),
   purgePlaces: db.prepare('DELETE FROM places WHERE place_id NOT IN (SELECT place_id FROM query_places)'),
@@ -169,6 +198,8 @@ function purgeOld() {
   stmt.purgeSessions.run(Date.now());
   stmt.purgeUsage.run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
   stmt.purgeLog.run(Date.now() - JOB_LOG_KEEP_MS);
+  stmt.aiLogPurge.run(Date.now() - JOB_LOG_KEEP_MS);
+  stmt.aiUsagePurge.run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
   stmt.purgeRuns.run(Date.now() - PURGE_AFTER_MS);
   stmt.purgeLinks.run();
   stmt.purgePlaces.run();
@@ -222,7 +253,7 @@ app.use('/api/jobs', requireAuth);
 app.use(['/api/state', '/api/items'], requireAuth);
 
 // ===== Dữ liệu riêng của từng người dùng (lead, lịch sử job, proxy) =====
-const STATE_KEYS = new Set(['proxies']);
+const STATE_KEYS = new Set(['proxies', 'profile']);
 app.get('/api/state/:key', (req, res) => {
   if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });
   const row = stmt.getState.get(req.user.id, req.params.key);
@@ -286,9 +317,13 @@ app.put('/api/state/:key', (req, res) => {
   if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });
   const v = req.body?.value;
   if (v === undefined || v === null) return res.status(400).json({ error: 'Thiếu dữ liệu' });
-  if (req.params.key === 'proxies' ? typeof v !== 'string' : !Array.isArray(v)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
+  let value = v;
+  if (req.params.key === 'profile') {
+    if (typeof v !== 'object' || Array.isArray(v)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
+    value = cleanProfile(v);
+  } else if (req.params.key === 'proxies' ? typeof v !== 'string' : !Array.isArray(v)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
   const updatedAt = Date.now();
-  stmt.setState.run(req.user.id, req.params.key, JSON.stringify(v), updatedAt);
+  stmt.setState.run(req.user.id, req.params.key, JSON.stringify(value), updatedAt);
   res.json({ ok: true, updatedAt });
 });
 
@@ -820,6 +855,57 @@ app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   res.json({ places: s.places, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
 });
 
+// ===== AI gợi ý từ khóa từ hồ sơ người dùng =====
+app.use('/api/suggest', requireAuth);
+const aiInFlight = new Set();
+const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
+const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes]));
+const aiUsedToday = (uid) => stmt.aiUsageGet.get(uid, vnDay())?.calls || 0;
+const savedSuggestions = (uid) => { const r = stmt.getState.get(uid, 'suggestions'); return r ? JSON.parse(r.value) : null; };
+
+app.get('/api/suggest', (req, res) => {
+  const p = profileOf(req.user.id);
+  const saved = savedSuggestions(req.user.id);
+  res.json({
+    enabled: aiEnabled(), hasProfile: !profileIsEmpty(p), used: aiUsedToday(req.user.id), limit: AI_DAILY_LIMIT,
+    items: saved?.items || [], stale: Boolean(saved && p && saved.hash !== profileHash(p)), at: saved?.at || 0,
+  });
+});
+
+app.post('/api/suggest', async (req, res) => {
+  const user = req.user;
+  if (!aiEnabled()) return res.status(503).json({ error: 'Tính năng gợi ý AI chưa được bật trên máy chủ.' });
+  const p = profileOf(user.id);
+  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy điền Hồ sơ (dịch vụ và khách hàng lý tưởng) trước.' });
+  const hash = profileHash(p);
+  const saved = savedSuggestions(user.id);
+  if (saved && saved.hash === hash && saved.items?.length) { // hồ sơ không đổi: dùng lại, không gọi AI, không trừ lượt
+    return res.json({ items: saved.items, cached: true, used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT, at: saved.at });
+  }
+  if (aiUsedToday(user.id) >= AI_DAILY_LIMIT) {
+    return res.status(429).json({ error: `Hôm nay bạn đã dùng hết ${AI_DAILY_LIMIT} lượt gợi ý AI. Lượt đặt lại vào 0h (giờ Việt Nam).` });
+  }
+  if (aiInFlight.has(user.id)) return res.status(429).json({ error: 'Đang xử lý yêu cầu trước, vui lòng đợi.' });
+  aiInFlight.add(user.id);
+  try {
+    stmt.aiUsageAdd.run(user.id, vnDay()); // tính lượt trước khi gọi để không bị lách bằng cách ngắt kết nối
+    let result;
+    try {
+      result = await suggestKeywords(p);
+    } catch (e) {
+      const msg = e instanceof AiError ? e.message : 'Lỗi nội bộ khi gọi AI';
+      stmt.aiLogAdd.run(Date.now(), user.id, user.email, 0, 0, 0, 0, msg);
+      return res.status(502).json({ error: msg });
+    }
+    const at = Date.now();
+    stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, items: result.items, at }), at);
+    stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, result.items.length, '');
+    res.json({ items: result.items, cached: false, used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT, at });
+  } finally {
+    aiInFlight.delete(user.id);
+  }
+});
+
 // Theo dõi việc chạy ngầm (chỉ admin)
 app.get('/api/admin/background', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
@@ -834,6 +920,14 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
       user: r.user_email, queries: JSON.parse(r.queries), count: r.count, cache: r.cache_n, live: r.live_n, proxies: r.proxies,
       createdAt: r.started_at, startedAt: r.started_at, finishedAt: r.finished_at, status: r.status, message: r.message || '', detached: false,
     })),
+    ai: (() => {
+      const st = stmt.aiLogStats.get(Date.now() - JOB_LOG_KEEP_MS);
+      return {
+        enabled: aiEnabled(), model: AI_MODEL, dailyLimit: AI_DAILY_LIMIT,
+        calls30d: st.calls, ok30d: st.ok, inputTokens30d: st.inp, outputTokens30d: st.outp,
+        recent: stmt.aiLogRecent.all().map((r) => ({ at: r.at, user: r.user_email, ok: Boolean(r.ok), input: r.input_tokens, output: r.output_tokens, items: r.items, message: r.message || '' })),
+      };
+    })(),
     logTotal: stmt.countLog.get().n, logKeepDays: JOB_LOG_KEEP_MS / 86400000,
     cache: { places: s.places, queries: s.queries, hits: s.hits },
   });

@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { Search, MapPin, Briefcase, ChevronRight } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Search, MapPin, Briefcase, ChevronRight, Sparkles } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
-import { Quota } from '../auth/types';
+import { Quota, apiJson } from '../auth/types';
 import { estimateMarketTotal } from '../services/scraperEngine';
 
 interface DirectScrapeBarProps {
@@ -12,6 +12,18 @@ interface DirectScrapeBarProps {
   onChangeProxies: (text: string) => void;
   proxyCount?: number;
   quota?: Quota | null;
+  profileVersion?: number;
+  onOpenProfile: () => void;
+}
+
+interface AiSuggestion { category: string; location: string; reason: string }
+interface AiState {
+  enabled: boolean;
+  hasProfile: boolean;
+  used: number;
+  limit: number;
+  items: AiSuggestion[];
+  stale: boolean;
 }
 
 // Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
@@ -37,7 +49,9 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   proxiesText,
   onChangeProxies,
   proxyCount = 0,
-  quota = null
+  quota = null,
+  profileVersion = 0,
+  onOpenProfile
 }) => {
   const [category, setCategory] = useState('');
   const [location, setLocation] = useState('');
@@ -46,6 +60,31 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
   const [skipWithoutWebsite, setSkipWithoutWebsite] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
+
+  // Gợi ý từ khóa bằng AI dựa trên Hồ sơ
+  const [ai, setAi] = useState<AiState | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [showSamples, setShowSamples] = useState(false);
+
+  const loadAi = useCallback(() => {
+    apiJson<AiState>('/suggest').then(setAi).catch(() => setAi(null));
+  }, []);
+  useEffect(() => { loadAi(); }, [loadAi, profileVersion]);
+
+  const askAi = async () => {
+    setAiBusy(true);
+    setAiError('');
+    try {
+      const r = await apiJson<{ items: AiSuggestion[]; used: number; limit: number }>('/suggest', 'POST', {});
+      setAi(prev => (prev ? { ...prev, items: r.items, used: r.used, limit: r.limit, stale: false } : prev));
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : 'Không lấy được gợi ý');
+      loadAi();
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   // Số lượng dùng cho "Tất cả có thể": ước lượng thị trường trừ số đã có (heuristic)
   const fullTarget = useMemo(() => {
@@ -145,6 +184,53 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         </div>
       )}
 
+      {ai?.enabled && (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span className="text-slate-300 font-medium">Gợi ý cho bạn:</span>
+            {!ai.hasProfile ? (
+              <button type="button" onClick={onOpenProfile} className="text-blue-400 hover:text-blue-300 underline">
+                Điền Hồ sơ để AI gợi ý ngành và khu vực nên tìm
+              </button>
+            ) : (
+              <>
+                {ai.items.map((it) => (
+                  <button
+                    key={`${it.category}|${it.location}`}
+                    type="button"
+                    title={it.reason}
+                    onClick={() => { setCategory(it.category); setLocation(it.location); }}
+                    className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-slate-200 border border-amber-500/30 rounded transition-colors"
+                  >
+                    <span className="text-amber-300">{it.category}</span>
+                    <span className="text-slate-500 mx-1">@</span>
+                    <span className="font-mono text-emerald-400">{it.location}</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={askAi}
+                  disabled={aiBusy || ai.used >= ai.limit}
+                  className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
+                >
+                  {aiBusy ? 'AI đang nghĩ…' : ai.items.length ? (ai.stale ? 'Cập nhật theo hồ sơ mới' : 'Gợi ý lại') : 'Gợi ý từ hồ sơ của tôi'}
+                </button>
+                <span className="text-slate-500">({ai.used}/{ai.limit} lượt hôm nay)</span>
+                <button type="button" onClick={onOpenProfile} className="text-slate-400 hover:text-white underline">Sửa hồ sơ</button>
+              </>
+            )}
+            {ai.items.length > 0 && (
+              <button type="button" onClick={() => setShowSamples(v => !v)} className="text-slate-500 hover:text-slate-300 underline ml-auto">
+                {showSamples ? 'Ẩn gợi ý mẫu' : 'Gợi ý mẫu'}
+              </button>
+            )}
+          </div>
+          {aiError && <div className="text-xs text-red-300">{aiError}</div>}
+        </div>
+      )}
+
+      {(!ai?.enabled || !ai.hasProfile || ai.items.length === 0 || showSamples) && (
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
         {QUICK_SEARCH_EXAMPLES.map((ex) => (
@@ -160,6 +246,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           </button>
         ))}
       </div>
+      )}
 
       <div>
         <button

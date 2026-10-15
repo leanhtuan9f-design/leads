@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, LogOut, KeyRound, Terminal, Users } from 'lucide-react';
+import { User, LogOut, KeyRound, Terminal, Users, UserCog } from 'lucide-react';
 import { apiJson, AuthUser, Quota } from '../auth/types';
 import { ActiveTab } from '../types/scraper';
 
@@ -9,9 +9,10 @@ interface AccountMenuProps {
   onLogout: () => void;
   activeTab: ActiveTab;
   onNavigate: (tab: ActiveTab) => void;
+  onOpenProfile: () => void;
 }
 
-export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout, activeTab, onNavigate }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout, activeTab, onNavigate, onOpenProfile }) => {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const [cur, setCur] = useState('');
@@ -71,6 +72,9 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout,
               <KeyRound className="w-3.5 h-3.5" /> Đổi mật khẩu
             </button>
           )}
+          <button onClick={() => { onOpenProfile(); setOpen(false); }} className="w-full flex items-center gap-1.5 text-slate-300 hover:text-white">
+            <UserCog className="w-3.5 h-3.5" /> Hồ sơ của tôi
+          </button>
           <button
             onClick={() => { onNavigate('api'); setOpen(false); }}
             className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'api' ? 'text-blue-400' : 'text-slate-300'}`}

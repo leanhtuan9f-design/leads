@@ -29,6 +29,16 @@ interface BackgroundInfo {
   bgPerHour: number;
   ttlDays: number;
   recent: JobRow[];
+  ai: {
+    enabled: boolean;
+    model: string;
+    dailyLimit: number;
+    calls30d: number;
+    ok30d: number;
+    inputTokens30d: number;
+    outputTokens30d: number;
+    recent: { at: number; user: string | null; ok: boolean; input: number; output: number; items: number; message: string }[];
+  };
   logTotal: number;
   logKeepDays: number;
   cache: { places: number; queries: number; hits: number };
@@ -96,6 +106,32 @@ export const AdminBackgroundView: React.FC = () => {
         Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại ở nền khi máy rảnh (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
+
+      <section className={card}>
+        <h3 className="font-semibold text-white mb-1">Gợi ý AI từ hồ sơ</h3>
+        {info.ai.enabled ? (
+          <>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Model {info.ai.model} · giới hạn {info.ai.dailyLimit} lượt/người/ngày · 30 ngày qua: {info.ai.calls30d} lượt ({info.ai.ok30d} thành công),
+              {' '}{info.ai.inputTokens30d.toLocaleString('vi-VN')} token vào / {info.ai.outputTokens30d.toLocaleString('vi-VN')} token ra
+            </p>
+            {info.ai.recent.length === 0 ? <div className="text-slate-500">Chưa có lượt nào.</div> : (
+              <ul className="space-y-1">
+                {info.ai.recent.map((r, i) => (
+                  <li key={i} className="flex flex-wrap gap-x-3 text-slate-300">
+                    <span className="font-mono text-slate-400">{fmtDateTime(r.at)}</span>
+                    <span>{r.user || '—'}</span>
+                    <span className={r.ok ? 'text-emerald-300' : 'text-red-300'}>{r.ok ? `${r.items} gợi ý` : r.message || 'Lỗi'}</span>
+                    {r.ok && <span className="text-slate-500 font-mono">{r.input}/{r.output} token</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <div className="text-amber-300">Chưa bật: máy chủ chưa có <code className="font-mono">ANTHROPIC_API_KEY</code> (đặt trong <code className="font-mono">/opt/maps/.env</code> rồi khởi động lại <code className="font-mono">maps-api</code>).</div>
+        )}
+      </section>
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-2">Đang chạy</h3>
