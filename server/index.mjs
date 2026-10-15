@@ -7,7 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, suggestCountries, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, DEFAULT_COUNTRY_PROMPT, FIXED_SUFFIX, COUNTRY_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -864,28 +864,38 @@ app.get('/api/cache/stats', requireAdmin, (_req, res) => {
 app.use('/api/suggest', requireAuth);
 const aiInFlight = new Set();
 const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
-const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt])); // đổi prompt thì gợi ý cũ hết hiệu lực
+const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt, getAiConfig().countryPrompt])); // đổi prompt thì gợi ý cũ hết hiệu lực
 const aiUsedToday = (uid) => stmt.aiUsageGet.get(uid, vnDay())?.calls || 0;
 const savedSuggestions = (uid) => { const r = stmt.getState.get(uid, 'suggestions'); return r ? JSON.parse(r.value) : null; };
+
+const emptySaved = (hash) => ({ hash, countries: [], countriesAt: 0, byCountry: {} });
+const suggestView = (saved, extra = {}) => ({ countries: saved?.countries || [], byCountry: saved?.byCountry || {}, ...extra });
 
 app.get('/api/suggest', (req, res) => {
   const p = profileOf(req.user.id);
   const saved = savedSuggestions(req.user.id);
+  const fresh = Boolean(saved && p && saved.hash === profileHash(p));
   res.json({
     enabled: aiEnabled(), hasProfile: !profileIsEmpty(p), used: aiUsedToday(req.user.id), limit: AI_DAILY_LIMIT,
-    items: saved?.items || [], stale: Boolean(saved && p && saved.hash !== profileHash(p)), at: saved?.at || 0,
+    ...suggestView(fresh ? saved : null), stale: Boolean(saved?.countries?.length && p && !fresh),
   });
 });
 
+// Không có `country`: gợi ý quốc gia (bước 1). Có `country`: gợi ý loại người mua × thành phố của quốc gia đó (bước 2).
 app.post('/api/suggest', async (req, res) => {
   const user = req.user;
   if (!aiEnabled()) return res.status(503).json({ error: 'Tính năng gợi ý AI chưa được bật trên máy chủ.' });
   const p = profileOf(user.id);
-  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm/dịch vụ của bạn trong Hồ sơ trước.' });
+  if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm xuất khẩu của bạn trong Hồ sơ trước.' });
+  const country = String(req.body?.country ?? '').replace(/[<>\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const ckey = country.toLowerCase();
   const hash = profileHash(p);
-  const saved = savedSuggestions(user.id);
-  if (saved && saved.hash === hash && saved.items?.length) { // hồ sơ không đổi: dùng lại, không gọi AI, không trừ lượt
-    return res.json({ items: saved.items, cached: true, used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT, at: saved.at });
+  let saved = savedSuggestions(user.id);
+  if (!saved || saved.hash !== hash || !saved.byCountry) saved = emptySaved(hash);
+  const used = () => ({ used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT });
+  // đã có kết quả cho đúng hồ sơ + prompt: dùng lại, không gọi AI, không trừ lượt
+  if (country ? saved.byCountry[ckey]?.items?.length : saved.countries.length) {
+    return res.json(suggestView(saved, { cached: true, country, ...used() }));
   }
   if (aiUsedToday(user.id) >= AI_DAILY_LIMIT) {
     return res.status(429).json({ error: `Hôm nay bạn đã dùng hết ${AI_DAILY_LIMIT} lượt gợi ý AI. Lượt đặt lại vào 0h (giờ Việt Nam).` });
@@ -896,16 +906,26 @@ app.post('/api/suggest', async (req, res) => {
     stmt.aiUsageAdd.run(user.id, vnDay()); // tính lượt trước khi gọi để không bị lách bằng cách ngắt kết nối
     let result;
     try {
-      result = await suggestKeywords(p);
+      result = country ? await suggestKeywords(p, country) : await suggestCountries(p);
     } catch (e) {
       const msg = e instanceof AiError ? e.message : 'Lỗi nội bộ khi gọi AI';
       stmt.aiLogAdd.run(Date.now(), user.id, user.email, 0, 0, 0, 0, msg);
       return res.status(502).json({ error: msg });
     }
     const at = Date.now();
-    stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, items: result.items, at }), at);
-    stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, result.items.length, '');
-    res.json({ items: result.items, cached: false, used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT, at });
+    // lưu lại chồng lên bản mới nhất (tránh ghi đè kết quả do yêu cầu khác vừa lưu)
+    const cur = savedSuggestions(user.id);
+    if (cur && cur.hash === hash && cur.byCountry) saved = cur;
+    if (country) {
+      saved.byCountry[ckey] = { country, items: result.items, at };
+      const keys = Object.keys(saved.byCountry).sort((a, b) => saved.byCountry[b].at - saved.byCountry[a].at).slice(0, 20);
+      saved.byCountry = Object.fromEntries(keys.map((k) => [k, saved.byCountry[k]]));
+    } else {
+      saved.countries = result.countries; saved.countriesAt = at;
+    }
+    stmt.setState.run(user.id, 'suggestions', JSON.stringify(saved), at);
+    stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, (result.items || result.countries).length, country ? `quốc gia: ${country}` : 'gợi ý quốc gia');
+    res.json(suggestView(saved, { cached: false, country, ...used() }));
   } finally {
     aiInFlight.delete(user.id);
   }
@@ -914,7 +934,7 @@ app.post('/api/suggest', async (req, res) => {
 // Cấu hình kết nối AI (chỉ admin). Khóa API chỉ ghi vào, không bao giờ đọc ra.
 const aiConfigView = () => {
   const c = getAiConfig();
-  return { format: c.format, baseUrl: c.baseUrl, model: c.model, hasKey: Boolean(c.apiKey), keyHint: c.apiKey ? c.apiKey.slice(-4) : '', keySource: c.keySource, enabled: aiEnabled(), systemPrompt: c.systemPrompt, customPrompt: c.customPrompt, defaultPrompt: DEFAULT_SYSTEM_PROMPT, fixedSuffix: FIXED_SUFFIX };
+  return { format: c.format, baseUrl: c.baseUrl, model: c.model, hasKey: Boolean(c.apiKey), keyHint: c.apiKey ? c.apiKey.slice(-4) : '', keySource: c.keySource, enabled: aiEnabled(), systemPrompt: c.systemPrompt, customPrompt: c.customPrompt, defaultPrompt: DEFAULT_SYSTEM_PROMPT, fixedSuffix: FIXED_SUFFIX, countryPrompt: c.countryPrompt, customCountryPrompt: c.customCountryPrompt, defaultCountryPrompt: DEFAULT_COUNTRY_PROMPT, countrySuffix: COUNTRY_SUFFIX };
 };
 app.get('/api/admin/ai-config', requireAdmin, (_req, res) => res.json(aiConfigView()));
 
@@ -926,6 +946,7 @@ app.put('/api/admin/ai-config', requireAdmin, (req, res) => {
       format: b.format === 'openai' ? 'openai' : 'anthropic',
       baseUrl: normalizeBaseUrl(b.baseUrl),
       model: String(b.model || '').trim().slice(0, 200),
+      countryPrompt: (() => { const t = String(b.countryPrompt || '').trim(); return t === DEFAULT_COUNTRY_PROMPT.trim() ? '' : t.slice(0, 6000); })(),
       systemPrompt: (() => { const t = String(b.systemPrompt || '').trim(); return t === DEFAULT_SYSTEM_PROMPT.trim() ? '' : t.slice(0, 6000); })(),
       apiKey: b.clearKey ? '' : typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim().slice(0, 500) : (cur.keySource === 'db' ? cur.apiKey : ''),
     };

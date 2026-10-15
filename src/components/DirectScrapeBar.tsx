@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Search, MapPin, Briefcase, ChevronRight, Sparkles } from 'lucide-react';
+import { Search, MapPin, Briefcase, ChevronRight, Sparkles, Globe } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
 import { Quota, apiJson } from '../auth/types';
 import { estimateMarketTotal } from '../services/scraperEngine';
@@ -17,14 +17,20 @@ interface DirectScrapeBarProps {
 }
 
 interface AiSuggestion { category: string; location: string; reason: string }
+interface AiCountry { country: string; buyers: string; reason: string }
 interface AiState {
   enabled: boolean;
   hasProfile: boolean;
   used: number;
   limit: number;
-  items: AiSuggestion[];
+  countries: AiCountry[];
+  byCountry: Record<string, { country: string; items: AiSuggestion[] }>;
   stale: boolean;
 }
+
+// Quốc gia thường gặp cho nhà xuất khẩu (tên tiếng Anh, khớp cách AI gợi ý); vẫn nhập tay được
+const COUNTRIES = ['United States', 'Japan', 'South Korea', 'China', 'Germany', 'France', 'United Kingdom', 'Netherlands', 'Italy', 'Spain', 'Poland', 'Russia', 'Australia', 'New Zealand', 'Canada', 'Singapore', 'Malaysia', 'Thailand', 'Indonesia', 'Philippines', 'India', 'United Arab Emirates', 'Saudi Arabia', 'Turkey', 'Taiwan', 'Hong Kong', 'Mexico', 'Brazil', 'South Africa'];
+const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
 const FULL_BATCH = 0;
@@ -54,7 +60,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   onOpenProfile
 }) => {
   const [category, setCategory] = useState('');
-  const [location, setLocation] = useState('');
+  const [country, setCountry] = useState('');
+  const [city, setCity] = useState(''); // thành phố / khu vực trong quốc gia
   const [maxResults, setMaxResults] = useState(25);
   const [showOptions, setShowOptions] = useState(false);
   const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
@@ -72,12 +79,13 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   }, []);
   useEffect(() => { loadAi(); }, [loadAi, profileVersion]);
 
-  const askAi = async () => {
+  // Không truyền quốc gia: AI gợi ý quốc gia trước. Có quốc gia: AI gợi ý loại người mua × thành phố của nước đó.
+  const askAi = async (forCountry?: string) => {
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ items: AiSuggestion[]; used: number; limit: number }>('/suggest', 'POST', {});
-      setAi(prev => (prev ? { ...prev, items: r.items, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; byCountry: AiState['byCountry']; used: number; limit: number }>('/suggest', 'POST', forCountry ? { country: forCountry } : {});
+      setAi(prev => (prev ? { ...prev, countries: r.countries, byCountry: r.byCountry, used: r.used, limit: r.limit, stale: false } : prev));
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Không lấy được gợi ý');
       loadAi();
@@ -86,20 +94,37 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     }
   };
 
+  const chooseCountry = (name: string) => {
+    setCountry(name);
+    setCity('');
+    setAiError('');
+    // đã có gợi ý thành phố cho nước này thì dùng luôn, chưa có thì nhờ AI
+    if (ai?.enabled && ai.hasProfile && !ai.byCountry[name.toLowerCase()]?.items?.length && ai.used < ai.limit) askAi(name);
+  };
+
+  const countryItems = ai && country.trim() ? ai.byCountry[country.trim().toLowerCase()]?.items || [] : [];
+  // Địa điểm gửi đi: "Thành phố, Quốc gia" (bỏ trùng nếu thành phố đã có tên nước)
+  const fullLocation = (() => {
+    const c = city.trim(), n = country.trim();
+    if (!n) return c;
+    if (!c) return n;
+    return new RegExp(`(^|,\\s*)${escRe(n)}$`, 'i').test(c) ? c : `${c}, ${n}`;
+  })();
+
   // Số lượng dùng cho "Tất cả có thể": ước lượng thị trường trừ số đã có (heuristic)
   const fullTarget = useMemo(() => {
-    if (!category.trim() || !location.trim()) return 100;
+    if (!category.trim() || !fullLocation) return 100;
     const normCat = category.toLowerCase().trim();
     const have = existingBusinesses.filter(b =>
       (b.category && b.category.toLowerCase().includes(normCat)) ||
       (b.title && b.title.toLowerCase().includes(normCat))
     ).length;
-    const remaining = estimateMarketTotal(category, location) - have;
+    const remaining = estimateMarketTotal(category, fullLocation) - have;
     return remaining > 0 ? remaining : 100;
-  }, [category, location, existingBusinesses]);
+  }, [category, fullLocation, existingBusinesses]);
 
   const quotaFull = quota ? quota.newUsed >= quota.newLimit : false;
-  const canSubmit = !isRunning && category.trim() !== '' && location.trim() !== '';
+  const canSubmit = !isRunning && category.trim() !== '' && fullLocation !== '';
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,9 +132,9 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     const isFull = maxResults === FULL_BATCH;
 
     onStartScrape({
-      query: `${category.trim()} tại ${location.trim()}`,
+      query: `${category.trim()} tại ${fullLocation}`,
       category: category.trim(),
-      location: location.trim(),
+      location: fullLocation,
       maxResults: isFull ? fullTarget : maxResults,
       extractEmails: true,
       skipWithoutPhone,
@@ -128,26 +153,41 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   return (
     <form onSubmit={handleSubmit} className="bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 mb-4 space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-        <div className="md:col-span-4 relative">
+        <div className="md:col-span-3 relative">
           <Briefcase className="w-4 h-4 absolute left-3 top-3 text-blue-400 pointer-events-none" />
           <input
             type="text"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            placeholder="Ngành nghề (vd: nha khoa)"
+            placeholder="Loại khách hàng (vd: coffee importer)"
             aria-label="Ngành nghề"
             className={`${inputCls} pl-9`}
           />
         </div>
 
-        <div className="md:col-span-4 relative">
+        <div className="md:col-span-2 relative">
+          <Globe className="w-4 h-4 absolute left-3 top-3 text-amber-300 pointer-events-none" />
+          <input
+            type="text"
+            list="country-list"
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
+            placeholder="Quốc gia"
+            aria-label="Quốc gia"
+            className={`${inputCls} pl-9`}
+            autoComplete="off"
+          />
+          <datalist id="country-list">{COUNTRIES.map(c => <option key={c} value={c} />)}</datalist>
+        </div>
+
+        <div className="md:col-span-3 relative">
           <MapPin className="w-4 h-4 absolute left-3 top-3 text-emerald-400 pointer-events-none" />
           <input
             type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="Khu vực (vd: Hà Nội, Quận 1)"
-            aria-label="Khu vực"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Thành phố / khu vực (vd: Osaka)"
+            aria-label="Thành phố hoặc khu vực"
             className={`${inputCls} pl-9`}
           />
         </div>
@@ -188,19 +228,52 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span className="text-slate-300 font-medium">Gợi ý cho bạn:</span>
             {!ai.hasProfile ? (
-              <button type="button" onClick={onOpenProfile} className="text-blue-400 hover:text-blue-300 underline">
-                Nhập sản phẩm của bạn để AI gợi ý ngành và khu vực nên tìm
-              </button>
+              <>
+                <span className="text-slate-300 font-medium">Gợi ý cho bạn:</span>
+                <button type="button" onClick={onOpenProfile} className="text-blue-400 hover:text-blue-300 underline">
+                  Nhập sản phẩm xuất khẩu của bạn để AI gợi ý thị trường và đối tác nên tìm
+                </button>
+              </>
+            ) : !country.trim() ? (
+              <>
+                <span className="text-slate-300 font-medium">Bước 1 · Chọn quốc gia:</span>
+                {ai.countries.map((c) => (
+                  <button
+                    key={c.country}
+                    type="button"
+                    title={`${c.reason}${c.buyers ? ` — Nên tìm: ${c.buyers}` : ''}`}
+                    onClick={() => chooseCountry(c.country)}
+                    disabled={aiBusy}
+                    className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded transition-colors disabled:opacity-50"
+                  >
+                    {c.country}
+                  </button>
+                ))}
+                {ai.countries.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => askAi()}
+                    disabled={aiBusy || ai.used >= ai.limit}
+                    className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
+                  >
+                    {aiBusy ? 'AI đang nghĩ…' : ai.stale ? 'Cập nhật quốc gia theo hồ sơ mới' : 'AI gợi ý quốc gia cho tôi'}
+                  </button>
+                )}
+                <span className="text-slate-500">hoặc tự nhập ô Quốc gia</span>
+              </>
             ) : (
               <>
-                {ai.items.map((it) => (
+                <span className="text-slate-300 font-medium">Bước 2 · {country.trim()}:</span>
+                {countryItems.map((it) => (
                   <button
                     key={`${it.category}|${it.location}`}
                     type="button"
                     title={it.reason}
-                    onClick={() => { setCategory(it.category); setLocation(it.location); }}
+                    onClick={() => {
+                      setCategory(it.category);
+                      setCity(it.location.replace(new RegExp(`,\\s*${escRe(country.trim())}$`, 'i'), ''));
+                    }}
                     className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-slate-200 border border-amber-500/30 rounded transition-colors"
                   >
                     <span className="text-amber-300">{it.category}</span>
@@ -208,36 +281,44 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                     <span className="font-mono text-emerald-400">{it.location}</span>
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={askAi}
-                  disabled={aiBusy || ai.used >= ai.limit}
-                  className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
-                >
-                  {aiBusy ? 'AI đang nghĩ…' : ai.items.length ? (ai.stale ? 'Cập nhật theo hồ sơ mới' : 'Gợi ý lại') : 'Gợi ý từ hồ sơ của tôi'}
-                </button>
+                {countryItems.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => askAi(country.trim())}
+                    disabled={aiBusy || ai.used >= ai.limit}
+                    className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
+                  >
+                    {aiBusy ? 'AI đang nghĩ…' : `AI gợi ý thành phố & đối tác ở ${country.trim()}`}
+                  </button>
+                )}
+                <button type="button" onClick={() => { setCountry(''); setCity(''); }} className="text-slate-400 hover:text-white underline">Chọn nước khác</button>
+              </>
+            )}
+            {ai.hasProfile && (
+              <>
                 <span className="text-slate-500">({ai.used}/{ai.limit} lượt hôm nay)</span>
                 <button type="button" onClick={onOpenProfile} className="text-slate-400 hover:text-white underline">Sửa hồ sơ</button>
               </>
             )}
-            {ai.items.length > 0 && (
+            {ai.hasProfile && (country.trim() ? countryItems : ai.countries).length > 0 && (
               <button type="button" onClick={() => setShowSamples(v => !v)} className="text-slate-500 hover:text-slate-300 underline ml-auto">
                 {showSamples ? 'Ẩn gợi ý mẫu' : 'Gợi ý mẫu'}
               </button>
             )}
           </div>
+          {aiBusy && <div className="text-[11px] text-slate-400">AI đang phân tích… thường mất vài giây.</div>}
           {aiError && <div className="text-xs text-red-300">{aiError}</div>}
         </div>
       )}
 
-      {(!ai?.enabled || !ai.hasProfile || ai.items.length === 0 || showSamples) && (
+      {(!ai?.enabled || !ai.hasProfile || (country.trim() ? countryItems : ai.countries).length === 0 || showSamples) && (
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
         {QUICK_SEARCH_EXAMPLES.map((ex) => (
           <button
             key={ex.category}
             type="button"
-            onClick={() => { setCategory(ex.category); setLocation(ex.location); }}
+            onClick={() => { setCategory(ex.category); setCountry(''); setCity(ex.location); }}
             className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
           >
             <span className="text-blue-400">{ex.category}</span>
