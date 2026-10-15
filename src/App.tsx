@@ -268,11 +268,17 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
   // Xem kết quả một job = chỉ lọc hiển thị, không thay/xóa bảng lead đã lưu
   const [viewJob, setViewJob] = useState<{ results: ScrapedBusiness[] } | null>(null);
-  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [trashKind, setTrashKind] = useState<'leads' | 'jobs' | null>(null);
   const shown = viewJob ? viewJob.results : businesses;
   const handleSelectJobResults = (jobResults: ScrapedBusiness[]) => {
     setViewJob({ results: jobResults });
     setActiveTab('leads');
+  };
+  const handleRestoreJobs = (restored: ScraperJob[]) => {
+    setJobs(prev => {
+      const have = new Set(prev.map(j => j.id));
+      return [...restored.filter(j => !have.has(j.id)), ...prev].sort(jobSort);
+    });
   };
   const handleRestoreLeads = (restored: ScrapedBusiness[]) => {
     setBusinesses(prev => {
@@ -357,7 +363,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         {activeTab === 'leads' && !viewJob && (
           <div className="mb-2 flex justify-end">
-            <button type="button" onClick={() => setIsTrashOpen(true)} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
+            <button type="button" onClick={() => setTrashKind('leads')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
           </div>
         )}
 
@@ -384,6 +390,12 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         )}
 
         {/* Tab 3: Scraping Jobs & Queue Runner */}
+        {activeTab === 'jobs' && (
+          <div className="mb-2 flex justify-end">
+            <button type="button" onClick={() => setTrashKind('jobs')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục job đã xóa</button>
+          </div>
+        )}
+
         {activeTab === 'jobs' && (
           <div className="space-y-4">
             <JobsRunnerView
@@ -464,7 +476,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         />
       )}
 
-      {isTrashOpen && <TrashModal onRestore={handleRestoreLeads} onClose={() => setIsTrashOpen(false)} />}
+      {trashKind && <TrashModal kind={trashKind} onRestore={trashKind === 'leads' ? handleRestoreLeads : handleRestoreJobs} onClose={() => setTrashKind(null)} />}
 
       {/* Module Help Guide Modal */}
       {activeGuideId && (
