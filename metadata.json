@@ -1,0 +1,6 @@
+{
+  "name": "Google Maps Scraper & Lead Generator",
+  "description": "High-speed Google Maps scraper and B2B lead generation platform inspired by gosom/google-maps-scraper. Extract verified business listings, emails, phones, social links, ratings, and coordinates with real-time scraping jobs, data grid explorer, outreach composer, and CSV/JSON export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
