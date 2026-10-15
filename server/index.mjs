@@ -21,6 +21,7 @@ const MAX_PROXIES = 10;
 const DB_PATH = process.env.DB_PATH || '/var/lib/maps-data/cache.db';
 const TTL_MS = 14 * 24 * 3600 * 1000; // dữ liệu quá 14 ngày coi là cũ → trả ngay + cập nhật nền
 const FORCE_PER_DAY = 3; // số lần "làm mới" bắt buộc mỗi IP mỗi ngày
+const JOB_LOG_KEEP_MS = 30 * 24 * 3600 * 1000; // giữ lịch sử job 30 ngày
 const BG_QUERIES_PER_HOUR = 6; // trần số truy vấn cập nhật nền mỗi giờ
 const PURGE_AFTER_MS = 180 * 24 * 3600 * 1000; // xóa dữ liệu không ai dùng sau 180 ngày
 const DEPTHS = [1, 2, 4, 8, 16, 32, 40];
@@ -90,6 +91,22 @@ db.exec(`CREATE TABLE IF NOT EXISTS user_state (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, key)
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS job_log (
+  id TEXT PRIMARY KEY,
+  started_at INTEGER,
+  finished_at INTEGER NOT NULL,
+  user_id INTEGER,
+  user_email TEXT,
+  kind TEXT NOT NULL,
+  queries TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  cache_n INTEGER NOT NULL DEFAULT 0,
+  live_n INTEGER NOT NULL DEFAULT 0,
+  proxies INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  message TEXT
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS job_log_finished ON job_log(finished_at)');
 db.exec(`CREATE TABLE IF NOT EXISTS user_items (
   user_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -140,6 +157,10 @@ const stmt = {
     ON CONFLICT(qkey) DO UPDATE SET query_text = excluded.query_text, last_run_at = excluded.last_run_at, last_used_at = excluded.last_used_at,
       depth = excluded.depth, with_email = excluded.with_email, result_count = excluded.result_count`),
   stats: db.prepare('SELECT (SELECT COUNT(*) FROM places) AS places, (SELECT COUNT(*) FROM query_runs) AS queries, (SELECT COALESCE(SUM(hits),0) FROM query_runs) AS hits'),
+  logJob: db.prepare('INSERT OR REPLACE INTO job_log (id, started_at, finished_at, user_id, user_email, kind, queries, count, cache_n, live_n, proxies, status, message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'),
+  recentLog: db.prepare('SELECT * FROM job_log ORDER BY finished_at DESC LIMIT 100'),
+  countLog: db.prepare('SELECT COUNT(*) AS n FROM job_log'),
+  purgeLog: db.prepare('DELETE FROM job_log WHERE finished_at < ?'),
   purgeRuns: db.prepare('DELETE FROM query_runs WHERE last_used_at < ?'),
   purgeLinks: db.prepare('DELETE FROM query_places WHERE qkey NOT IN (SELECT qkey FROM query_runs)'),
   purgePlaces: db.prepare('DELETE FROM places WHERE place_id NOT IN (SELECT place_id FROM query_places)'),
@@ -147,6 +168,7 @@ const stmt = {
 function purgeOld() {
   stmt.purgeSessions.run(Date.now());
   stmt.purgeUsage.run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
+  stmt.purgeLog.run(Date.now() - JOB_LOG_KEEP_MS);
   stmt.purgeRuns.run(Date.now() - PURGE_AFTER_MS);
   stmt.purgeLinks.run();
   stmt.purgePlaces.run();
@@ -474,10 +496,19 @@ class Job {
 
 let running = null;
 const queue = [];
-const recentJobs = []; // 50 job gần nhất đã xong (chỉ trong RAM, mất khi restart) — cho trang admin 'Chạy ngầm'
 const bgPending = new Map(); // key -> { q, depth, withEmail, lang, geo, radius, proxies }
 let bgDoneThisHour = 0;
 setInterval(() => { bgDoneThisHour = 0; }, 3600 * 1000).unref();
+
+// Ghi lịch sử job vào SQLite (trang admin 'Chạy ngầm'); lỗi ghi log không được làm hỏng job
+function logJob(job) {
+  try {
+    const v = jobView(job);
+    const kind = job.spec.background ? 'background' : job.cacheOnly ? 'cache' : job.spec.force ? 'force' : 'user';
+    stmt.logJob.run(job.id, job.startedAt || job.createdAt, Date.now(), job.userId, v.user, kind, JSON.stringify(v.queries),
+      job.count, job.source.cache, job.source.live, v.proxies, job.endStatus || (job.aborted ? 'cancelled' : 'done'), job.endMessage || '');
+  } catch (e) { console.error('logJob error', e); }
+}
 
 function jobView(job) {
   const u = job.userId ? stmt.userById.get(job.userId) : null;
@@ -519,8 +550,7 @@ function next() {
     job.endClients('failed', 'Lỗi nội bộ máy chủ');
   }).finally(() => {
     rmSync(job.dir, { recursive: true, force: true });
-    recentJobs.unshift({ ...jobView(job), finishedAt: Date.now(), status: job.endStatus || (job.aborted ? 'cancelled' : 'done'), message: job.endMessage || '' });
-    recentJobs.length = Math.min(recentJobs.length, 50);
+    logJob(job);
     running = null;
     next();
   });
@@ -730,12 +760,16 @@ app.post('/api/jobs', async (req, res) => {
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
   job.live = prepareCached(job); // dữ liệu có sẵn được đẩy ngay, không chờ hàng đợi
   if (job.live.length === 0) {
+    job.cacheOnly = true;
     job.endClients('done'); // đủ từ kho: không cần trình duyệt
+    logJob(job);
     next(); // nếu có truy vấn cũ cần cập nhật nền và máy đang rảnh
     return res.json({ id: job.id });
   }
   if (job.quotaLeft <= 0) { // hết hạn mức địa điểm mới: chỉ phục vụ phần có sẵn trong kho
+    job.cacheOnly = true;
     job.endClients('done', 'Đã hết hạn mức địa điểm mới hôm nay: chỉ hiển thị dữ liệu đã lưu. Hạn mức đặt lại vào 0h (giờ Việt Nam).');
+    logJob(job);
     return res.json({ id: job.id });
   }
   if (force) stmt.addRefresh.run(user.id, vnDay());
@@ -795,7 +829,12 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     queue: queue.map(jobView),
     pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
-    recent: recentJobs,
+    recent: stmt.recentLog.all().map((r) => ({
+      id: r.id, kind: r.kind, background: r.kind === 'background', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
+      user: r.user_email, queries: JSON.parse(r.queries), count: r.count, cache: r.cache_n, live: r.live_n, proxies: r.proxies,
+      createdAt: r.started_at, startedAt: r.started_at, finishedAt: r.finished_at, status: r.status, message: r.message || '', detached: false,
+    })),
+    logTotal: stmt.countLog.get().n, logKeepDays: JOB_LOG_KEEP_MS / 86400000,
     cache: { places: s.places, queries: s.queries, hits: s.hits },
   });
 });

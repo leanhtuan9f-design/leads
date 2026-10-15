@@ -5,6 +5,7 @@ interface JobRow {
   id: string;
   background: boolean;
   force: boolean;
+  cacheOnly?: boolean;
   user: string | null;
   queries: string[];
   count: number;
@@ -28,10 +29,13 @@ interface BackgroundInfo {
   bgPerHour: number;
   ttlDays: number;
   recent: JobRow[];
+  logTotal: number;
+  logKeepDays: number;
   cache: { places: number; queries: number; hits: number };
 }
 
 const fmtTime = (t: number | null | undefined) => (t ? new Date(t).toLocaleTimeString('vi-VN') : '—');
+const fmtDateTime = (t: number | null | undefined) => (t ? new Date(t).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
 const fmtDur = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return s >= 60 ? `${Math.floor(s / 60)}p ${s % 60}s` : `${s}s`;
@@ -39,8 +43,8 @@ const fmtDur = (ms: number) => {
 const STATUS: Record<string, string> = { done: 'Xong', cancelled: 'Đã hủy', failed: 'Lỗi' };
 
 const Kind: React.FC<{ j: JobRow }> = ({ j }) => (
-  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${j.background ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'}`}>
-    {j.background ? 'Nền (cập nhật kho)' : j.force ? 'Người dùng · cào mới' : 'Người dùng'}
+  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${j.background ? 'bg-purple-500/20 text-purple-300' : j.cacheOnly ? 'bg-slate-500/20 text-slate-300' : 'bg-blue-500/20 text-blue-300'}`}>
+    {j.background ? 'Nền (cập nhật kho)' : j.cacheOnly ? 'Từ kho' : j.force ? 'Người dùng · cào mới' : 'Người dùng'}
   </span>
 );
 
@@ -132,8 +136,8 @@ export const AdminBackgroundView: React.FC = () => {
       </section>
 
       <section className={card}>
-        <h3 className="font-semibold text-white mb-1">Đã chạy gần đây ({info.recent.length})</h3>
-        <p className="text-[11px] text-slate-500 mb-2">Lưu trong bộ nhớ máy chủ, mất khi khởi động lại. Tìm kiếm đáp ứng hoàn toàn từ kho (không dùng trình duyệt) không có trong danh sách này.</p>
+        <h3 className="font-semibold text-white mb-1">Lịch sử {info.logKeepDays} ngày ({info.logTotal} lần, hiện 100 gần nhất)</h3>
+        <p className="text-[11px] text-slate-500 mb-2">Lưu trong cơ sở dữ liệu, không mất khi deploy; tự xóa sau {info.logKeepDays} ngày. “Từ kho” = tìm kiếm trả hoàn toàn từ dữ liệu đã lưu, không mở trình duyệt.</p>
         {info.recent.length === 0 ? <div className="text-slate-500">Chưa có.</div> : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -141,7 +145,7 @@ export const AdminBackgroundView: React.FC = () => {
               <tbody className="divide-y divide-slate-800/70">
                 {info.recent.map(j => (
                   <tr key={j.id + (j.finishedAt || 0)} className="align-top">
-                    <td className="py-1.5 pr-3 font-mono text-slate-400 whitespace-nowrap">{fmtTime(j.finishedAt)}</td>
+                    <td className="py-1.5 pr-3 font-mono text-slate-400 whitespace-nowrap">{fmtDateTime(j.finishedAt)}</td>
                     <td className="pr-3"><Kind j={j} /></td>
                     <td className="pr-3 text-slate-300">{j.user || 'hệ thống'}</td>
                     <td className="pr-3 text-slate-300 font-mono max-w-[360px] break-words">{j.queries.slice(0, 2).join(' | ')}{j.queries.length > 2 ? ` (+${j.queries.length - 2})` : ''}</td>
