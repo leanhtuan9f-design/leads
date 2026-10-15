@@ -6,6 +6,7 @@ interface JobRow {
   id: string;
   background: boolean;
   auto?: boolean;
+  autoTask?: { id: number; product: string; country: string } | null;
   force: boolean;
   cacheOnly?: boolean;
   user: string | null;
@@ -98,11 +99,12 @@ export const AdminBackgroundView: React.FC = () => {
       </div>
       {error && <div className="p-2 bg-amber-500/10 border border-amber-500/40 rounded text-amber-200">⚠️ {error}</div>}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
         {stat('Đang chạy', info.running ? 1 : 0)}
         {stat('Hàng đợi người dùng', info.queue.length)}
-        {stat('Chờ cập nhật nền', info.pending.length)}
-        {stat('Nền giờ này', `${info.bgDoneThisHour}/${info.bgPerHour}`)}
+        {stat('Cặp tự động đang chờ', info.autoQueue.total)}
+        {stat('Chờ cập nhật kho cũ', info.pending.length)}
+        {stat('Cập nhật kho giờ này', `${info.bgDoneThisHour}/${info.bgPerHour}`)}
         {stat('Kho', `${info.cache.places} điểm`)}
       </div>
       <p className="text-[11px] text-slate-500">
@@ -110,10 +112,29 @@ export const AdminBackgroundView: React.FC = () => {
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
 
+      <section className={card}>
+        <h3 className="font-semibold text-white mb-2">Đang chạy</h3>
+        {info.running ? (
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2"><Kind j={info.running} />
+              <span className="text-slate-300">{info.running.autoTask ? `Tác vụ #${info.running.autoTask.id}${info.running.autoTask.product ? ` · ${info.running.autoTask.product} → ${info.running.autoTask.country}` : ''}` : info.running.user || 'hệ thống'}</span>
+              <span className="text-slate-500">· {info.running.startedAt ? fmtDur(info.now - info.running.startedAt) : 'đang khởi động'}</span>
+              <span className="text-slate-500">· {info.running.count} điểm (kho {info.running.cache} / mới {info.running.live})</span>
+              {info.running.proxies > 0 ? <span className="text-slate-500">· {info.running.proxies} proxy</span> : <span className="text-slate-500">· IP máy chủ</span>}
+              {info.running.detached && <span className="text-amber-300">· đã ngắt kết nối, đang chạy nốt</span>}
+            </div>
+            <div className="text-slate-300 font-mono break-words">{info.running.queries.join(' | ')}</div>
+          </div>
+        ) : info.autoQueue.total > 0 ? (
+          <div className="text-slate-400">Máy đang rảnh trong giây lát (nghỉ giữa các cặp hoặc nghỉ chống bị chặn). Còn {info.autoQueue.total} cặp của tác vụ tự động đang chờ.</div>
+        ) : <div className="text-slate-500">Máy đang rảnh.</div>}
+      </section>
+
       <AutoTasks />
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-2">Hàng chờ tác vụ tự động ({info.autoQueue.total} cặp)</h3>
+        <p className="text-[11px] text-slate-500 mb-2">Các cặp (từ khóa @ khu vực) của tác vụ đang chạy, theo thứ tự sẽ cào. Chạy khi máy rảnh, sau lượt người dùng.</p>
         {info.autoQueue.total === 0 ? (
           <div className="text-slate-500">Không có cặp nào đang chờ.</div>
         ) : (
@@ -133,51 +154,12 @@ export const AdminBackgroundView: React.FC = () => {
       </section>
 
       <section className={card}>
-        <h3 className="font-semibold text-white mb-1">Gợi ý AI từ hồ sơ</h3>
-        {info.ai.enabled ? (
-          <>
-            <p className="text-[11px] text-slate-400 mb-2">
-              Model {info.ai.model} · giới hạn {info.ai.dailyLimit} lượt/người/ngày · 30 ngày qua: {info.ai.calls30d} lượt ({info.ai.ok30d} thành công),
-              {' '}{info.ai.inputTokens30d.toLocaleString('vi-VN')} token vào / {info.ai.outputTokens30d.toLocaleString('vi-VN')} token ra
-            </p>
-            {info.ai.recent.length === 0 ? <div className="text-slate-500">Chưa có lượt nào.</div> : (
-              <ul className="space-y-1">
-                {info.ai.recent.map((r, i) => (
-                  <li key={i} className="flex flex-wrap gap-x-3 text-slate-300">
-                    <span className="font-mono text-slate-400">{fmtDateTime(r.at)}</span>
-                    <span>{r.user || '—'}</span>
-                    <span className={r.ok ? 'text-emerald-300' : 'text-red-300'}>{r.ok ? `${r.items} gợi ý` : r.message || 'Lỗi'}</span>
-                    {r.ok && <span className="text-slate-500 font-mono">{r.input}/{r.output} token</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        ) : (
-          <div className="text-amber-300">Chưa bật: thiếu API key hoặc model. Cấu hình trong menu tài khoản → <strong>Cấu hình AI</strong>.</div>
-        )}
-      </section>
-
-      <section className={card}>
-        <h3 className="font-semibold text-white mb-2">Đang chạy</h3>
-        {info.running ? (
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2"><Kind j={info.running} /><span className="text-slate-300">{info.running.user || 'hệ thống'}</span>
-              <span className="text-slate-500">· {info.running.startedAt ? fmtDur(info.now - info.running.startedAt) : 'đang khởi động'}</span>
-              <span className="text-slate-500">· {info.running.count} điểm (kho {info.running.cache} / mới {info.running.live})</span>
-              {info.running.detached && <span className="text-amber-300">· đã ngắt kết nối, đang chạy nốt</span>}
-            </div>
-            <div className="text-slate-300 font-mono break-words">{info.running.queries.join(' | ')}</div>
-          </div>
-        ) : <div className="text-slate-500">Máy đang rảnh.</div>}
-      </section>
-
-      <section className={card}>
-        <h3 className="font-semibold text-white mb-2">Hàng đợi ({info.queue.length})</h3>
-        {info.queue.length === 0 ? <div className="text-slate-500">Trống.</div> : (
+        <h3 className="font-semibold text-white mb-2">Hàng đợi người dùng ({info.queue.length})</h3>
+        <p className="text-[11px] text-slate-500 mb-2">Lượt tìm do người dùng bấm “Tìm lead”; luôn được chạy trước tác vụ tự động.</p>
+        {info.queue.length === 0 ? <div className="text-slate-500">Không có người dùng nào đang chờ.</div> : (
           <ul className="space-y-1.5">
             {info.queue.map(j => (
-              <li key={j.id} className="flex flex-wrap items-center gap-2"><Kind j={j} /><span className="text-slate-300">{j.user || 'hệ thống'}</span>
+              <li key={j.id} className="flex flex-wrap items-center gap-2"><Kind j={j} /><span className="text-slate-300">{j.autoTask ? `Tác vụ #${j.autoTask.id}` : j.user || 'hệ thống'}</span>
                 <span className="text-slate-500">· chờ {fmtDur(info.now - j.createdAt)}</span>
                 <span className="text-slate-400 font-mono truncate max-w-full">{j.queries.slice(0, 3).join(' | ')}{j.queries.length > 3 ? ` (+${j.queries.length - 3})` : ''}</span></li>
             ))}
@@ -186,7 +168,7 @@ export const AdminBackgroundView: React.FC = () => {
       </section>
 
       <section className={card}>
-        <h3 className="font-semibold text-white mb-2">Chờ cập nhật nền ({info.pending.length})</h3>
+        <h3 className="font-semibold text-white mb-2">Chờ cập nhật dữ liệu kho cũ ({info.pending.length})</h3>
         {info.pending.length === 0 ? <div className="text-slate-500">Không có dữ liệu cũ cần làm mới.</div> : (
           <ul className="space-y-1">
             {info.pending.map((p, i) => (
@@ -220,6 +202,33 @@ export const AdminBackgroundView: React.FC = () => {
           </div>
         )}
       </section>
+
+      <section className={card}>
+        <h3 className="font-semibold text-white mb-1">Gọi AI (gợi ý của người dùng, tác vụ tự động, chia khu vực)</h3>
+        {info.ai.enabled ? (
+          <>
+            <p className="text-[11px] text-slate-400 mb-2">
+              Model {info.ai.model} · giới hạn {info.ai.dailyLimit} lượt/người/ngày · 30 ngày qua: {info.ai.calls30d} lượt ({info.ai.ok30d} thành công),
+              {' '}{info.ai.inputTokens30d.toLocaleString('vi-VN')} token vào / {info.ai.outputTokens30d.toLocaleString('vi-VN')} token ra
+            </p>
+            {info.ai.recent.length === 0 ? <div className="text-slate-500">Chưa có lượt nào.</div> : (
+              <ul className="space-y-1">
+                {info.ai.recent.map((r, i) => (
+                  <li key={i} className="flex flex-wrap gap-x-3 text-slate-300">
+                    <span className="font-mono text-slate-400">{fmtDateTime(r.at)}</span>
+                    <span>{r.user || '—'}</span>
+                    <span className={r.ok ? 'text-emerald-300' : 'text-red-300'}>{r.ok ? `${r.items} gợi ý` : r.message || 'Lỗi'}</span>
+                    {r.ok && <span className="text-slate-500 font-mono">{r.input}/{r.output} token</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <div className="text-amber-300">Chưa bật: thiếu API key hoặc model. Cấu hình trong menu tài khoản → <strong>Cấu hình AI</strong>.</div>
+        )}
+      </section>
+
     </div>
   );
 };

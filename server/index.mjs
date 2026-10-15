@@ -585,7 +585,7 @@ function logJob(job) {
   try {
     const v = jobView(job);
     const kind = job.spec.auto ? 'auto' : job.spec.background ? 'background' : job.cacheOnly ? 'cache' : job.spec.force ? 'force' : 'user';
-    stmt.logJob.run(job.id, job.startedAt || job.createdAt, Date.now(), job.userId, v.user, kind, JSON.stringify(v.queries),
+    stmt.logJob.run(job.id, job.startedAt || job.createdAt, Date.now(), job.userId, v.user || (v.autoTask ? `Tác vụ #${v.autoTask.id}${v.autoTask.product ? ` · ${v.autoTask.product} → ${v.autoTask.country}` : ''}` : null), kind, JSON.stringify(v.queries),
       job.count, job.source.cache, job.source.live, v.proxies, job.endStatus || (job.aborted ? 'cancelled' : 'done'), job.endMessage || '');
   } catch (e) { console.error('logJob error', e); }
 }
@@ -598,6 +598,7 @@ function jobView(job) {
     auto: Boolean(job.spec.auto),
     force: Boolean(job.spec.force),
     user: u ? u.email : null,
+    autoTask: job.spec.auto ? (() => { const t = db.prepare('SELECT id, product, country FROM auto_tasks WHERE id=?').get(job.spec.auto.taskId); return t ? { id: t.id, product: t.product, country: t.country } : { id: job.spec.auto.taskId, product: '', country: '' }; })() : null,
     queries: job.spec.queries.map((q) => q.text),
     count: job.count,
     cache: job.source.cache,
@@ -1039,7 +1040,7 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     },
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
     recent: stmt.recentLog.all().map((r) => ({
-      id: r.id, kind: r.kind, background: r.kind === 'background' || r.kind === 'auto', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
+      id: r.id, kind: r.kind, auto: r.kind === 'auto', background: r.kind === 'background', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
       user: r.user_email, queries: JSON.parse(r.queries), count: r.count, cache: r.cache_n, live: r.live_n, proxies: r.proxies,
       createdAt: r.started_at, startedAt: r.started_at, finishedAt: r.finished_at, status: r.status, message: r.message || '', detached: false,
     })),
