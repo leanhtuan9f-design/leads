@@ -26,6 +26,13 @@ interface DataTableProps {
 type FilterType = 'all' | 'phone' | 'email' | 'unclaimed';
 type SortField = 'rating' | 'reviewsCount' | 'leadScore' | 'title';
 
+const EXPORT_HOVER: Record<string, string> = {
+  blue: 'hover:border-blue-500', slate: 'hover:border-slate-500', emerald: 'hover:border-emerald-500', purple: 'hover:border-purple-500'
+};
+const EXPORT_ICON: Record<string, string> = {
+  blue: 'bg-blue-600/20 text-blue-400', slate: 'bg-slate-800 text-slate-300', emerald: 'bg-emerald-600/20 text-emerald-400', purple: 'bg-purple-600/20 text-purple-400'
+};
+
 const FILTERS: { id: FilterType; label: string; title?: string }[] = [
   { id: 'all', label: 'Tất cả' },
   { id: 'phone', label: 'Có SĐT' },
@@ -188,23 +195,52 @@ export const DataTable: React.FC<DataTableProps> = ({
             {exportOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setExportOpen(false)} />
-                <div className="absolute right-0 mt-1.5 w-60 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-40 py-1 text-xs">
-                  <button onClick={() => runExport(() => exportToCsv(exportTarget, `leads_${Date.now()}.csv`))} className="w-full text-left px-3 py-2 hover:bg-slate-800 flex items-center gap-2 text-slate-200">
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" /> Tải file CSV (Excel, Sheets)
-                  </button>
-                  <button onClick={handleCopy} className="w-full text-left px-3 py-2 hover:bg-slate-800 flex items-center gap-2 text-slate-200">
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
-                    {copied ? 'Đã sao chép — dán vào Sheets' : 'Sao chép để dán vào Sheets'}
-                  </button>
-                  <button onClick={() => runExport(() => exportForCrm(exportTarget, `crm_leads_${Date.now()}.csv`))} className="w-full text-left px-3 py-2 hover:bg-slate-800 flex items-center gap-2 text-slate-200">
-                    <Send className="w-3.5 h-3.5 text-emerald-400" /> CSV cho CRM / gửi email hàng loạt
-                  </button>
-                  <button onClick={() => runExport(() => exportToJson(exportTarget, `leads_${Date.now()}.json`))} className="w-full text-left px-3 py-2 hover:bg-slate-800 flex items-center gap-2 text-slate-200">
-                    <Code className="w-3.5 h-3.5 text-purple-400" /> JSON (cho lập trình)
-                  </button>
-                  <div className="px-3 pt-1.5 pb-1 text-[10px] text-slate-500 border-t border-slate-800 mt-1">
-                    {selectedBusinesses.length > 0 ? 'Chỉ xuất các dòng đã chọn' : 'Xuất các dòng đang hiển thị'}
+                <div className="absolute right-0 mt-1.5 w-[22rem] max-w-[calc(100vw-1.5rem)] bg-slate-950 border border-slate-800 rounded-lg shadow-2xl z-40 p-2 space-y-1.5 text-xs">
+                  <div className="px-1.5 pt-1 pb-0.5 text-[11px] text-slate-400">
+                    {selectedBusinesses.length > 0 ? 'Xuất các dòng đã chọn' : 'Xuất các dòng đang hiển thị'}:{' '}
+                    <span className="font-mono text-white font-semibold tabular-nums">{exportTarget.length}</span> lead
                   </div>
+                  {[
+                    {
+                      key: 'csv', icon: <FileSpreadsheet className="w-4 h-4" />, color: 'blue', tag: '.csv',
+                      title: 'File CSV đầy đủ (33+ cột)',
+                      desc: 'Tên, SĐT, email, địa chỉ, tọa độ GPS, xếp hạng sao… Mở trực tiếp bằng Excel và Google Sheets.',
+                      run: () => runExport(() => exportToCsv(exportTarget, `leads_${Date.now()}.csv`))
+                    },
+                    {
+                      key: 'tsv', icon: copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />, color: 'slate', tag: 'Dán vào Sheets',
+                      title: copied ? 'Đã sao chép vào bộ nhớ tạm!' : 'Sao chép vào Clipboard',
+                      desc: 'Mở Google Sheets hoặc Excel trống, bấm Ctrl+V (Cmd+V) để dán thành các cột ngay, không cần tải file.',
+                      run: handleCopy
+                    },
+                    {
+                      key: 'crm', icon: <Send className="w-4 h-4" />, color: 'emerald', tag: 'Instantly / Apollo',
+                      title: 'CSV cho CRM & gửi email hàng loạt',
+                      desc: 'Tên cột chuẩn quốc tế (Company, Email, Phone, Website, City, Rating) để nhập thẳng vào công cụ gửi thư.',
+                      run: () => runExport(() => exportForCrm(exportTarget, `crm_leads_${Date.now()}.csv`))
+                    },
+                    {
+                      key: 'json', icon: <Code className="w-4 h-4" />, color: 'purple', tag: '.json',
+                      title: 'JSON đầy đủ trường',
+                      desc: 'Mảng đối tượng có danh mục con, mạng xã hội… phù hợp để nạp vào cơ sở dữ liệu hoặc lập trình.',
+                      run: () => runExport(() => exportToJson(exportTarget, `leads_${Date.now()}.json`))
+                    }
+                  ].map(o => (
+                    <button
+                      key={o.key}
+                      onClick={o.run}
+                      className={`w-full p-2.5 bg-slate-900 border border-slate-800 rounded-lg text-left transition-colors flex items-start gap-2.5 group ${EXPORT_HOVER[o.color]}`}
+                    >
+                      <div className={`p-1.5 rounded shrink-0 ${EXPORT_ICON[o.color]}`}>{o.icon}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 font-semibold text-white">
+                          <span>{o.title}</span>
+                          <span className="text-[10px] font-mono font-normal text-slate-400 shrink-0">{o.tag}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">{o.desc}</p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </>
             )}
