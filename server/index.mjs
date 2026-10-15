@@ -1,7 +1,7 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
 import { spawn, execFile } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import dns from 'node:dns/promises';
@@ -229,6 +229,7 @@ const stmt = {
   aiUsagePurge: db.prepare('DELETE FROM ai_usage WHERE day < ?'),
   autoNextRun: db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.rest_until <= ? ORDER BY r.task_id, r.id LIMIT 1"),
   autoNextWake: db.prepare("SELECT MIN(t.rest_until) AS w FROM auto_tasks t WHERE t.status='running' AND t.rest_until > ? AND EXISTS (SELECT 1 FROM auto_runs r WHERE r.task_id=t.id AND r.status='pending')"),
+  autoRunProgress: db.prepare('UPDATE auto_runs SET count=?, live_n=? WHERE id=?'),
   autoSetSplit: db.prepare('UPDATE auto_runs SET split_state=? WHERE id=?'),
   autoRunStart: db.prepare("UPDATE auto_runs SET status='running', started_at=? WHERE id=?"),
   autoRunEnd: db.prepare('UPDATE auto_runs SET status=?, count=?, cache_n=?, live_n=?, finished_at=?, message=? WHERE id=?'),
@@ -565,6 +566,7 @@ class Job {
       stmt.addNew.run(this.userId, vnDay());
     }
     this.count++; this.source.live++;
+    if (this.spec.auto) { try { stmt.autoRunProgress.run(this.count, this.source.live, this.spec.auto.runId); } catch { /* không để lỗi ghi tiến độ làm hỏng job */ } }
     this.emit('place', place);
   }
   abort() {
@@ -1336,6 +1338,7 @@ app.get('/api/admin/auto/:id/export.csv', requireAdmin, (req, res) => {
 });
 
 execFile('sh', ['-c', 'docker ps -aq --filter name=maps-job- | xargs -r docker rm -f'], () => {}); // container mồ côi của lần chạy trước bị ngắt
+try { for (const d of readdirSync(WORK_DIR)) rmSync(path.join(WORK_DIR, d), { recursive: true, force: true }); } catch { /* chưa có thư mục */ } // thư mục tạm của job bị ngắt lần trước
 setTimeout(next, 5000).unref(); // sau khi khởi động, tiếp tục các tác vụ đang dở
 
 // (health không cần đăng nhập)
