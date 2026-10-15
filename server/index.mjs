@@ -83,7 +83,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_qp_qkey ON query_places(qkey, pos);
 `);
 ensureAuthSchema(db);
+db.exec(`CREATE TABLE IF NOT EXISTS user_state (
+  user_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, key)
+)`);
 const stmt = {
+  getState: db.prepare('SELECT value, updated_at FROM user_state WHERE user_id = ? AND key = ?'),
+  setState: db.prepare(`INSERT INTO user_state (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
   userByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
   userById: db.prepare('SELECT * FROM users WHERE id = ?'),
   allUsers: db.prepare('SELECT id, email, role, daily_new, daily_refresh, disabled, created_at FROM users ORDER BY id'),
@@ -137,6 +147,7 @@ const neededDepth = (maxResults, nQueries) => {
 };
 
 const app = express();
+app.use('/api/state', express.json({ limit: '25mb' })); // lead/job của người dùng có thể lớn
 app.use(express.json({ limit: '32kb' }));
 
 // ===== Xác thực =====
@@ -169,6 +180,24 @@ const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).jso
 const requireAdmin = (req, res, next) => (!req.user ? res.status(401).json({ error: 'Chưa đăng nhập' }) : req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Không có quyền' }));
 const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.userId === user.id));
 app.use('/api/jobs', requireAuth);
+app.use('/api/state', requireAuth);
+
+// ===== Dữ liệu riêng của từng người dùng (lead, lịch sử job, proxy) =====
+const STATE_KEYS = new Set(['leads', 'jobs', 'proxies']);
+app.get('/api/state/:key', (req, res) => {
+  if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });
+  const row = stmt.getState.get(req.user.id, req.params.key);
+  res.json(row ? { value: JSON.parse(row.value), updatedAt: row.updated_at } : { value: null, updatedAt: 0 });
+});
+app.put('/api/state/:key', (req, res) => {
+  if (!STATE_KEYS.has(req.params.key)) return res.status(404).json({ error: 'Không tìm thấy' });
+  const v = req.body?.value;
+  if (v === undefined || v === null) return res.status(400).json({ error: 'Thiếu dữ liệu' });
+  if (req.params.key === 'proxies' ? typeof v !== 'string' : !Array.isArray(v)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
+  const updatedAt = Date.now();
+  stmt.setState.run(req.user.id, req.params.key, JSON.stringify(v), updatedAt);
+  res.json({ ok: true, updatedAt });
+});
 
 const publicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
 function quotaOf(u) {
