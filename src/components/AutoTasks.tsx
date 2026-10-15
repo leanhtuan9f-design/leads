@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
-import { CITIES } from '../data/cities';
+import { CITIES, tzFor } from '../data/cities';
+import { windowPreview } from '../utils/tzPreview';
 
 interface Stats {
   total: number; pending: number; running: number; done: number; empty: number; error: number;
@@ -191,6 +192,10 @@ export const AutoTasks: React.FC = () => {
           <input type="number" min={1} max={24} value={winEnd} onChange={e => setWinEnd(e.target.value)} disabled={!winOn} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white disabled:opacity-40" aria-label="Giờ kết thúc" />
           <span>giờ</span>
           <span className="text-slate-500">Ngoài khung giờ này tác vụ chờ; cặp đang cào không bị ngắt. Nước chưa có múi giờ trong bảng thì chạy bất kỳ lúc nào.</span>
+          {winOn && tzFor(country) && Number(winStart) !== Number(winEnd) && (
+            <span className="basis-full text-emerald-300">🕘 {windowPreview(tzFor(country), Number(winStart), Number(winEnd))}</span>
+          )}
+          {country.trim() && !tzFor(country) && <span className="basis-full text-amber-300">Nước này chưa có múi giờ trong bảng nên sẽ chạy bất kỳ lúc nào.</span>}
         </div>
         {!aiEnabled && <div className="text-amber-300">AI chưa được cấu hình (menu tài khoản → Cấu hình AI).</div>}
         {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định sau mỗi 5 cặp nghỉ ngẫu nhiên 20–40 phút; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
@@ -241,6 +246,9 @@ export const AutoTasks: React.FC = () => {
                   giờ –
                   <input type="number" min={1} max={24} value={editRest.we} onChange={e => setEditRest({ ...editRest, we: e.target.value })} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Giờ kết thúc" />
                   giờ
+                  {editRest.wOn && t.win.tz && Number(editRest.ws) !== Number(editRest.we) && (
+                    <span className="basis-full text-emerald-300">🕘 {windowPreview(t.win.tz, Number(editRest.ws), Number(editRest.we))}</span>
+                  )}
                   <span className="text-slate-500">Áp dụng từ cặp kế tiếp; cặp đang cào không bị ngắt.</span>
                 </div>
               )}

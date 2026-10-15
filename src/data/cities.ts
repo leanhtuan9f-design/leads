@@ -13,3 +13,10 @@ export function citiesFor(country: string): string[] {
   const name = LOWER.get(k) || LOWER.get((ALIAS[k] || '').toLowerCase());
   return name ? CITIES[name] : [];
 }
+
+/** Múi giờ đại diện của một quốc gia (IANA); '' nếu chưa có trong bảng. */
+export function tzFor(country: string): string {
+  const k = country.trim().toLowerCase();
+  const name = LOWER.get(k) || LOWER.get((ALIAS[k] || '').toLowerCase());
+  return name ? (data as { tz?: Record<string, string> }).tz?.[name] || '' : '';
+}
