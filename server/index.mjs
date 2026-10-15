@@ -1243,8 +1243,8 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
   const keywords = [...new Set([...hit.keywords, ...ai.buyerTypes.map((x) => x.keyword)].map((k) => k.trim()).filter(Boolean))].slice(0, 6);
   if (keywords.length * cities.length > AUTO_MAX_PAIRS) cities.length = Math.max(1, Math.floor(AUTO_MAX_PAIRS / keywords.length));
 
-  // nghỉ định kỳ: mặc định 5 cặp / 10 phút khi không có proxy, 0 (không nghỉ) khi có proxy
-  let burstN = proxies.length ? 0 : 5, restMin = proxies.length ? 0 : 10;
+  // nghỉ định kỳ: mặc định 5 cặp / 30 phút khi không có proxy, 0 (không nghỉ) khi có proxy
+  let burstN = proxies.length ? 0 : 5, restMin = proxies.length ? 0 : 30;
   if (hasBurst) {
     burstN = intIn(b.burstN, 0, 100); restMin = intIn(b.restMin, 0, 240);
     if (burstN === null || restMin === null) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });

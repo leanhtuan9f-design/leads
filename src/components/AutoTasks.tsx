@@ -76,7 +76,7 @@ export const AutoTasks: React.FC = () => {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, ...(burstN !== null || restMin !== null ? { burstN: burstN ?? (noProxy ? '5' : '0'), restMin: restMin ?? (noProxy ? '10' : '0') } : {}) });
+      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, ...(burstN !== null || restMin !== null ? { burstN: burstN ?? (noProxy ? '5' : '0'), restMin: restMin ?? (noProxy ? '30' : '0') } : {}) });
       setProduct(''); setCities('');
       setOpenId(r.id); setRuns([]);
       await load();
@@ -143,7 +143,7 @@ export const AutoTasks: React.FC = () => {
             <div className="flex items-center gap-1.5">
               <input type="number" min={0} max={100} value={burstN ?? (noProxy ? '5' : '0')} onChange={e => setBurstN(e.target.value)} className={`${inputCls} text-center`} aria-label="Số cặp cào trước khi nghỉ" />
               <span className="text-slate-500">/</span>
-              <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '10' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Số phút nghỉ" />
+              <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '30' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Số phút nghỉ" />
             </div>
           </div>
           <button type="submit" disabled={busy || !product.trim() || !country.trim() || !aiEnabled}
@@ -152,7 +152,7 @@ export const AutoTasks: React.FC = () => {
           </button>
         </div>
         {!aiEnabled && <div className="text-amber-300">AI chưa được cấu hình (menu tài khoản → Cấu hình AI).</div>}
-        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định nghỉ 10 phút sau mỗi 5 cặp; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
+        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định nghỉ 30 phút sau mỗi 5 cặp; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
         {error && <div className="p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </form>
 
