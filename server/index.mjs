@@ -7,6 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
+import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 const PORT = Number(process.env.PORT || 3150);
 const HOST = '127.0.0.1';
@@ -81,7 +82,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_qp_qkey ON query_places(qkey, pos);
 `);
+ensureAuthSchema(db);
 const stmt = {
+  userByEmail: db.prepare('SELECT * FROM users WHERE email = ?'),
+  userById: db.prepare('SELECT * FROM users WHERE id = ?'),
+  allUsers: db.prepare('SELECT id, email, role, daily_new, daily_refresh, disabled, created_at FROM users ORDER BY id'),
+  insertUser: db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
+  setPass: db.prepare('UPDATE users SET pass = ? WHERE id = ?'),
+  getSession: db.prepare('SELECT * FROM sessions WHERE token_hash = ?'),
+  insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)'),
+  delSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
+  delUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+  delOtherSessions: db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?'),
+  purgeSessions: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
+  getUsage: db.prepare('SELECT new_places, refreshes FROM usage WHERE user_id = ? AND day = ?'),
+  addNew: db.prepare(`INSERT INTO usage (user_id, day, new_places) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET new_places = new_places + 1`),
+  addRefresh: db.prepare(`INSERT INTO usage (user_id, day, refreshes) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET refreshes = refreshes + 1`),
+  purgeUsage: db.prepare('DELETE FROM usage WHERE day < ?'),
   getRun: db.prepare('SELECT * FROM query_runs WHERE qkey = ?'),
   touchRun: db.prepare('UPDATE query_runs SET hits = hits + 1, last_used_at = ? WHERE qkey = ?'),
   upsertPlace: db.prepare(`INSERT INTO places (place_id, data, first_seen, last_seen, closed_suspect) VALUES (?, ?, ?, ?, 0)
@@ -101,6 +118,8 @@ const stmt = {
   purgePlaces: db.prepare('DELETE FROM places WHERE place_id NOT IN (SELECT place_id FROM query_places)'),
 };
 function purgeOld() {
+  stmt.purgeSessions.run(Date.now());
+  stmt.purgeUsage.run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
   stmt.purgeRuns.run(Date.now() - PURGE_AFTER_MS);
   stmt.purgeLinks.run();
   stmt.purgePlaces.run();
@@ -119,6 +138,127 @@ const neededDepth = (maxResults, nQueries) => {
 
 const app = express();
 app.use(express.json({ limit: '32kb' }));
+
+// ===== Xác thực =====
+const COOKIE = 'mapsid';
+const SESSION_MS = 30 * 24 * 3600 * 1000;
+const parseCookies = (req) => Object.fromEntries(String(req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]).map(([k, ...v]) => [k, v.join('=')]));
+const setCookie = (res, token, maxAgeSec) => res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}`);
+
+// Chặn CSRF: yêu cầu ghi từ trình duyệt phải cùng nguồn gốc (cookie còn có SameSite=Lax)
+app.use((req, res, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    const origin = req.headers.origin;
+    if (origin) { try { if (new URL(origin).host !== req.headers.host) return res.status(403).json({ error: 'Nguồn không hợp lệ' }); } catch { return res.status(403).json({ error: 'Nguồn không hợp lệ' }); } }
+  }
+  next();
+});
+
+app.use((req, _res, next) => {
+  const tok = parseCookies(req)[COOKIE];
+  if (tok) {
+    const sess = stmt.getSession.get(sha256(tok));
+    if (sess && sess.expires_at > Date.now()) {
+      const u = stmt.userById.get(sess.user_id);
+      if (u && !u.disabled) { req.user = u; req.sessionHash = sess.token_hash; }
+    }
+  }
+  next();
+});
+const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'Chưa đăng nhập' }));
+const requireAdmin = (req, res, next) => (!req.user ? res.status(401).json({ error: 'Chưa đăng nhập' }) : req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Không có quyền' }));
+const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.userId === user.id));
+app.use('/api/jobs', requireAuth);
+
+const publicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
+function quotaOf(u) {
+  const use = stmt.getUsage.get(u.id, vnDay()) || { new_places: 0, refreshes: 0 };
+  return { newUsed: use.new_places, newLimit: u.daily_new, refreshUsed: use.refreshes, refreshLimit: u.daily_refresh };
+}
+
+const loginFails = new Map(); // key -> { n, until }
+const failKey = (req, email) => `${req.headers['x-real-ip'] || req.ip}|${email}`;
+app.post('/api/auth/login', (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
+  const password = String(req.body?.password || '').slice(0, 200);
+  const key = failKey(req, email);
+  const f = loginFails.get(key);
+  if (f && f.until > Date.now()) return res.status(429).json({ error: 'Sai quá nhiều lần, thử lại sau 15 phút' });
+  const u = stmt.userByEmail.get(email);
+  const ok = verifyPassword(password, u?.pass) && u && !u.disabled; // luôn băm để thời gian phản hồi như nhau
+  if (!ok) {
+    const n = (f?.n || 0) + 1;
+    loginFails.set(key, { n, until: n >= 8 ? Date.now() + 15 * 60 * 1000 : 0 });
+    return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });
+  }
+  loginFails.delete(key);
+  const token = newToken();
+  stmt.insertSession.run(sha256(token), u.id, Date.now() + SESSION_MS);
+  setCookie(res, token, SESSION_MS / 1000);
+  res.json({ user: publicUser(u), quota: quotaOf(u) });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const tok = parseCookies(req)[COOKIE];
+  if (tok) stmt.delSession.run(sha256(tok));
+  setCookie(res, '', 0);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Chưa đăng nhập' });
+  res.json({ user: publicUser(req.user), quota: quotaOf(req.user) });
+});
+
+app.post('/api/auth/password', requireAuth, (req, res) => {
+  const cur = String(req.body?.current || '');
+  const nw = String(req.body?.next || '');
+  if (!verifyPassword(cur, req.user.pass)) return res.status(400).json({ error: 'Mật khẩu hiện tại không đúng' });
+  if (nw.length < 10 || nw.length > 200) return res.status(400).json({ error: 'Mật khẩu mới cần từ 10 ký tự' });
+  stmt.setPass.run(hashPassword(nw), req.user.id);
+  stmt.delOtherSessions.run(req.user.id, req.sessionHash);
+  res.json({ ok: true });
+});
+
+// ===== Quản trị người dùng (chỉ admin) =====
+const toInt = (v, def, max = 1000000) => { const n = Number(v); return Number.isInteger(n) && n >= 0 && n <= max ? n : def; };
+app.get('/api/admin/users', requireAdmin, (_req, res) => {
+  const day = vnDay();
+  res.json({ users: stmt.allUsers.all().map((u) => {
+    const use = stmt.getUsage.get(u.id, day) || { new_places: 0, refreshes: 0 };
+    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes };
+  }) });
+});
+app.post('/api/admin/users', requireAdmin, (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) return res.status(400).json({ error: 'Email không hợp lệ' });
+  const role = req.body?.role === 'admin' ? 'admin' : 'user';
+  const password = String(req.body?.password || '') || randomPassword();
+  if (password.length < 10) return res.status(400).json({ error: 'Mật khẩu cần từ 10 ký tự' });
+  try {
+    stmt.insertUser.run(email, hashPassword(password), role, toInt(req.body?.dailyNew, 200), toInt(req.body?.dailyRefresh, 3, 1000), Date.now());
+  } catch { return res.status(409).json({ error: 'Email đã tồn tại' }); }
+  res.json({ email, password }); // mật khẩu chỉ hiện một lần
+});
+app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const u = stmt.userById.get(id);
+  if (!u) return res.status(404).json({ error: 'Không tìm thấy' });
+  const b = req.body || {};
+  if (b.disabled === true && u.id === req.user.id) return res.status(400).json({ error: 'Không thể tự khóa tài khoản của mình' });
+  if (b.role && b.role !== 'admin' && u.id === req.user.id) return res.status(400).json({ error: 'Không thể tự hạ quyền của mình' });
+  db.prepare('UPDATE users SET daily_new = ?, daily_refresh = ?, disabled = ?, role = ? WHERE id = ?').run(
+    toInt(b.dailyNew, u.daily_new), toInt(b.dailyRefresh, u.daily_refresh, 1000),
+    b.disabled === undefined ? u.disabled : (b.disabled ? 1 : 0), b.role === 'admin' || b.role === 'user' ? b.role : u.role, id);
+  if (b.disabled) stmt.delUserSessions.run(id);
+  let newPassword;
+  if (b.resetPassword) {
+    newPassword = randomPassword();
+    stmt.setPass.run(hashPassword(newPassword), id);
+    stmt.delUserSessions.run(id);
+  }
+  res.json({ ok: true, newPassword });
+});
 
 /** @type {Map<string, Job>} */
 const jobs = new Map();
@@ -183,6 +323,8 @@ class Job {
     this.detached = false; // đủ chỉ tiêu → để truy vấn đang chạy hoàn tất vào kho rồi dừng
     this.dir = path.join(WORK_DIR, this.id);
     this.container = null;
+    this.userId = spec.userId || null;
+    this.quotaLeft = Infinity;
     this.source = { cache: 0, live: 0, oldestAt: null, refreshing: false };
   }
   emit(type, data) {
@@ -201,13 +343,25 @@ class Job {
       source: this.sourceLabel(), oldestAt: this.source.oldestAt, refreshing: this.source.refreshing,
     });
     this.ended = true;
+    this.endStatus = status;
+    this.endMessage = message;
     for (const res of this.clients) res.end();
     this.clients.clear();
   }
-  detach() { // đủ chỉ tiêu hoặc người dùng đã rời trang
+  detach(message = '') { // đủ chỉ tiêu, hết hạn mức, hoặc người dùng đã rời trang
     if (this.detached || this.aborted) return;
     this.detached = true;
-    this.endClients('done');
+    this.endClients('done', message);
+  }
+  deliverLive(place) { // địa điểm cào mới: tính vào hạn mức của người dùng
+    if (this.detached || this.aborted) return;
+    if (this.userId) {
+      if (this.quotaLeft <= 0) { this.detach('Đã hết hạn mức địa điểm mới hôm nay. Dữ liệu đã lưu vẫn xem được; hạn mức đặt lại vào 0h (giờ Việt Nam).'); return; }
+      this.quotaLeft--;
+      stmt.addNew.run(this.userId, vnDay());
+    }
+    this.count++; this.source.live++;
+    this.emit('place', place);
   }
   abort() {
     this.aborted = true;
@@ -300,7 +454,7 @@ function scrapeQuery(job, q, idx) {
         seen.add(pid);
         placeIds.push(pid);
         stmt.upsertPlace.run(pid, JSON.stringify(place), now, now);
-        if (!job.detached) { job.count++; job.source.live++; job.emit('place', place); }
+        job.deliverLive(place);
       }
     };
     const poll = setInterval(readNew, 700);
@@ -330,7 +484,9 @@ function saveRun(job, q, placeIds) {
   stmt.saveRun.run(q.key, q.text, now, now, job.spec.depth, job.spec.extractEmails ? 1 : 0, placeIds.length);
 }
 
-const isUsable = (run, spec) => Boolean(run && run.depth >= spec.depth && (run.with_email || !spec.extractEmails));
+// Dùng được nếu cào đủ sâu, hoặc kho đã có đủ số địa điểm phần của truy vấn này
+const isUsable = (run, spec) => Boolean(run && (run.with_email || !spec.extractEmails)
+  && (run.depth >= spec.depth || run.result_count >= Math.ceil(spec.maxResults / spec.queries.length)));
 
 // Giai đoạn 1 (không cần trình duyệt, chạy ngay khi nhận yêu cầu): lấy từ kho những truy vấn còn dùng được.
 // Trả về danh sách truy vấn còn thiếu cần cào mới.
@@ -407,16 +563,6 @@ async function runJob(job) {
 }
 
 // ===== API =====
-const forceUsage = new Map(); // ip -> { day, n }
-function allowForce(ip) {
-  const day = new Date().toISOString().slice(0, 10);
-  const u = forceUsage.get(ip);
-  if (!u || u.day !== day) { forceUsage.set(ip, { day, n: 1 }); return true; }
-  if (u.n >= FORCE_PER_DAY) return false;
-  u.n++;
-  return true;
-}
-
 app.post('/api/jobs', async (req, res) => {
   const b = req.body || {};
   const lang = /^[a-z]{2}(-[A-Za-z]{2})?$/.test(b.lang || '') ? b.lang : 'vi';
@@ -440,15 +586,22 @@ app.post('/api/jobs', async (req, res) => {
     catch (e) { return res.status(400).json({ error: e.message }); }
   }
 
-  const ip = String(req.headers['x-real-ip'] || req.ip);
+  const user = req.user;
+  const usage = stmt.getUsage.get(user.id, vnDay()) || { new_places: 0, refreshes: 0 };
   const force = Boolean(b.refresh);
-  if (force && !allowForce(ip)) return res.status(429).json({ error: `Hết lượt làm mới hôm nay (tối đa ${FORCE_PER_DAY} lần/ngày). Dữ liệu đã lưu vẫn dùng được.` });
+  if (force && usage.new_places >= user.daily_new) {
+    return res.status(429).json({ error: 'Đã hết hạn mức địa điểm mới hôm nay nên không thể làm mới. Hạn mức đặt lại vào 0h (giờ Việt Nam).' });
+  }
+  if (force && usage.refreshes >= user.daily_refresh) {
+    return res.status(429).json({ error: `Hết lượt làm mới hôm nay (${user.daily_refresh} lần/ngày). Dữ liệu đã lưu vẫn dùng được.` });
+  }
 
   const maxResults = Math.min(MAX_RESULTS, Math.max(1, Number(b.maxResults) || 25));
   const depth = neededDepth(maxResults, queries.length);
 
   if (queue.length >= MAX_QUEUE) return res.status(429).json({ error: 'Hàng đợi đầy, thử lại sau' });
-  const job = new Job({ queries, geo, radius, depth, extractEmails: Boolean(b.extractEmails), lang, proxies, force, background: false });
+  const job = new Job({ queries, geo, radius, depth, maxResults, extractEmails: Boolean(b.extractEmails), lang, proxies, force, background: false, userId: user.id });
+  job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
   job.live = prepareCached(job); // dữ liệu có sẵn được đẩy ngay, không chờ hàng đợi
@@ -457,6 +610,11 @@ app.post('/api/jobs', async (req, res) => {
     next(); // nếu có truy vấn cũ cần cập nhật nền và máy đang rảnh
     return res.json({ id: job.id });
   }
+  if (job.quotaLeft <= 0) { // hết hạn mức địa điểm mới: chỉ phục vụ phần có sẵn trong kho
+    job.endClients('done', 'Đã hết hạn mức địa điểm mới hôm nay: chỉ hiển thị dữ liệu đã lưu. Hạn mức đặt lại vào 0h (giờ Việt Nam).');
+    return res.json({ id: job.id });
+  }
+  if (force) stmt.addRefresh.run(user.id, vnDay());
   queue.push(job);
   job.emit('status', { status: 'queued', position: queue.length + (running ? 1 : 0) });
   next();
@@ -465,13 +623,13 @@ app.post('/api/jobs', async (req, res) => {
 
 app.get('/api/jobs/:id/events', (req, res) => {
   const job = jobs.get(req.params.id);
-  if (!job) return res.status(404).end();
+  if (!job || !canAccess(req.user, job)) return res.status(404).end();
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   sseWrite(res, 'status', { status: job.status });
   for (const p of job.history) sseWrite(res, 'place', p);
   if (job.ended) {
-    sseWrite(res, 'end', { status: job.aborted ? 'cancelled' : 'done', count: job.count, source: job.sourceLabel(), oldestAt: job.source.oldestAt, refreshing: job.source.refreshing });
+    sseWrite(res, 'end', { status: job.endStatus || 'done', message: job.endMessage || '', count: job.count, source: job.sourceLabel(), oldestAt: job.source.oldestAt, refreshing: job.source.refreshing });
     return res.end();
   }
   job.clients.add(res);
@@ -488,7 +646,7 @@ app.get('/api/jobs/:id/events', (req, res) => {
 
 app.delete('/api/jobs/:id', (req, res) => {
   const job = jobs.get(req.params.id);
-  if (!job) return res.status(404).end();
+  if (!job || !canAccess(req.user, job)) return res.status(404).end();
   const qi = queue.indexOf(job);
   if (qi >= 0) {
     queue.splice(qi, 1);
@@ -499,11 +657,12 @@ app.delete('/api/jobs/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/cache/stats', (_req, res) => {
+app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
   res.json({ places: s.places, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
 });
 
+// (health không cần đăng nhập)
 app.get('/api/health', (_req, res) => res.json({ ok: true, running: Boolean(running), queued: queue.length }));
 
 app.listen(PORT, HOST, () => console.log(`maps-api listening on ${HOST}:${PORT}`));

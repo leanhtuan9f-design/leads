@@ -20,8 +20,13 @@ export const ApiDocsModal: React.FC<ApiDocsModalProps> = ({ onOpenGuide }) => {
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  const curlSnippet = `# 1. Tạo tác vụ cào (trả về {"id": "..."})
-curl -X POST "${base}/api/jobs" \\
+  const curlSnippet = `# 0. Đăng nhập (lưu cookie phiên vào cookies.txt)
+curl -c cookies.txt -X POST "${base}/api/auth/login" \\
+  -H "Content-Type: application/json" \\
+  -d '{"email": "you@example.com", "password": "..."}'
+
+# 1. Tạo tác vụ cào (trả về {"id": "..."})
+curl -b cookies.txt -X POST "${base}/api/jobs" \\
   -H "Content-Type: application/json" \\
   -d '{
     "queries": ["Phòng khám nha khoa Cầu Giấy, Hà Nội"],
@@ -31,17 +36,25 @@ curl -X POST "${base}/api/jobs" \\
   }'
 
 # 2. Nhận kết quả theo luồng (Server-Sent Events): event "place" cho mỗi địa điểm, "end" khi xong
-curl -N "${base}/api/jobs/JOB_ID/events"
+curl -b cookies.txt -N "${base}/api/jobs/JOB_ID/events"
 
 # 3. Hủy tác vụ
-curl -X DELETE "${base}/api/jobs/JOB_ID"`;
+curl -b cookies.txt -X DELETE "${base}/api/jobs/JOB_ID"`;
 
   const nodeSnippet = `// Node.js 18+ (fetch có sẵn)
 const BASE = '${base}';
 
-const res = await fetch(\`\${BASE}/api/jobs\`, {
+// Đăng nhập, lấy cookie phiên rồi gửi kèm các yêu cầu sau
+const login = await fetch(\`\${BASE}/api/auth/login\`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: 'you@example.com', password: '...' }),
+});
+const cookie = login.headers.get('set-cookie').split(';')[0];
+
+const res = await fetch(\`\${BASE}/api/jobs\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Cookie: cookie },
   body: JSON.stringify({
     queries: ['Quán cà phê Quận 1, Hồ Chí Minh'],
     maxResults: 25,
@@ -50,7 +63,7 @@ const res = await fetch(\`\${BASE}/api/jobs\`, {
 });
 const { id } = await res.json();
 
-const stream = await fetch(\`\${BASE}/api/jobs/\${id}/events\`);
+const stream = await fetch(\`\${BASE}/api/jobs/\${id}/events\`, { headers: { Cookie: cookie } });
 const decoder = new TextDecoder();
 let buf = '';
 for await (const chunk of stream.body) {
@@ -72,13 +85,16 @@ import requests
 
 BASE = "${base}"
 
-job = requests.post(f"{BASE}/api/jobs", json={
+s = requests.Session()
+s.post(f"{BASE}/api/auth/login", json={"email": "you@example.com", "password": "..."}).raise_for_status()
+
+job = s.post(f"{BASE}/api/jobs", json={
     "queries": ["Công ty luật Đà Nẵng"],
     "maxResults": 25,
     "extractEmails": True,
 }).json()
 
-with requests.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
+with s.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
     event = None
     for line in r.iter_lines(decode_unicode=True):
         if line.startswith("event: "):
@@ -115,7 +131,8 @@ with requests.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
           <li><code className="text-blue-400 font-mono">POST /api/jobs</code> — tạo tác vụ. Tham số: <code className="font-mono">queries[]</code> (tối đa 12), <code className="font-mono">maxResults</code> (tối đa 300), <code className="font-mono">extractEmails</code>, <code className="font-mono">lang</code>, <code className="font-mono">geo</code> ("lat,lon") + <code className="font-mono">radius</code> (mét), <code className="font-mono">proxies[]</code> (tối đa 10).</li>
           <li><code className="text-blue-400 font-mono">GET /api/jobs/:id/events</code> — luồng SSE: <code className="font-mono">status</code>, <code className="font-mono">place</code> (một địa điểm), <code className="font-mono">end</code>.</li>
           <li><code className="text-blue-400 font-mono">DELETE /api/jobs/:id</code> — hủy tác vụ.</li>
-          <li>Chạy 1 tác vụ tại một thời điểm, tối đa 3 tác vụ xếp hàng; giới hạn 6 yêu cầu tạo tác vụ mỗi phút. Hiện chưa có xác thực.</li>
+          <li><code className="text-blue-400 font-mono">POST /api/auth/login</code> — đăng nhập (email, password), nhận cookie phiên; các lời gọi <code className="font-mono">/api/jobs</code> đều cần cookie này. Tài khoản do quản trị viên cấp, mỗi tài khoản có hạn mức địa điểm mới và số lần làm mới mỗi ngày (vượt hạn mức sẽ nhận lỗi 429 hoặc chỉ nhận dữ liệu đã lưu).</li>
+          <li>Chạy 1 tác vụ cào tại một thời điểm, tối đa 3 tác vụ xếp hàng; giới hạn 6 yêu cầu tạo tác vụ mỗi phút.</li>
         </ul>
       </div>
 

@@ -1,7 +1,9 @@
 import { APP_NAME } from '../config/brand';
 import React from 'react';
-import { Download, Play, Compass, Database, MapPin, BarChart3, Terminal, HelpCircle } from 'lucide-react';
+import { Download, Play, Compass, Database, MapPin, BarChart3, Terminal, HelpCircle, Users } from 'lucide-react';
 import { ActiveTab } from '../types/scraper';
+import { AccountMenu } from './AccountMenu';
+import { AuthUser, Quota } from '../auth/types';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -10,6 +12,9 @@ interface HeaderProps {
   onExportClick: () => void;
   onOpenGuide: (guideId: string) => void;
   totalLeadsCount: number;
+  user: AuthUser;
+  quota: Quota | null;
+  onLogout: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -18,7 +23,10 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNewJob,
   onExportClick,
   onOpenGuide,
-  totalLeadsCount
+  totalLeadsCount,
+  user,
+  quota,
+  onLogout
 }) => {
   return (
     <header className="flex items-center justify-between gap-8 px-6 py-3.5 bg-slate-950 border-b border-slate-800/80 sticky top-0 z-40">
@@ -88,10 +96,22 @@ export const Header: React.FC<HeaderProps> = ({
           <Terminal className="w-3.5 h-3.5" />
           <span>Tài liệu API & CLI</span>
         </button>
+        {user.role === 'admin' && (
+          <button
+            onClick={() => setActiveTab('admin')}
+            className={`flex items-center gap-1.5 py-1 transition-colors whitespace-nowrap shrink-0 ${
+              activeTab === 'admin' ? 'text-blue-400 font-semibold border-b-2 border-blue-500' : 'hover:text-white'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Người dùng</span>
+          </button>
+        )}
       </nav>
 
       {/* Zone 3: Primary Actions & Global Help Button */}
       <div className="flex items-center gap-2.5 shrink-0">
+        <AccountMenu user={user} quota={quota} onLogout={onLogout} />
         <button
           onClick={() => onOpenGuide('data_table')}
           className="px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-md transition-colors flex items-center gap-1.5 whitespace-nowrap shrink-0"

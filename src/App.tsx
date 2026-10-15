@@ -11,6 +11,8 @@ import { LeadDrawer } from './components/LeadDrawer';
 import { OutreachModal } from './components/OutreachModal';
 import { ExportModal } from './components/ExportModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
+import { AdminUsersView } from './components/AdminUsersView';
+import { AuthUser, Quota } from './auth/types';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
 import { executeScrapingJob, ProgressCallbackData } from './services/scraperEngine';
@@ -33,11 +35,22 @@ try {
   localStorage.removeItem('gmaps_scraper_jobs_v2');
 } catch (e) {}
 
-export default function App() {
+interface AppProps {
+  user: AuthUser;
+  quota: Quota | null;
+  onLogout: () => void;
+  refreshQuota: () => void;
+}
+
+export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
+  // Dữ liệu trong trình duyệt tách riêng theo từng tài khoản
+  const keyLeads = `${STORAGE_KEY_LEADS}_u${user.id}`;
+  const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
+  const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const [activeTab, setActiveTab] = useState<ActiveTab>('leads');
   const [businesses, setBusinesses] = useState<ScrapedBusiness[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_LEADS);
+      const saved = localStorage.getItem(keyLeads);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -50,7 +63,7 @@ export default function App() {
 
   const [jobs, setJobs] = useState<ScraperJob[]>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_JOBS);
+      const saved = localStorage.getItem(keyJobs);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -63,12 +76,13 @@ export default function App() {
 
   // Proxy do người dùng nhập (mỗi dòng một proxy), lưu trong trình duyệt này
   const [proxiesText, setProxiesText] = useState<string>(() => {
-    try { return localStorage.getItem(STORAGE_KEY_PROXIES) || ''; } catch (e) { return ''; }
+    try { return localStorage.getItem(keyProxies) || ''; } catch (e) { return ''; }
   });
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [dataNote, setDataNote] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY_PROXIES, proxiesText); } catch (e) {}
+    try { localStorage.setItem(keyProxies, proxiesText); } catch (e) {}
   }, [proxiesText]);
 
   // Modal and drawer states
@@ -87,13 +101,13 @@ export default function App() {
   // Sync to local storage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_LEADS, JSON.stringify(businesses));
+      localStorage.setItem(keyLeads, JSON.stringify(businesses));
     } catch (e) {}
   }, [businesses]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY_JOBS, JSON.stringify(jobs));
+      localStorage.setItem(keyJobs, JSON.stringify(jobs));
     } catch (e) {}
   }, [jobs]);
 
@@ -129,6 +143,7 @@ export default function App() {
     setCompletionSummary(null); // Clear previous summary
     setScrapeError(null);
     setDataNote(null);
+    setNotice(null);
     isCancelledRef.current = false;
 
     const progressRef = { current: null as ProgressCallbackData | null };
@@ -138,6 +153,7 @@ export default function App() {
         effectiveOptions,
         (progress) => {
           progressRef.current = progress;
+          if (progress.notice) setNotice(progress.notice);
           if (progress.cacheInfo) {
             const ci = progress.cacheInfo;
             const age = ci.oldestAt ? Math.max(0, Math.floor((Date.now() - ci.oldestAt) / 86400000)) : null;
@@ -200,6 +216,7 @@ export default function App() {
     } finally {
       setActiveJobId(null);
       setJobProgress(null);
+      refreshQuota(); // cập nhật hạn mức đã dùng
     }
   };
 
@@ -231,6 +248,9 @@ export default function App() {
         onExportClick={() => setIsExportModalOpen(true)}
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         totalLeadsCount={businesses.length}
+        user={user}
+        quota={quota}
+        onLogout={onLogout}
       />
 
       {/* Main Content Area */}
@@ -242,8 +262,16 @@ export default function App() {
           isRunning={Boolean(activeJobId)}
           onOpenAdvancedModal={() => setIsScraperModalOpen(true)}
           proxyCount={parseProxies(proxiesText).length}
+          quota={quota}
           onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         />
+
+        {notice && (
+          <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200 flex items-start justify-between gap-3">
+            <span>⚠️ {notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-amber-300 hover:text-white shrink-0">Đóng</button>
+          </div>
+        )}
 
         {dataNote && (
           <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/40 rounded-lg text-xs text-blue-200 flex items-start justify-between gap-3">
@@ -321,6 +349,12 @@ export default function App() {
         )}
 
         {/* Tab 5: REST API & CLI Documentation */}
+        {activeTab === 'admin' && user.role === 'admin' && (
+          <div className="space-y-4">
+            <AdminUsersView currentUserId={user.id} />
+          </div>
+        )}
+
         {activeTab === 'api' && (
           <div className="space-y-4">
             <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />

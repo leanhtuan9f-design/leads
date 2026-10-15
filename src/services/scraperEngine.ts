@@ -14,6 +14,7 @@ export interface ProgressCallbackData {
   isMarketExhausted?: boolean;
   guaranteedQuotaTarget?: number;
   guaranteedQuotaCurrent?: number;
+  notice?: string; // thông báo từ máy chủ (ví dụ hết hạn mức)
   cacheInfo?: { source: 'cache' | 'live' | 'mixed'; oldestAt: number | null; refreshing: boolean };
   currentSubdivision?: string;
 }
@@ -301,6 +302,7 @@ export async function executeScrapingJob(
       refresh: options.forceRefresh || undefined
     })
   });
+  if (resp.status === 401) window.dispatchEvent(new Event('auth:expired'));
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     throw new Error(err.error || `Engine trả lỗi ${resp.status}`);
@@ -312,6 +314,7 @@ export async function executeScrapingJob(
   let endedNaturally = false;
   let cacheMeta: { oldestAt: number | null; refreshing: boolean } | null = null;
   let fromCacheCount = 0;
+  let serverNotice = '';
 
   await new Promise<void>((resolve, reject) => {
     const es = new EventSource(`${API_BASE}/jobs/${jobId}/events`);
@@ -393,6 +396,7 @@ export async function executeScrapingJob(
         return stop(new Error(d.message || 'Engine cào thất bại'), 'none');
       }
       endedNaturally = d.status === 'done';
+      if (d.status === 'done' && d.message) serverNotice = d.message;
       if (!cacheMeta && d.source && d.source !== 'live') cacheMeta = { oldestAt: d.oldestAt ?? null, refreshing: Boolean(d.refreshing) };
       stop(undefined, 'none');
     });
@@ -415,6 +419,13 @@ export async function executeScrapingJob(
       marketCoveragePercent: 100,
       isMarketExhausted: true,
       statusMessage: `Đã cào hết kết quả Google Maps cho "${effectiveQuery}" (${total} cơ sở).`
+    });
+  }
+
+  if (serverNotice) {
+    onProgress({
+      scrapedCount: results.length, totalFound: targetCount, currentQuery: effectiveQuery, speedPerMin: 0,
+      skippedDuplicates: skippedDuplicatesCount, notice: serverNotice, statusMessage: serverNotice
     });
   }
 

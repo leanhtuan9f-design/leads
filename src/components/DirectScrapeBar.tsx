@@ -14,6 +14,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
+import { Quota } from '../auth/types';
 import { estimateMarketTotal, getKnownDistricts } from '../services/scraperEngine';
 import { HelpButton } from './HelpButton';
 
@@ -23,6 +24,7 @@ interface DirectScrapeBarProps {
   isRunning: boolean;
   onOpenAdvancedModal: () => void;
   proxyCount?: number;
+  quota?: Quota | null;
   onOpenGuide: (guideId: string) => void;
 }
 
@@ -48,6 +50,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   isRunning,
   onOpenAdvancedModal,
   proxyCount = 0,
+  quota = null,
   onOpenGuide
 }) => {
   const [category, setCategory] = useState('Phòng khám nha khoa');
@@ -272,8 +275,13 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           </div>
           <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-400">
             <input type="checkbox" checked={forceRefresh} onChange={(e) => setForceRefresh(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
-            <span>Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn (tối đa 3 lần/ngày)</span>
+            <span>Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn{quota ? ` (đã dùng ${quota.refreshUsed}/${quota.refreshLimit} lần hôm nay)` : ''}</span>
           </label>
+          {quota && (
+            <div className={quota.newUsed >= quota.newLimit ? 'text-red-300' : 'text-slate-400'}>
+              Hạn mức hôm nay: <strong className="font-mono text-white">{quota.newUsed}/{quota.newLimit}</strong> địa điểm mới — dữ liệu lấy từ kho đã lưu không bị tính.
+            </div>
+          )}
           <div>🔥 <strong>Quét theo chỉ tiêu:</strong> Gom đúng <strong className="text-amber-300 font-mono">{maxResults === FULL_BATCH ? `toàn bộ ~${marketInfo.remaining > 0 ? marketInfo.remaining : 100} địa điểm còn lại` : `${maxResults} địa điểm MỚI`}</strong> (tự bỏ qua cơ sở đã có). Tốc độ phụ thuộc Google Maps — thường 1–3 phút cho 25 điểm; các job được xếp hàng và chạy lần lượt.</div>
         </div>
 

@@ -88,12 +88,12 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       '2. HỆ THỐNG ĐANG LÀM GÌ ĐỂ GIẢM TẢI:',
       '• Nếu bạn nhập proxy (Tùy chọn nâng cao → "Proxy của bạn"), mọi truy vấn của bạn đi qua các proxy đó. Nếu để trống, truy vấn ra Google bằng IP máy chủ — dễ bị CAPTCHA/chặn khi cào nhiều.',
       '• Chỉ chạy 1 tác vụ tại một thời điểm; tối đa 3 tác vụ xếp hàng, quá số này sẽ báo bận.',
-      '• Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP người dùng, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
+      '• Mỗi tài khoản có hạn mức địa điểm mới và số lần cào mới hoàn toàn mỗi ngày (đặt lại 0h giờ Việt Nam); dữ liệu lấy từ kho đã lưu không bị tính. Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
       '• Tốc độ do chính engine cào quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
       '',
       '3. CHƯA CÓ (CẦN PHÁT TRIỂN NẾU MỞ CHO NHIỀU NGƯỜI):',
       '• Kho proxy dùng chung/tự xoay vòng (hiện mỗi người tự cung cấp proxy; nên dùng proxy dân cư để ít bị chặn).',
-      '• Tài khoản người dùng và hạn mức theo người dùng (hiện ai truy cập cũng dùng chung hàng đợi).',
+      '• Thanh toán/gói dịch vụ tự động (hiện hạn mức do quản trị viên đặt tay cho từng tài khoản).',
       '• Chế độ Google Places API chính thức (tuân thủ chính sách) kết hợp bóc email/mạng xã hội từ website doanh nghiệp.',
       'Nếu bị Google yêu cầu CAPTCHA hoặc chặn IP, tác vụ sẽ trả ít hoặc không có kết quả và báo lỗi.'
     ],
@@ -223,7 +223,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     subtitle: 'API nội bộ của ứng dụng này và ví dụ gọi từ cURL, Node.js, Python',
     tag: 'Dành cho Lập trình viên',
     logicExplanation: [
-      'API nội bộ THẬT của ứng dụng: POST /api/jobs (tạo tác vụ), GET /api/jobs/:id/events (nhận kết quả theo luồng SSE), DELETE /api/jobs/:id (hủy). Hiện chưa có xác thực.',
+      'API nội bộ THẬT của ứng dụng: POST /api/jobs (tạo tác vụ), GET /api/jobs/:id/events (nhận kết quả theo luồng SSE), DELETE /api/jobs/:id (hủy). Cần đăng nhập (cookie phiên từ POST /api/auth/login).',
       'Ví dụ cURL / Node.js / Python trong tab này dùng đúng API trên, tự lấy địa chỉ từ tên miền đang truy cập.'
     ],
     steps: [
