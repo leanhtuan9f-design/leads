@@ -17,12 +17,17 @@ interface DirectScrapeBarProps {
 // Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
 const FULL_BATCH = 0;
 
-// Gợi ý chỉ hiện khi chưa có lead nào
 const QUICK_SEARCH_EXAMPLES = [
   { category: 'Phòng khám nha khoa', location: 'Hà Nội' },
   { category: 'Quán cà phê', location: 'Quận 1, TP.HCM' },
+  { category: 'Công ty cơ khí', location: 'Bình Dương' },
   { category: 'Spa làm đẹp', location: 'Hải Phòng' },
-  { category: 'Khách sạn', location: 'Đà Lạt' }
+  { category: 'Thầu xây dựng', location: 'Cần Thơ' },
+  { category: 'Công ty luật', location: 'Đà Nẵng' },
+  { category: 'Khách sạn', location: 'Đà Lạt' },
+  { category: 'Kho vận Logistics', location: '21.0285, 105.8542' },
+  { category: 'Trung tâm Ngoại ngữ', location: 'Quận Cầu Giấy, Hà Nội' },
+  { category: 'Đại lý nông sản', location: 'Đắk Lắk' }
 ];
 
 export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
@@ -140,21 +145,21 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         </div>
       )}
 
-      {existingBusinesses.length === 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-slate-500">Thử:</span>
-          {QUICK_SEARCH_EXAMPLES.map((ex) => (
-            <button
-              key={ex.category}
-              type="button"
-              onClick={() => { setCategory(ex.category); setLocation(ex.location); }}
-              className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
-            >
-              {ex.category} · {ex.location}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
+        {QUICK_SEARCH_EXAMPLES.map((ex) => (
+          <button
+            key={ex.category}
+            type="button"
+            onClick={() => { setCategory(ex.category); setLocation(ex.location); }}
+            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
+          >
+            <span className="text-blue-400">{ex.category}</span>
+            <span className="text-slate-500 mx-1">@</span>
+            <span className="font-mono text-emerald-400">{ex.location}</span>
+          </button>
+        ))}
+      </div>
 
       <div>
         <button
