@@ -162,14 +162,14 @@ function extractJson(text) {
   try { return JSON.parse(t.slice(i, j + 1)); } catch { return null; }
 }
 
-async function callAnthropic(c, text) {
-  const official = !c.baseUrl;
+async function callAnthropic(c, text, o = {}) {
+  const official = !c.baseUrl && !o.plain;
   let resp;
   try {
     resp = await getClient(c).messages.create({
       model: c.model,
-      max_tokens: 4000,
-      system: SYSTEM,
+      max_tokens: o.maxTokens || 4000,
+      system: o.system || SYSTEM,
       ...(official ? { output_config: { effort: 'low', format: { type: 'json_schema', schema: SCHEMA } } } : {}),
       messages: [{ role: 'user', content: text }],
     });
@@ -181,18 +181,18 @@ async function callAnthropic(c, text) {
     throw new AiError('Không gọi được AI, hãy thử lại sau.');
   }
   if (resp.stop_reason === 'refusal') throw new AiError('AI từ chối xử lý nội dung hồ sơ. Hãy chỉnh lại mô tả rồi thử lại.', 'refusal');
-  if (resp.stop_reason === 'max_tokens') throw new AiError('AI trả lời chưa xong, hãy thử lại.');
+  if (resp.stop_reason === 'max_tokens' && !o.plain) throw new AiError('AI trả lời chưa xong, hãy thử lại.');
   const block = resp.content.find((b) => b.type === 'text');
   return { text: block?.text || '', usage: { input: resp.usage?.input_tokens || 0, output: resp.usage?.output_tokens || 0 } };
 }
 
-async function callOpenAI(c, text) {
+async function callOpenAI(c, text, o = {}) {
   let r;
   try {
     r = await fetch(`${openaiBase(normalizeBaseUrl(c.baseUrl))}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${c.apiKey}` },
-      body: JSON.stringify({ model: c.model, max_tokens: 4000, messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: text }] }),
+      body: JSON.stringify({ model: c.model, max_tokens: o.maxTokens || 4000, messages: [{ role: 'system', content: o.system || SYSTEM }, { role: 'user', content: text }] }),
       redirect: 'error', signal: AbortSignal.timeout(60_000),
     });
   } catch (e) {
@@ -206,7 +206,7 @@ async function callOpenAI(c, text) {
   let body;
   try { body = await r.json(); } catch { throw new AiError('AI trả về dữ liệu không đọc được, hãy thử lại.'); }
   const ch = body?.choices?.[0];
-  if (ch?.finish_reason === 'length') throw new AiError('AI trả lời chưa xong, hãy thử lại.');
+  if (ch?.finish_reason === 'length' && !o.plain) throw new AiError('AI trả lời chưa xong, hãy thử lại.');
   const content = ch?.message?.content;
   return {
     text: Array.isArray(content) ? content.map((p) => p?.text || '').join('') : String(content || ''),
@@ -227,4 +227,24 @@ export async function suggestKeywords(profile) {
   const items = sanitize(parsed?.suggestions);
   if (items.length === 0) throw new AiError('AI không đưa ra được gợi ý nào, hãy bổ sung mô tả hồ sơ rồi thử lại.');
   return { items, usage };
+}
+
+// Thử kết nối thật: (1) tải danh sách model, (2) gọi model một câu ngắn. Trả báo cáo từng bước cho admin.
+export async function testConnection({ baseUrl, apiKey, format, model }) {
+  const c = { format: format === 'openai' ? 'openai' : 'anthropic', baseUrl: normalizeBaseUrl(baseUrl), apiKey, model: String(model || '').trim() };
+  if (!c.apiKey) throw new AiError('Chưa có API key.', 'config');
+  if (c.format === 'openai' && !c.baseUrl) throw new AiError('Kiểu OpenAI cần nhập Base URL.', 'config');
+  const out = { models: [], modelsError: '', chatOk: false, chatError: '', reply: '', ms: 0 };
+  try { out.models = await listModels(c); } catch (e) { out.modelsError = e.message; }
+  if (!c.model && out.models.length) c.model = out.models[0];
+  out.model = c.model;
+  if (!c.model) { out.chatError = 'Chưa có model để thử gọi. Hãy nhập model thủ công.'; return out; }
+  const t0 = Date.now();
+  try {
+    const o = { system: 'Trả lời đúng một từ: OK', maxTokens: 64, plain: true };
+    const r = c.format === 'openai' ? await callOpenAI(c, 'ping', o) : await callAnthropic(c, 'ping', o);
+    out.chatOk = true; out.reply = r.text.trim().slice(0, 80);
+  } catch (e) { out.chatError = e.message; }
+  out.ms = Date.now() - t0;
+  return out;
 }

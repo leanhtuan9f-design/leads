@@ -7,7 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestKeywords, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -948,6 +948,18 @@ app.post('/api/admin/ai-config/models', requireAdmin, async (req, res) => {
     res.json({ ok: true, models });
   } catch (e) {
     res.status(400).json({ error: e instanceof AiError ? e.message : 'Không tải được danh sách model' });
+  }
+});
+
+// Thử kết nối thật (tải model + gọi 1 câu ngắn), dùng khóa đã lưu nếu ô khóa để trống
+app.post('/api/admin/ai-config/test', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  try {
+    const cur = getAiConfig();
+    const apiKey = typeof b.apiKey === 'string' && b.apiKey.trim() ? b.apiKey.trim() : cur.apiKey;
+    res.json(await testConnection({ baseUrl: b.baseUrl, apiKey, format: b.format, model: b.model }));
+  } catch (e) {
+    res.status(400).json({ error: e instanceof AiError ? e.message : 'Không thử được kết nối' });
   }
 });
 

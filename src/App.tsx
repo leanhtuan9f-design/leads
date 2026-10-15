@@ -11,6 +11,7 @@ import { OutreachModal } from './components/OutreachModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
 import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
+import { AiSettings } from './components/AiSettings';
 import { AdminBackgroundView } from './components/AdminBackgroundView';
 import { ProfileModal } from './components/ProfileModal';
 import { AuthUser, Quota, apiJson } from './auth/types';
@@ -424,6 +425,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         {activeTab === 'admin' && user.role === 'admin' && <AdminUsersView currentUserId={user.id} />}
 
         {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView />}
+        {activeTab === 'aiconfig' && user.role === 'admin' && <div className="max-w-xl text-xs"><h2 className="text-sm font-bold text-white mb-1">Cấu hình AI</h2><AiSettings onSaved={() => {}} /></div>}
 
         {activeTab === 'api' && <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
       </main>

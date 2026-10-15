@@ -11,6 +11,8 @@ interface AiConfigView {
   enabled: boolean;
 }
 
+interface TestReport { models: string[]; modelsError: string; chatOk: boolean; chatError: string; reply: string; ms: number; model: string }
+
 const inputCls = 'w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-blue-500';
 
 // Cấu hình kết nối AI tùy chỉnh (chỉ admin): Base URL (http/https), API key, model tải tự động hoặc nhập tay
@@ -22,6 +24,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const [model, setModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
   const [meta, setMeta] = useState<{ hasKey: boolean; keyHint: string; keySource: string } | null>(null);
+  const [report, setReport] = useState<TestReport | null>(null);
   const [busy, setBusy] = useState<'' | 'test' | 'save'>('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -36,14 +39,13 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   }, []);
 
   const test = async () => {
-    setBusy('test'); setMsg(null);
+    setBusy('test'); setMsg(null); setReport(null);
     try {
-      const r = await apiJson<{ models: string[] }>('/admin/ai-config/models', 'POST', { format, baseUrl, apiKey });
+      const r = await apiJson<TestReport>('/admin/ai-config/test', 'POST', { format, baseUrl, apiKey, model });
       setModels(r.models);
-      if (!model && r.models.length) setModel(r.models[0]);
-      setMsg({ ok: true, text: `Kết nối thành công — ${r.models.length} model. Chọn trong ô Model hoặc nhập tay.` });
+      if (!model && r.model) setModel(r.model);
+      setReport(r);
     } catch (e) {
-      setModels([]);
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Kết nối thất bại' });
     } finally { setBusy(''); }
   };
@@ -86,15 +88,25 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
       </label>
       <div className="flex items-center gap-2">
         <button type="button" onClick={test} disabled={busy !== ''} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 rounded disabled:opacity-50">
-          {busy === 'test' ? 'Đang kết nối…' : 'Kết nối & tải model'}
+          {busy === 'test' ? 'Đang thử kết nối…' : 'Test kết nối'}
         </button>
-        <span className="text-slate-500">Thành công thì danh sách model tự điền vào ô bên dưới.</span>
+        <span className="text-slate-500">Tải danh sách model và gọi thử model một câu ngắn.</span>
       </div>
       <label className="block">
-        <span className="text-slate-400">Model{models.length ? ` (${models.length} model từ máy chủ — chọn hoặc nhập tay)` : ' (nhập tay hoặc bấm “Kết nối & tải model”)'}</span>
+        <span className="text-slate-400">Model{models.length ? ` (${models.length} model từ máy chủ — chọn hoặc nhập tay)` : ' (nhập tay hoặc bấm “Test kết nối”)'}</span>
         <input list="ai-model-list" value={model} onChange={(e) => setModel(e.target.value)} placeholder={format === 'anthropic' ? 'claude-haiku-5-5' : 'tên model, ví dụ gpt-4o-mini'} className={`${inputCls} font-mono`} autoComplete="off" spellCheck={false} />
         <datalist id="ai-model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
       </label>
+      {report && (
+        <div className="p-2 rounded border border-slate-700 bg-slate-900/60 space-y-0.5">
+          <div className={report.models.length ? 'text-emerald-300' : 'text-amber-300'}>
+            {report.models.length ? `✓ Tải được ${report.models.length} model` : `⚠ Không tải được danh sách model${report.modelsError ? `: ${report.modelsError}` : ''}`}
+          </div>
+          <div className={report.chatOk ? 'text-emerald-300' : 'text-red-300'}>
+            {report.chatOk ? `✓ Gọi thử “${report.model}” thành công (${report.ms} ms)${report.reply ? ` — trả lời: ${report.reply}` : ''}` : `✕ Gọi thử thất bại: ${report.chatError}`}
+          </div>
+        </div>
+      )}
       {msg && <div className={msg.ok ? 'text-emerald-300' : 'text-red-300'}>{msg.text}</div>}
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => save()} disabled={busy !== ''} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium disabled:opacity-50">

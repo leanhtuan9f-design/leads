@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, LogOut, KeyRound, Terminal, Users, UserCog } from 'lucide-react';
+import { User, LogOut, KeyRound, Terminal, Users, UserCog, Sparkles } from 'lucide-react';
 import { apiJson, AuthUser, Quota } from '../auth/types';
 import { ActiveTab } from '../types/scraper';
 
@@ -87,6 +87,14 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout,
               className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'admin' ? 'text-blue-400' : 'text-slate-300'}`}
             >
               <Users className="w-3.5 h-3.5" /> Quản lý người dùng
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button
+              onClick={() => { onNavigate('aiconfig'); setOpen(false); }}
+              className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'aiconfig' ? 'text-blue-400' : 'text-slate-300'}`}
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Cấu hình AI
             </button>
           )}
           <button onClick={onLogout} className="w-full flex items-center gap-1.5 text-red-300 hover:text-red-200">
