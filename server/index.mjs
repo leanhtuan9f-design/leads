@@ -7,7 +7,7 @@ import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -29,8 +29,14 @@ const JOB_LOG_KEEP_MS = 30 * 24 * 3600 * 1000; // giữ lịch sử job 30 ngày
 const BG_QUERIES_PER_HOUR = 6; // trần số truy vấn cập nhật nền mỗi giờ
 const PURGE_AFTER_MS = 180 * 24 * 3600 * 1000; // xóa dữ liệu không ai dùng sau 180 ngày
 const DEPTHS = [1, 2, 4, 8, 16, 32, 40];
-const AUTO_GAP_MS = 20 * 1000; // nghỉ giữa hai lần cào thật của tác vụ tự động (tránh dồn dập lên Google)
+const AUTO_GAP_MS = Number(process.env.AUTO_GAP_MS ?? 20000); // nghỉ giữa hai lần cào thật của tác vụ tự động (tránh dồn dập lên Google)
 const AUTO_MAX_PAIRS = 80;
+const AUTO_MAX_RUNS = 600; // trần tổng số cặp (kể cả cặp tách nhỏ) mỗi tác vụ
+const AUTO_SAT = 100; // một truy vấn trả ≥ ngần này lead = chạm trần ~120 của Google → tách thành khu nhỏ để không sót
+const AUTO_MAX_LEVEL = 2; // thành phố → quận → phường
+const AUTO_RETRY_ERROR = 3; // số lần thử tối đa cho cặp lỗi
+const AUTO_RETRY_EMPTY = 2;
+const AUTO_BREAKER = 5; // 5 cặp liên tiếp lỗi hẳn → tự dừng tác vụ
 const CITY_DATA = JSON.parse(readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'data', 'cities.json'), 'utf8'));
 const citiesOfCountry = (country) => {
   const k = String(country).trim().toLowerCase();
@@ -146,6 +152,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS auto_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, keyword TEXT NOT NULL, city TEXT NOT NULL, qtext TEXT NOT NULL, qkey TEXT NOT NULL,
   status TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, cache_n INTEGER NOT NULL DEFAULT 0, live_n INTEGER NOT NULL DEFAULT 0,
   started_at INTEGER, finished_at INTEGER, message TEXT NOT NULL DEFAULT '')`);
+for (const col of ["level INTEGER NOT NULL DEFAULT 0", "parent_id INTEGER", "saturated INTEGER NOT NULL DEFAULT 0", "attempts INTEGER NOT NULL DEFAULT 1", "split_state TEXT NOT NULL DEFAULT ''"]) {
+  try { db.exec(`ALTER TABLE auto_runs ADD COLUMN ${col}`); } catch { /* đã có cột */ }
+}
+db.exec('CREATE TABLE IF NOT EXISTS auto_areas (place TEXT PRIMARY KEY, areas TEXT NOT NULL, at INTEGER NOT NULL)');
 db.exec('CREATE INDEX IF NOT EXISTS auto_runs_task ON auto_runs(task_id, status)');
 db.exec("UPDATE auto_runs SET status='pending' WHERE status='running'"); // khởi động lại giữa chừng → chạy lại cặp dở
 try { // cấu hình AI do admin đặt trong giao diện (khóa API nằm trong DB, không bao giờ trả về trình duyệt)
@@ -214,9 +224,11 @@ const stmt = {
   aiLogPurge: db.prepare('DELETE FROM ai_log WHERE at < ?'),
   aiUsagePurge: db.prepare('DELETE FROM ai_usage WHERE day < ?'),
   autoNextRun: db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 1"),
+  autoSetSplit: db.prepare('UPDATE auto_runs SET split_state=? WHERE id=?'),
   autoRunStart: db.prepare("UPDATE auto_runs SET status='running', started_at=? WHERE id=?"),
   autoRunEnd: db.prepare('UPDATE auto_runs SET status=?, count=?, cache_n=?, live_n=?, finished_at=?, message=? WHERE id=?'),
-  autoLeft: db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND status IN ('pending','running')"),
+  autoLeft: db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND (status IN ('pending','running') OR split_state='todo')"),
+  autoNextSplit: db.prepare("SELECT r.* FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.split_state='todo' ORDER BY r.id LIMIT 1"),
   autoTaskEnd: db.prepare("UPDATE auto_tasks SET status=?, finished_at=?, note=? WHERE id=? AND status='running'"),
   purgeRuns: db.prepare('DELETE FROM query_runs WHERE last_used_at < ?'),
   purgeLinks: db.prepare('DELETE FROM query_places WHERE qkey NOT IN (SELECT qkey FROM query_runs)'),
@@ -1036,6 +1048,13 @@ async function pickAuto() {
   if (running || autoPicking) return;
   const wait = autoNotBefore - Date.now();
   if (wait > 0) { setTimeout(next, wait + 50).unref(); return; }
+  const sp = stmt.autoNextSplit.get();
+  if (sp) {
+    autoPicking = true;
+    try { await splitRun(sp); } catch (e) { console.error('splitRun error', e); stmt.autoSetSplit.run('failed', sp.id); } finally { autoPicking = false; }
+    setImmediate(next);
+    return;
+  }
   const r = stmt.autoNextRun.get();
   if (!r) return;
   autoPicking = true;
@@ -1044,7 +1063,7 @@ async function pickAuto() {
     try { proxies = JSON.parse(r.proxies || '[]'); } catch { proxies = []; }
     stmt.autoRunStart.run(Date.now(), r.id);
     const job = new Job({
-      queries: [{ text: r.qtext, key: r.qkey }], geo: '', radius: 10000, depth: neededDepth(r.max_results, 1), maxResults: r.max_results,
+      queries: [{ text: r.qtext, key: r.qkey }], geo: '', radius: 10000, depth: neededDepth(MAX_RESULTS, 1), maxResults: MAX_RESULTS,
       extractEmails: true, lang: 'vi', proxies, force: false, background: true, auto: { runId: r.id, taskId: r.task_id },
     });
     jobs.set(job.id, job);
@@ -1075,14 +1094,57 @@ async function pickAuto() {
 
 function finishAutoRun(job) {
   const { runId, taskId } = job.spec.auto;
+  const run = db.prepare('SELECT * FROM auto_runs WHERE id=?').get(runId);
   let status = job.aborted ? 'error' : 'done';
   let msg = job.endMessage || '';
   if (job.count === 0) {
     status = job.errNote ? 'error' : 'empty';
     msg = job.errNote || msg || 'Google không trả kết quả cho cặp này';
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
+  // gián đoạn / lỗi tạm thời: thử lại thay vì bỏ sót cặp này
+  const maxTry = status === 'error' ? AUTO_RETRY_ERROR : status === 'empty' && !job.cacheOnly ? AUTO_RETRY_EMPTY : 1;
+  if (run && run.attempts < maxTry) {
+    db.prepare("UPDATE auto_runs SET status='pending', attempts=attempts+1, message=? WHERE id=?").run(`Thử lại lần ${run.attempts + 1}/${maxTry} — ${String(msg).slice(0, 200)}`, runId);
+    return;
+  }
+  const saturated = status === 'done' && job.count >= AUTO_SAT;
   stmt.autoRunEnd.run(status, job.count, job.source.cache, job.source.live, Date.now(), String(msg).slice(0, 300), runId);
+  if (saturated) db.prepare('UPDATE auto_runs SET saturated=1, split_state=? WHERE id=?').run(run && run.level >= AUTO_MAX_LEVEL ? 'maxlevel' : 'todo', runId);
+  // cầu chì: nhiều cặp liên tiếp lỗi hẳn (thường do Google chặn IP) → dừng để admin xử lý, không đốt hết các cặp còn lại
+  const last = db.prepare("SELECT status FROM auto_runs WHERE task_id=? AND status IN ('done','empty','error') ORDER BY finished_at DESC, id DESC LIMIT ?").all(taskId, AUTO_BREAKER);
+  if (last.length === AUTO_BREAKER && last.every((x) => x.status === 'error')) {
+    stmt.autoTaskEnd.run('stopped', Date.now(), `Tự dừng: ${AUTO_BREAKER} cặp liên tiếp lỗi (có thể Google chặn IP). Kiểm tra proxy rồi bấm Tiếp tục.`, taskId);
+    return;
+  }
   if (stmt.autoLeft.get(taskId).n === 0) stmt.autoTaskEnd.run('done', Date.now(), '', taskId);
+}
+
+// Tách một cặp chạm trần Google thành các khu nhỏ (AI liệt kê quận/phường, lưu cache theo địa điểm), tạo cặp con cho cùng từ khóa
+async function splitRun(r) {
+  const task = db.prepare('SELECT * FROM auto_tasks WHERE id=?').get(r.task_id);
+  const place = r.qtext.slice(r.keyword.length + 1); // "Los Angeles, United States"
+  const pkey = normalize(place);
+  let areas = parseJsonCol(db.prepare('SELECT areas FROM auto_areas WHERE place=?').get(pkey)?.areas, null);
+  if (!areas) {
+    const t0 = Date.now();
+    const out = await suggestAreas(place);
+    areas = out.areas;
+    db.prepare('INSERT OR REPLACE INTO auto_areas (place, areas, at) VALUES (?,?,?)').run(pkey, JSON.stringify(areas), Date.now());
+    stmt.aiLogAdd.run(Date.now(), task.created_by, task.created_email, 1, out.usage.input, out.usage.output, areas.length, `chia khu vực "${place}" ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  }
+  const total = db.prepare('SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=?').get(r.task_id).n;
+  if (total + areas.length > AUTO_MAX_RUNS) { stmt.autoSetSplit.run('capped', r.id); return; }
+  const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status, level, parent_id) VALUES (?,?,?,?,?,?,?,?)');
+  const have = db.prepare('SELECT 1 FROM auto_runs WHERE task_id=? AND qkey=?');
+  inTx(() => {
+    for (const a of areas) {
+      const qtext = `${r.keyword} ${a}, ${place}`;
+      const qkey = makeKey(qtext, 'vi', '');
+      if (have.get(r.task_id, qkey)) continue;
+      ins.run(r.task_id, r.keyword, `${a}, ${r.city}`, qtext, qkey, 'pending', r.level + 1, r.id);
+    }
+    stmt.autoSetSplit.run('done', r.id);
+  });
 }
 
 const parseJsonCol = (v, d) => { try { return JSON.parse(v); } catch { return d; } };
@@ -1098,6 +1160,10 @@ function taskStats(t) {
   return {
     total, pending: by.pending?.n || 0, running: by.running?.n || 0, done: by.done?.n || 0, empty: by.empty?.n || 0, error: by.error?.n || 0,
     found: runs.reduce((a, x) => a + (x.cnt || 0), 0), fromCache: runs.reduce((a, x) => a + (x.c || 0), 0), fromLive: runs.reduce((a, x) => a + (x.l || 0), 0),
+    saturated: db.prepare('SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND saturated=1').get(t.id).n,
+    unsplit: db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND saturated=1 AND split_state IN ('capped','failed','maxlevel')").get(t.id).n,
+    splitting: db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND split_state='todo'").get(t.id).n,
+    retried: db.prepare('SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND attempts>1').get(t.id).n,
     uniquePlaces: u.places, withPhone: u.phone, withWebsite: u.website, withEmail: u.email,
   };
 }
@@ -1118,8 +1184,8 @@ app.get('/api/admin/auto', requireAdmin, (_req, res) => {
 app.get('/api/admin/auto/:id', requireAdmin, (req, res) => {
   const t = db.prepare('SELECT * FROM auto_tasks WHERE id=?').get(Number(req.params.id));
   if (!t) return res.status(404).json({ error: 'Không có tác vụ' });
-  const runs = db.prepare('SELECT id, keyword, city, status, count, cache_n, live_n, started_at, finished_at, message FROM auto_runs WHERE task_id=? ORDER BY id').all(t.id);
-  res.json({ task: taskView(t), runs: runs.map((r) => ({ id: r.id, keyword: r.keyword, city: r.city, status: r.status, count: r.count, cache: r.cache_n, live: r.live_n, startedAt: r.started_at, finishedAt: r.finished_at, message: r.message })) });
+  const runs = db.prepare('SELECT id, keyword, city, status, count, cache_n, live_n, started_at, finished_at, message, level, saturated, attempts, split_state FROM auto_runs WHERE task_id=? ORDER BY id').all(t.id);
+  res.json({ task: taskView(t), runs: runs.map((r) => ({ id: r.id, keyword: r.keyword, city: r.city, status: r.status, count: r.count, cache: r.cache_n, live: r.live_n, startedAt: r.started_at, finishedAt: r.finished_at, message: r.message, level: r.level, saturated: Boolean(r.saturated), attempts: r.attempts, splitState: r.split_state })) });
 });
 
 app.post('/api/admin/auto', requireAdmin, async (req, res) => {
@@ -1127,7 +1193,7 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
   const product = clean(b.product, 300), country = clean(b.country, 60);
   if (!product || !country) return res.status(400).json({ error: 'Cần nhập sản phẩm và quốc gia.' });
   if (!aiEnabled()) return res.status(503).json({ error: 'AI chưa được cấu hình (menu tài khoản → Cấu hình AI).' });
-  const maxResults = Math.min(MAX_RESULTS, Math.max(5, Number(b.maxResults) || 50));
+  const maxResults = MAX_RESULTS; // tác vụ tự động luôn lấy sâu nhất để không sót
 
   // thành phố: nhập tay (ưu tiên) hoặc bảng có sẵn của nước đó
   const extra = String(b.cities || '').split(/[\n,;]+/).map((x) => clean(x, 60)).filter(Boolean);
@@ -1180,7 +1246,7 @@ app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
 });
 app.post('/api/admin/auto/:id/resume', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  const left = db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND status='pending'").get(id).n;
+  const left = db.prepare("SELECT COUNT(*) AS n FROM auto_runs WHERE task_id=? AND (status='pending' OR split_state='todo')").get(id).n;
   if (!left) return res.status(400).json({ error: 'Không còn cặp nào chờ chạy.' });
   db.prepare("UPDATE auto_tasks SET status='running', finished_at=NULL, note='' WHERE id=? AND status='stopped'").run(id);
   next();
@@ -1212,6 +1278,7 @@ app.get('/api/admin/auto/:id/export.csv', requireAdmin, (req, res) => {
   res.send('﻿' + lines.join('\n'));
 });
 
+execFile('sh', ['-c', 'docker ps -aq --filter name=maps-job- | xargs -r docker rm -f'], () => {}); // container mồ côi của lần chạy trước bị ngắt
 setTimeout(next, 5000).unref(); // sau khi khởi động, tiếp tục các tác vụ đang dở
 
 // (health không cần đăng nhập)

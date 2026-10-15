@@ -4,6 +4,7 @@ import { CITIES } from '../data/cities';
 
 interface Stats {
   total: number; pending: number; running: number; done: number; empty: number; error: number;
+  saturated: number; unsplit: number; splitting: number; retried: number;
   found: number; fromCache: number; fromLive: number; uniquePlaces: number; withPhone: number; withWebsite: number; withEmail: number;
 }
 interface Task {
@@ -15,6 +16,7 @@ interface Task {
 interface Run {
   id: number; keyword: string; city: string; status: 'pending' | 'running' | 'done' | 'empty' | 'error';
   count: number; cache: number; live: number; startedAt: number | null; finishedAt: number | null; message: string;
+  level: number; saturated: boolean; attempts: number; splitState: string;
 }
 
 const fmt = (t: number | null) => (t ? new Date(t).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -43,7 +45,6 @@ export const AutoTasks: React.FC = () => {
   const [country, setCountry] = useState('');
   const [proxies, setProxies] = useState('');
   const [cities, setCities] = useState('');
-  const [maxResults, setMaxResults] = useState(50);
 
   const [openId, setOpenId] = useState<number | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -71,7 +72,7 @@ export const AutoTasks: React.FC = () => {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, maxResults });
+      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities });
       setProduct(''); setCities('');
       setOpenId(r.id); setRuns([]);
       await load();
@@ -108,7 +109,7 @@ export const AutoTasks: React.FC = () => {
       <h3 className="font-semibold text-white mb-1">Tác vụ tự động (sản phẩm → quốc gia → từ khóa × thành phố)</h3>
       <p className="text-[11px] text-slate-500 mb-3">
         Nhập sản phẩm và quốc gia, hệ thống tự nhờ AI chọn từ khóa + loại khách hàng, ghép với thành phố của nước đó rồi cào lần lượt khi máy rảnh
-        (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần cào, tối đa {maxPairs} cặp/tác vụ). Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
+        (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần cào, tối đa {maxPairs} cặp ban đầu/tác vụ). Để không sót: mỗi cặp cào sâu nhất; cặp nào chạm trần Google (≥100 lead) tự được tách thành quận/phường rồi cào tiếp; cặp lỗi/trống được thử lại; gián đoạn (khởi động lại) thì chạy lại cặp dở. Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
       </p>
 
       <form onSubmit={create} className="space-y-2.5">
@@ -129,15 +130,9 @@ export const AutoTasks: React.FC = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
-          <div className="md:col-span-6">
+          <div className="md:col-span-8">
             <label className="block text-[11px] text-slate-400 mb-1">Thành phố (tùy chọn — để trống = dùng danh sách có sẵn của nước đó; nhiều thành phố cách nhau bằng dấu phẩy)</label>
             <input value={cities} onChange={e => setCities(e.target.value)} placeholder="vd: Tokyo, Osaka" className={inputCls} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-[11px] text-slate-400 mb-1">Lead tối đa / cặp</label>
-            <select value={maxResults} onChange={e => setMaxResults(Number(e.target.value))} className={inputCls}>
-              {[20, 50, 100, 150].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
           </div>
           <button type="submit" disabled={busy || !product.trim() || !country.trim() || !aiEnabled}
             className="md:col-span-4 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold rounded-lg">
@@ -172,6 +167,7 @@ export const AutoTasks: React.FC = () => {
                 </span>
               </div>
               <div className="h-1 bg-slate-800 mx-3 rounded"><div className="h-1 bg-emerald-500 rounded" style={{ width: `${pct}%` }} /></div>
+              {t.note && t.status !== 'running' && <div className="px-3 pt-2 text-[11px] text-amber-300">{t.note}</div>}
               {t.status === 'running' && (
                 <div className="px-3 pt-2 text-[11px] text-emerald-300">
                   {t.current
@@ -183,6 +179,9 @@ export const AutoTasks: React.FC = () => {
                 <span>Lead khác nhau: <b className="text-white">{s.uniquePlaces}</b></span>
                 <span>SĐT {s.withPhone}</span><span>Website {s.withWebsite}</span><span>Email {s.withEmail}</span>
                 <span>Cào mới {s.fromLive} · Từ kho {s.fromCache}</span>
+                {s.saturated > 0 && <span className="text-sky-300">Chạm trần Google {s.saturated} cặp → đã/đang tách khu nhỏ{s.splitting > 0 ? ` (chờ tách ${s.splitting})` : ''}</span>}
+                {s.unsplit > 0 && <span className="text-amber-300">Chưa tách hết {s.unsplit} cặp (có thể còn sót)</span>}
+                {s.retried > 0 && <span>Thử lại {s.retried} cặp</span>}
                 {s.error > 0 && <span className="text-red-300">Lỗi {s.error} cặp</span>}
                 {s.empty > 0 && <span className="text-amber-300">Trống {s.empty} cặp</span>}
               </div>
@@ -209,11 +208,17 @@ export const AutoTasks: React.FC = () => {
               </div>
             ))}
           </div>
+          <div className={`p-2 rounded border text-[11px] ${open.stats.unsplit > 0 || open.stats.error > 0 ? 'border-amber-500/40 bg-amber-500/10 text-amber-200' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'}`}>
+            <b>Độ phủ:</b>{' '}
+            {open.stats.saturated === 0 && open.stats.error === 0 && open.stats.unsplit === 0
+              ? 'mọi cặp đã xong đều trả ít hơn 100 lead nên chưa chạm trần Google — coi như lấy trọn.'
+              : `${open.stats.saturated} cặp chạm trần Google (≥100 lead) ${open.stats.unsplit ? `— ${open.stats.unsplit} cặp CHƯA tách hết (đạt trần số cặp/cấp sâu nhất hoặc AI lỗi) nên có thể còn sót` : 'đều đã được tách thành khu nhỏ'}${open.stats.error ? `; ${open.stats.error} cặp lỗi sau khi thử lại (thiếu dữ liệu)` : ''}.`}
+          </div>
           <div className="text-[11px] text-slate-400 space-y-1">
             <div><b className="text-slate-300">Từ khóa AI chọn:</b> {open.keywords.join(' · ')}</div>
             {open.buyerTypes.length > 0 && <div><b className="text-slate-300">Loại khách hàng:</b> {open.buyerTypes.map(b => b.name).join(' · ')}</div>}
             <div><b className="text-slate-300">Thành phố ({open.cities.length}):</b> {open.cities.join(' · ')}</div>
-            <div><b className="text-slate-300">Tạo bởi:</b> {open.by} · tối đa {open.maxResults} lead/cặp{open.finishedAt ? ` · kết thúc ${fmt(open.finishedAt)}` : ''}{open.note ? ` · ${open.note}` : ''}</div>
+            <div><b className="text-slate-300">Tạo bởi:</b> {open.by} · {open.finishedAt ? ` · kết thúc ${fmt(open.finishedAt)}` : ''}{open.note ? ` · ${open.note}` : ''}</div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
@@ -225,7 +230,7 @@ export const AutoTasks: React.FC = () => {
                   const [label, cls] = RUN_STATUS[r.status] || [r.status, ''];
                   return (
                     <tr key={r.id} className="border-b border-slate-900">
-                      <td className="py-1 pr-3 text-white">{r.city}</td>
+                      <td className="py-1 pr-3 text-white" style={{ paddingLeft: r.level * 12 }}>{r.level > 0 ? '↳ ' : ''}{r.city}{r.saturated ? <span title="Chạm trần Google (≥100 lead)" className="ml-1 text-sky-300">●</span> : null}{r.attempts > 1 ? <span title={`Đã thử ${r.attempts} lần`} className="ml-1 text-slate-500">↻{r.attempts}</span> : null}</td>
                       <td className="pr-3 text-slate-300">{r.keyword}</td>
                       <td className={`pr-3 ${cls}`}>{label}</td>
                       <td className="pr-3 text-right font-mono">{r.count}</td>
