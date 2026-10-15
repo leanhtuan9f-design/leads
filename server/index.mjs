@@ -864,7 +864,7 @@ app.get('/api/cache/stats', requireAdmin, (_req, res) => {
 app.use('/api/suggest', requireAuth);
 const aiInFlight = new Set();
 const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
-const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt])); // đổi prompt thì gợi ý cũ hết hiệu lực
+const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt, 'v2'])); // đổi prompt thì gợi ý cũ hết hiệu lực
 // Sản phẩm gõ trực tiếp ở ô tìm (ưu tiên) hoặc lấy từ Hồ sơ
 const subjectOf = (uid, product) => {
   const t = typeof product === 'string' ? product.trim().slice(0, 600) : '';
@@ -881,7 +881,7 @@ app.get('/api/suggest', (req, res) => {
   res.json({
     enabled: aiEnabled(), hasProfile: !profileIsEmpty(p), used: aiUsedToday(req.user.id), limit: AI_DAILY_LIMIT,
     profileOffer: profileOf(req.user.id)?.offer || '',
-    countries: fresh ? saved.countries : [], stale: Boolean(saved?.countries?.length && p && !fresh),
+    countries: fresh ? saved.countries : [], buyerTypes: fresh ? saved.buyerTypes || [] : [], stale: Boolean(saved?.countries?.length && p && !fresh),
   });
 });
 
@@ -895,7 +895,7 @@ app.post('/api/suggest', async (req, res) => {
   const saved = savedSuggestions(user.id);
   const used = () => ({ used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT });
   // đã có kết quả cho đúng hồ sơ + prompt: dùng lại, không gọi AI, không trừ lượt
-  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, cached: true, ...used() });
+  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, buyerTypes: saved.buyerTypes || [], cached: true, ...used() });
   if (aiUsedToday(user.id) >= AI_DAILY_LIMIT) {
     return res.status(429).json({ error: `Hôm nay bạn đã dùng hết ${AI_DAILY_LIMIT} lượt gợi ý AI. Lượt đặt lại vào 0h (giờ Việt Nam).` });
   }
@@ -913,9 +913,9 @@ app.post('/api/suggest', async (req, res) => {
       return res.status(502).json({ error: msg });
     }
     const at = Date.now();
-    stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, countries: result.countries, at }), at);
+    stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, countries: result.countries, buyerTypes: result.buyerTypes, at }), at);
     stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, result.countries.length, `${((at - t0) / 1000).toFixed(1)}s`);
-    res.json({ countries: result.countries, cached: false, ...used() });
+    res.json({ countries: result.countries, buyerTypes: result.buyerTypes, cached: false, ...used() });
   } finally {
     aiInFlight.delete(user.id);
   }

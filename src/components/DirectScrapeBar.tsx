@@ -21,7 +21,9 @@ interface DirectScrapeBarProps {
 }
 
 interface AiCountry { country: string; keywords: string[]; reason: string }
+interface BuyerType { name: string; keyword: string }
 interface AiState {
+  buyerTypes?: BuyerType[];
   enabled: boolean;
   hasProfile: boolean;
   profileOffer?: string;
@@ -99,8 +101,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
-      setAi(prev => (prev ? { ...prev, countries: r.countries, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
+      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, used: r.used, limit: r.limit, stale: false } : prev));
       setAiProduct(product.trim());
       setCountry('');
       setCity('');
@@ -394,6 +396,23 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
               </button>
             )}
           </div>
+          {(ai.buyerTypes?.length ?? 0) > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <Briefcase className="w-3.5 h-3.5 text-blue-300" />
+              <span className="text-slate-300 font-medium">Loại khách hàng phù hợp:</span>
+              {ai.buyerTypes!.map((b) => (
+                <button
+                  key={b.keyword}
+                  type="button"
+                  title={`Từ khóa tìm: ${b.keyword}`}
+                  onClick={() => setCategory(b.keyword)}
+                  className={`px-2 py-0.5 border rounded transition-colors ${category === b.keyword ? 'bg-blue-500/30 border-blue-400 text-white' : 'bg-blue-500/10 hover:bg-blue-500/20 border-blue-500/30 text-blue-200'}`}
+                >
+                  {b.name}
+                </button>
+              ))}
+            </div>
+          )}
           {aiBusy && <div className="text-[11px] text-slate-400">AI đang phân tích…</div>}
           {aiError && <div className="text-xs text-red-300">{aiError}</div>}
         </div>
