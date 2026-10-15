@@ -13,6 +13,7 @@ interface Task {
   createdAt: number; finishedAt: number | null; note: string; stats: Stats;
   current: { keyword: string; city: string; startedAt: number } | null;
   burstN: number; restMin: number; restUntil: number;
+  next: { keyword: string; city: string }[];
 }
 interface Run {
   id: number; keyword: string; city: string; status: 'pending' | 'running' | 'done' | 'empty' | 'error';
@@ -64,8 +65,11 @@ export const AutoTasks: React.FC = () => {
     try {
       const r = await apiJson<{ tasks: Task[]; aiEnabled: boolean; maxPairs: number; gapSec: number }>('/admin/auto');
       setTasks(r.tasks); setAiEnabled(r.aiEnabled); setMaxPairs(r.maxPairs); setGapSec(r.gapSec);
-      if (openId !== null) {
-        const d = await apiJson<{ runs: Run[] }>(`/admin/auto/${openId}`);
+      // chưa mở báo cáo nào (hoặc báo cáo đã bị xóa) → tự mở tác vụ đang chạy, không thì tác vụ mới nhất
+      let id = openId !== null && r.tasks.some(t => t.id === openId) ? openId : (r.tasks.find(t => t.status === 'running') ?? r.tasks[0])?.id ?? null;
+      if (id !== openId) setOpenId(id);
+      if (id !== null) {
+        const d = await apiJson<{ runs: Run[] }>(`/admin/auto/${id}`);
         setRuns(d.runs);
       }
     } catch (e) {
@@ -195,6 +199,11 @@ export const AutoTasks: React.FC = () => {
                     : t.current
                     ? `⏳ Đang cào: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
                     : `⏸ Đang chờ máy rảnh (ưu tiên lượt của người dùng, nghỉ ${gapSec}s giữa các cặp)`}
+                </div>
+              )}
+              {t.status === 'running' && t.next.length > 0 && (
+                <div className="px-3 pt-1 text-[11px] text-slate-400">
+                  Hàng chờ ({s.pending}): {t.next.map(n => `${n.keyword} @ ${n.city}`).join(' → ')}{s.pending > t.next.length ? ` … +${s.pending - t.next.length} cặp` : ''}
                 </div>
               )}
               <div className="px-3 pb-3 pt-2 text-[11px] text-slate-400 flex flex-wrap gap-x-4 gap-y-1">

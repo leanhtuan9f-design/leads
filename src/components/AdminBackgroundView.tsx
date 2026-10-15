@@ -5,6 +5,7 @@ import { AutoTasks } from './AutoTasks';
 interface JobRow {
   id: string;
   background: boolean;
+  auto?: boolean;
   force: boolean;
   cacheOnly?: boolean;
   user: string | null;
@@ -25,6 +26,7 @@ interface BackgroundInfo {
   now: number;
   running: JobRow | null;
   queue: JobRow[];
+  autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number }[] };
   pending: { query: string; depth: number; withEmail: boolean; lang: string; proxies: number }[];
   bgDoneThisHour: number;
   bgPerHour: number;
@@ -54,8 +56,8 @@ const fmtDur = (ms: number) => {
 const STATUS: Record<string, string> = { done: 'Xong', cancelled: 'Đã hủy', failed: 'Lỗi' };
 
 const Kind: React.FC<{ j: JobRow }> = ({ j }) => (
-  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${j.background ? 'bg-purple-500/20 text-purple-300' : j.cacheOnly ? 'bg-slate-500/20 text-slate-300' : 'bg-blue-500/20 text-blue-300'}`}>
-    {j.background ? 'Nền (cập nhật kho)' : j.cacheOnly ? 'Từ kho' : j.force ? 'Người dùng · cào mới' : 'Người dùng'}
+  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${j.auto ? 'bg-emerald-500/20 text-emerald-300' : j.background ? 'bg-purple-500/20 text-purple-300' : j.cacheOnly ? 'bg-slate-500/20 text-slate-300' : 'bg-blue-500/20 text-blue-300'}`}>
+    {j.auto ? 'Tác vụ tự động' : j.background ? 'Nền (cập nhật kho)' : j.cacheOnly ? 'Từ kho' : j.force ? 'Người dùng · cào mới' : 'Người dùng'}
   </span>
 );
 
@@ -109,6 +111,26 @@ export const AdminBackgroundView: React.FC = () => {
       </p>
 
       <AutoTasks />
+
+      <section className={card}>
+        <h3 className="font-semibold text-white mb-2">Hàng chờ tác vụ tự động ({info.autoQueue.total} cặp)</h3>
+        {info.autoQueue.total === 0 ? (
+          <div className="text-slate-500">Không có cặp nào đang chờ.</div>
+        ) : (
+          <>
+            <ol className="space-y-1 list-decimal list-inside text-slate-300">
+              {info.autoQueue.next.map((q, i) => (
+                <li key={i}>
+                  <span className="text-white">{q.keyword}</span> @ {q.city}
+                  <span className="text-slate-500"> · {q.product} → {q.country}{q.level > 0 ? ' · khu nhỏ' : ''}{q.attempts > 1 ? ` · thử lại lần ${q.attempts}` : ''}</span>
+                </li>
+              ))}
+            </ol>
+            {info.autoQueue.total > info.autoQueue.next.length && <div className="mt-1 text-slate-500">… và {info.autoQueue.total - info.autoQueue.next.length} cặp nữa</div>}
+            {info.autoQueue.next[0]?.restUntil > 0 && <div className="mt-1 text-amber-300">😴 Đang nghỉ chống bị chặn đến {new Date(info.autoQueue.next[0].restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div>}
+          </>
+        )}
+      </section>
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-1">Gợi ý AI từ hồ sơ</h3>

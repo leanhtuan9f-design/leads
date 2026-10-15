@@ -20,6 +20,7 @@ const WORK_DIR = process.env.WORK_DIR || '/var/lib/maps-jobs';
 const MAX_RESULTS = 300;
 const MAX_QUERIES = 12;
 const JOB_TIMEOUT_MS = 20 * 60 * 1000;
+const AUTO_TIMEOUT_MS = Number(process.env.AUTO_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_QUEUE = 3;
 const MAX_PROXIES = 10;
 const DB_PATH = process.env.DB_PATH || '/var/lib/maps-data/cache.db';
@@ -594,6 +595,7 @@ function jobView(job) {
   return {
     id: job.id.slice(0, 8),
     background: Boolean(job.spec.background),
+    auto: Boolean(job.spec.auto),
     force: Boolean(job.spec.force),
     user: u ? u.email : null,
     queries: job.spec.queries.map((q) => q.text),
@@ -692,7 +694,8 @@ function scrapeQuery(job, q, idx) {
       }
     };
     const poll = setInterval(readNew, 700);
-    const timer = setTimeout(() => { job.aborted = true; execFile('docker', ['rm', '-f', job.container], () => {}); job.endClients('failed', 'Quá thời gian tối đa 20 phút'); }, JOB_TIMEOUT_MS);
+    const limit = job.spec.auto ? AUTO_TIMEOUT_MS : JOB_TIMEOUT_MS;
+    const timer = setTimeout(() => { job.timedOut = true; job.aborted = true; execFile('docker', ['rm', '-f', job.container], () => {}); job.endClients('failed', `Quá thời gian tối đa ${limit / 60000} phút`); }, limit);
 
     const done = (code) => {
       clearInterval(poll);
@@ -777,6 +780,11 @@ async function runJob(job) {
     if (job.aborted || job.detached) break;
     job.emit('status', { status: 'running', message: `Đang cào: ${q.text}` });
     const r = await scrapeQuery(job, q, idx++);
+    if (job.timedOut && job.spec.auto && r.placeIds.length > 0) { // hết giờ nhưng đã lấy được một phần: giữ lại, cặp này sẽ được tách nhỏ
+      saveRun(job, q, r.placeIds);
+      job.count = r.placeIds.length; job.source.live = r.placeIds.length;
+      break;
+    }
     if (job.aborted) break;
     if (r.placeIds.length > 0 && (r.code === 0 || !job.aborted)) {
       saveRun(job, q, r.placeIds); // ngay cả khi người dùng đã rời đi, truy vấn này vẫn vào kho
@@ -1024,6 +1032,11 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     running: running ? { ...jobView(running), status: running.status } : null,
     queue: queue.map(jobView),
     pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
+    autoQueue: {
+      total: db.prepare("SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending'").get().n,
+      next: db.prepare("SELECT r.keyword, r.city, r.level, r.attempts, t.product, t.country, t.rest_until FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 15").all()
+        .map((x) => ({ keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: x.rest_until > Date.now() ? x.rest_until : 0 })),
+    },
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
     recent: stmt.recentLog.all().map((r) => ({
       id: r.id, kind: r.kind, background: r.kind === 'background' || r.kind === 'auto', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
@@ -1103,8 +1116,14 @@ async function pickAuto() {
 function finishAutoRun(job) {
   const { runId, taskId } = job.spec.auto;
   const run = db.prepare('SELECT * FROM auto_runs WHERE id=?').get(runId);
-  let status = job.aborted ? 'error' : 'done';
+  if (job.stopRequested) { // admin bấm Dừng: trả cặp về hàng chờ, không tính một lần thử
+    db.prepare("UPDATE auto_runs SET status='pending', message='Tạm dừng — sẽ chạy lại cặp này' WHERE id=?").run(runId);
+    return;
+  }
+  const partial = Boolean(job.timedOut && job.count > 0);
+  let status = job.aborted && !partial ? 'error' : 'done';
   let msg = job.endMessage || '';
+  if (partial) msg = `Hết giờ (${AUTO_TIMEOUT_MS / 60000} phút): lấy được một phần ${job.count} lead → tách thành khu nhỏ để lấy nốt`;
   if (job.count === 0) {
     status = job.errNote ? 'error' : 'empty';
     msg = job.errNote || msg || 'Google không trả kết quả cho cặp này';
@@ -1124,7 +1143,7 @@ function finishAutoRun(job) {
     db.prepare("UPDATE auto_runs SET status='pending', attempts=attempts+1, message=? WHERE id=?").run(`Thử lại lần ${run.attempts + 1}/${maxTry} — ${String(msg).slice(0, 200)}`, runId);
     return;
   }
-  const saturated = status === 'done' && job.count >= AUTO_SAT;
+  const saturated = status === 'done' && (job.count >= AUTO_SAT || partial);
   stmt.autoRunEnd.run(status, job.count, job.source.cache, job.source.live, Date.now(), String(msg).slice(0, 300), runId);
   if (saturated) db.prepare('UPDATE auto_runs SET saturated=1, split_state=? WHERE id=?').run(run && run.level >= AUTO_MAX_LEVEL ? 'maxlevel' : 'todo', runId);
   // cầu chì: nhiều cặp liên tiếp lỗi hẳn (thường do Google chặn IP) → dừng để admin xử lý, không đốt hết các cặp còn lại
@@ -1190,6 +1209,7 @@ const taskView = (t) => ({
   proxies: parseJsonCol(t.proxies, []).length, // chỉ trả số lượng, không lộ user:pass
   createdAt: t.created_at, finishedAt: t.finished_at, note: t.note, stats: taskStats(t),
   current: db.prepare("SELECT keyword, city, started_at AS startedAt FROM auto_runs WHERE task_id=? AND status='running' LIMIT 1").get(t.id) || null,
+  next: db.prepare("SELECT keyword, city FROM auto_runs WHERE task_id=? AND status='pending' ORDER BY id LIMIT 6").all(t.id),
   proxyMode: parseJsonCol(t.proxies, []).length ? 'proxy' : 'server',
   burstN: t.burst_n, restMin: t.rest_min, restUntil: t.rest_until > Date.now() ? t.rest_until : 0,
 });
@@ -1268,6 +1288,7 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
 app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   stmt.autoTaskEnd.run('stopped', Date.now(), 'Admin dừng', id);
+  if (running?.spec.auto?.taskId === id) { running.stopRequested = true; running.abort(); } // dừng luôn cặp đang cào
   res.json({ ok: true });
 });
 app.post('/api/admin/auto/:id/resume', requireAdmin, (req, res) => {
