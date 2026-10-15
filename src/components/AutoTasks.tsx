@@ -12,6 +12,7 @@ interface Task {
   keywords: string[]; cities: string[]; buyerTypes: { name: string; keyword: string }[]; proxies: number;
   createdAt: number; finishedAt: number | null; note: string; stats: Stats;
   current: { keyword: string; city: string; startedAt: number } | null;
+  burstN: number; restMin: number; restUntil: number;
 }
 interface Run {
   id: number; keyword: string; city: string; status: 'pending' | 'running' | 'done' | 'empty' | 'error';
@@ -45,6 +46,9 @@ export const AutoTasks: React.FC = () => {
   const [country, setCountry] = useState('');
   const [proxies, setProxies] = useState('');
   const [cities, setCities] = useState('');
+  const [burstN, setBurstN] = useState<string | null>(null); // null = chưa chỉnh → máy chủ tự chọn theo có/không proxy
+  const [restMin, setRestMin] = useState<string | null>(null);
+  const noProxy = proxies.trim() === '';
 
   const [openId, setOpenId] = useState<number | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -72,7 +76,7 @@ export const AutoTasks: React.FC = () => {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities });
+      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, ...(burstN !== null || restMin !== null ? { burstN: burstN ?? (noProxy ? '5' : '0'), restMin: restMin ?? (noProxy ? '10' : '0') } : {}) });
       setProduct(''); setCities('');
       setOpenId(r.id); setRuns([]);
       await load();
@@ -130,9 +134,17 @@ export const AutoTasks: React.FC = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
-          <div className="md:col-span-8">
+          <div className="md:col-span-5">
             <label className="block text-[11px] text-slate-400 mb-1">Thành phố (tùy chọn — để trống = dùng danh sách có sẵn của nước đó; nhiều thành phố cách nhau bằng dấu phẩy)</label>
             <input value={cities} onChange={e => setCities(e.target.value)} placeholder="vd: Tokyo, Osaka" className={inputCls} />
+          </div>
+          <div className="md:col-span-3">
+            <label className="block text-[11px] text-slate-400 mb-1" title="Chống bị Google chặn: cào đủ N cặp thì nghỉ M phút. 0 = không nghỉ.">Nghỉ: sau (cặp) / phút</label>
+            <div className="flex items-center gap-1.5">
+              <input type="number" min={0} max={100} value={burstN ?? (noProxy ? '5' : '0')} onChange={e => setBurstN(e.target.value)} className={`${inputCls} text-center`} aria-label="Số cặp cào trước khi nghỉ" />
+              <span className="text-slate-500">/</span>
+              <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '10' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Số phút nghỉ" />
+            </div>
           </div>
           <button type="submit" disabled={busy || !product.trim() || !country.trim() || !aiEnabled}
             className="md:col-span-4 py-2 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold rounded-lg">
@@ -140,7 +152,7 @@ export const AutoTasks: React.FC = () => {
           </button>
         </div>
         {!aiEnabled && <div className="text-amber-300">AI chưa được cấu hình (menu tài khoản → Cấu hình AI).</div>}
-        {proxies.trim() === '' && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều).</div>}
+        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định nghỉ 10 phút sau mỗi 5 cặp; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
         {error && <div className="p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </form>
 
@@ -159,7 +171,7 @@ export const AutoTasks: React.FC = () => {
                   <span className="text-slate-500 font-normal">Mặt hàng: </span><span className="text-white font-semibold">{t.product}</span>
                 </button>
                 <span><span className="text-slate-500">Quốc gia: </span><span className="text-white">{t.country}</span></span>
-                <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}</span>
+                <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}{t.burstN > 0 && t.restMin > 0 ? ` · nghỉ ${t.restMin}p/${t.burstN} cặp` : ''}</span>
                 <span className="ml-auto flex items-center gap-2">
                   <span className="font-mono text-slate-300">{finished}/{s.total} cặp ({pct}%)</span>
                   {t.status === 'running' && <button type="button" onClick={() => act(t.id, 'stop')} className="px-2 py-0.5 border border-amber-500/50 text-amber-300 hover:bg-amber-500/20 rounded">Dừng</button>}
@@ -171,7 +183,9 @@ export const AutoTasks: React.FC = () => {
               {t.note && t.status !== 'running' && <div className="px-3 pt-2 text-[11px] text-amber-300">{t.note}</div>}
               {t.status === 'running' && (
                 <div className="px-3 pt-2 text-[11px] text-emerald-300">
-                  {t.current
+                  {t.restUntil > 0
+                    ? `😴 Đang nghỉ chống bị chặn đến ${new Date(t.restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (sau mỗi ${t.burstN} cặp nghỉ ${t.restMin} phút)`
+                    : t.current
                     ? `⏳ Đang cào: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
                     : `⏸ Đang chờ máy rảnh (ưu tiên lượt của người dùng, nghỉ ${gapSec}s giữa các cặp)`}
                 </div>

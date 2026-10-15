@@ -155,6 +155,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS auto_runs (
 for (const col of ["level INTEGER NOT NULL DEFAULT 0", "parent_id INTEGER", "saturated INTEGER NOT NULL DEFAULT 0", "attempts INTEGER NOT NULL DEFAULT 1", "split_state TEXT NOT NULL DEFAULT ''"]) {
   try { db.exec(`ALTER TABLE auto_runs ADD COLUMN ${col}`); } catch { /* đã có cột */ }
 }
+for (const col of ["burst_n INTEGER NOT NULL DEFAULT 0", "rest_min INTEGER NOT NULL DEFAULT 0", "since_rest INTEGER NOT NULL DEFAULT 0", "rest_until INTEGER NOT NULL DEFAULT 0"]) {
+  try { db.exec(`ALTER TABLE auto_tasks ADD COLUMN ${col}`); } catch { /* đã có cột */ }
+}
 db.exec('CREATE TABLE IF NOT EXISTS auto_areas (place TEXT PRIMARY KEY, areas TEXT NOT NULL, at INTEGER NOT NULL)');
 db.exec('CREATE INDEX IF NOT EXISTS auto_runs_task ON auto_runs(task_id, status)');
 db.exec("UPDATE auto_runs SET status='pending' WHERE status='running'"); // khởi động lại giữa chừng → chạy lại cặp dở
@@ -223,7 +226,8 @@ const stmt = {
   aiLogStats: db.prepare('SELECT COUNT(*) AS calls, COALESCE(SUM(ok),0) AS ok, COALESCE(SUM(input_tokens),0) AS inp, COALESCE(SUM(output_tokens),0) AS outp FROM ai_log WHERE at >= ?'),
   aiLogPurge: db.prepare('DELETE FROM ai_log WHERE at < ?'),
   aiUsagePurge: db.prepare('DELETE FROM ai_usage WHERE day < ?'),
-  autoNextRun: db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 1"),
+  autoNextRun: db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.rest_until <= ? ORDER BY r.task_id, r.id LIMIT 1"),
+  autoNextWake: db.prepare("SELECT MIN(t.rest_until) AS w FROM auto_tasks t WHERE t.status='running' AND t.rest_until > ? AND EXISTS (SELECT 1 FROM auto_runs r WHERE r.task_id=t.id AND r.status='pending')"),
   autoSetSplit: db.prepare('UPDATE auto_runs SET split_state=? WHERE id=?'),
   autoRunStart: db.prepare("UPDATE auto_runs SET status='running', started_at=? WHERE id=?"),
   autoRunEnd: db.prepare('UPDATE auto_runs SET status=?, count=?, cache_n=?, live_n=?, finished_at=?, message=? WHERE id=?'),
@@ -1055,8 +1059,12 @@ async function pickAuto() {
     setImmediate(next);
     return;
   }
-  const r = stmt.autoNextRun.get();
-  if (!r) return;
+  const r = stmt.autoNextRun.get(Date.now());
+  if (!r) {
+    const w = stmt.autoNextWake.get(Date.now())?.w; // tác vụ đang nghỉ → hẹn giờ thức dậy
+    if (w) setTimeout(next, Math.max(1000, w - Date.now()) + 100).unref();
+    return;
+  }
   autoPicking = true;
   try {
     let proxies = [];
@@ -1101,6 +1109,15 @@ function finishAutoRun(job) {
     status = job.errNote ? 'error' : 'empty';
     msg = job.errNote || msg || 'Google không trả kết quả cho cặp này';
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
+  // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần cào thật thì nghỉ M phút
+  if (!job.cacheOnly) {
+    const t = db.prepare('SELECT burst_n, rest_min, since_rest FROM auto_tasks WHERE id=?').get(taskId);
+    if (t && t.burst_n > 0 && t.rest_min > 0) {
+      const n = t.since_rest + 1;
+      if (n >= t.burst_n) db.prepare('UPDATE auto_tasks SET since_rest=0, rest_until=? WHERE id=?').run(Date.now() + t.rest_min * 60000, taskId);
+      else db.prepare('UPDATE auto_tasks SET since_rest=? WHERE id=?').run(n, taskId);
+    }
+  }
   // gián đoạn / lỗi tạm thời: thử lại thay vì bỏ sót cặp này
   const maxTry = status === 'error' ? AUTO_RETRY_ERROR : status === 'empty' && !job.cacheOnly ? AUTO_RETRY_EMPTY : 1;
   if (run && run.attempts < maxTry) {
@@ -1174,6 +1191,7 @@ const taskView = (t) => ({
   createdAt: t.created_at, finishedAt: t.finished_at, note: t.note, stats: taskStats(t),
   current: db.prepare("SELECT keyword, city, started_at AS startedAt FROM auto_runs WHERE task_id=? AND status='running' LIMIT 1").get(t.id) || null,
   proxyMode: parseJsonCol(t.proxies, []).length ? 'proxy' : 'server',
+  burstN: t.burst_n, restMin: t.rest_min, restUntil: t.rest_until > Date.now() ? t.rest_until : 0,
 });
 
 app.get('/api/admin/auto', requireAdmin, (_req, res) => {
@@ -1194,6 +1212,8 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
   if (!product || !country) return res.status(400).json({ error: 'Cần nhập sản phẩm và quốc gia.' });
   if (!aiEnabled()) return res.status(503).json({ error: 'AI chưa được cấu hình (menu tài khoản → Cấu hình AI).' });
   const maxResults = MAX_RESULTS; // tác vụ tự động luôn lấy sâu nhất để không sót
+  const hasBurst = b.burstN !== undefined && b.burstN !== null && b.burstN !== '';
+  const intIn = (v, lo, hi) => (Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : null);
 
   // thành phố: nhập tay (ưu tiên) hoặc bảng có sẵn của nước đó
   const extra = String(b.cities || '').split(/[\n,;]+/).map((x) => clean(x, 60)).filter(Boolean);
@@ -1223,11 +1243,17 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
   const keywords = [...new Set([...hit.keywords, ...ai.buyerTypes.map((x) => x.keyword)].map((k) => k.trim()).filter(Boolean))].slice(0, 6);
   if (keywords.length * cities.length > AUTO_MAX_PAIRS) cities.length = Math.max(1, Math.floor(AUTO_MAX_PAIRS / keywords.length));
 
+  // nghỉ định kỳ: mặc định 5 cặp / 10 phút khi không có proxy, 0 (không nghỉ) khi có proxy
+  let burstN = proxies.length ? 0 : 5, restMin = proxies.length ? 0 : 10;
+  if (hasBurst) {
+    burstN = intIn(b.burstN, 0, 100); restMin = intIn(b.restMin, 0, 240);
+    if (burstN === null || restMin === null) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
+  }
   const suffix = known?.name || country;
   const now = Date.now();
   const id = inTx(() => {
-    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .run(req.user.id, req.user.email, product, suffix, maxResults, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(proxies), 'running', now);
+    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(req.user.id, req.user.email, product, suffix, maxResults, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(proxies), 'running', now, burstN, restMin);
     const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
     for (const city of cities) for (const kw of keywords) {
       const qtext = `${kw} ${city}${new RegExp(`(^|,\\s*)${suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(city) ? '' : `, ${suffix}`}`;
