@@ -187,10 +187,13 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
             type="text"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            placeholder="Thành phố / khu vực (vd: Osaka)"
+            placeholder={country.trim() ? 'Thành phố / quận (tự điền, nhỏ hơn càng sát)' : 'Thành phố / khu vực (vd: Osaka)'}
             aria-label="Thành phố hoặc khu vực"
+            list="city-list"
+            autoComplete="off"
             className={`${inputCls} pl-9`}
           />
+          <datalist id="city-list">{cityOptions.map(c => <option key={c} value={c} />)}</datalist>
         </div>
 
         <div className="md:col-span-2">
