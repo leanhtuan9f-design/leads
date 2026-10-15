@@ -1,6 +1,6 @@
 import { APP_NAME } from '../config/brand';
 import React from 'react';
-import { Database, History, HelpCircle } from 'lucide-react';
+import { Database, History, HelpCircle, Activity } from 'lucide-react';
 import { ActiveTab } from '../types/scraper';
 import { AccountMenu } from './AccountMenu';
 import { AuthUser, Quota } from '../auth/types';
@@ -56,6 +56,12 @@ export const Header: React.FC<HeaderProps> = ({
           <History className="w-3.5 h-3.5" />
           <span>Lịch sử</span>
         </button>
+        {user.role === 'admin' && (
+          <button onClick={() => setActiveTab('background')} className={navCls(activeTab === 'background')}>
+            <Activity className="w-3.5 h-3.5" />
+            <span>Chạy ngầm</span>
+          </button>
+        )}
       </nav>
 
       <div className="flex items-center gap-2 shrink-0">

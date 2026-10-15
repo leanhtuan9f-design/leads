@@ -11,6 +11,7 @@ import { OutreachModal } from './components/OutreachModal';
 import { ModuleHelpModal } from './components/ModuleHelpModal';
 import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
+import { AdminBackgroundView } from './components/AdminBackgroundView';
 import { AuthUser, Quota, apiJson } from './auth/types';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
@@ -415,6 +416,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         )}
 
         {activeTab === 'admin' && user.role === 'admin' && <AdminUsersView currentUserId={user.id} />}
+
+        {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView />}
 
         {activeTab === 'api' && <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
       </main>

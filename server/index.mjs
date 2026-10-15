@@ -415,6 +415,8 @@ class Job {
     this.id = randomUUID();
     this.spec = spec; // { queries:[{text,key}], geo, radius, depth, extractEmails, lang, proxies, force, background }
     this.status = 'queued';
+    this.createdAt = Date.now();
+    this.startedAt = null;
     this.history = []; // các sự kiện place để client nối lại
     this.clients = new Set();
     this.count = 0;
@@ -472,9 +474,28 @@ class Job {
 
 let running = null;
 const queue = [];
+const recentJobs = []; // 50 job gần nhất đã xong (chỉ trong RAM, mất khi restart) — cho trang admin 'Chạy ngầm'
 const bgPending = new Map(); // key -> { q, depth, withEmail, lang, geo, radius, proxies }
 let bgDoneThisHour = 0;
 setInterval(() => { bgDoneThisHour = 0; }, 3600 * 1000).unref();
+
+function jobView(job) {
+  const u = job.userId ? stmt.userById.get(job.userId) : null;
+  return {
+    id: job.id.slice(0, 8),
+    background: Boolean(job.spec.background),
+    force: Boolean(job.spec.force),
+    user: u ? u.email : null,
+    queries: job.spec.queries.map((q) => q.text),
+    count: job.count,
+    cache: job.source.cache,
+    live: job.source.live,
+    proxies: (job.spec.proxies || []).length,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    detached: job.detached,
+  };
+}
 
 function next() {
   if (running) return;
@@ -492,11 +513,14 @@ function next() {
   }
   if (!job) return;
   running = job;
+  job.startedAt = Date.now();
   runJob(job).catch((e) => {
     console.error('runJob error', e);
     job.endClients('failed', 'Lỗi nội bộ máy chủ');
   }).finally(() => {
     rmSync(job.dir, { recursive: true, force: true });
+    recentJobs.unshift({ ...jobView(job), finishedAt: Date.now(), status: job.endStatus || (job.aborted ? 'cancelled' : 'done'), message: job.endMessage || '' });
+    recentJobs.length = Math.min(recentJobs.length, 50);
     running = null;
     next();
   });
@@ -760,6 +784,20 @@ app.delete('/api/jobs/:id', (req, res) => {
 app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
   res.json({ places: s.places, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
+});
+
+// Theo dõi việc chạy ngầm (chỉ admin)
+app.get('/api/admin/background', requireAdmin, (_req, res) => {
+  const s = stmt.stats.get();
+  res.json({
+    now: Date.now(),
+    running: running ? { ...jobView(running), status: running.status } : null,
+    queue: queue.map(jobView),
+    pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
+    bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
+    recent: recentJobs,
+    cache: { places: s.places, queries: s.queries, hits: s.hits },
+  });
 });
 
 // (health không cần đăng nhập)
