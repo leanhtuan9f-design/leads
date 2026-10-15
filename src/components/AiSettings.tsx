@@ -92,11 +92,19 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
         </button>
         <span className="text-slate-500">Tải danh sách model và gọi thử model một câu ngắn.</span>
       </div>
-      <label className="block">
-        <span className="text-slate-400">Model{models.length ? ` (${models.length} model từ máy chủ — chọn hoặc nhập tay)` : ' (nhập tay hoặc bấm “Test kết nối”)'}</span>
-        <input list="ai-model-list" value={model} onChange={(e) => setModel(e.target.value)} placeholder={format === 'anthropic' ? 'claude-haiku-5-5' : 'tên model, ví dụ gpt-4o-mini'} className={`${inputCls} font-mono`} autoComplete="off" spellCheck={false} />
-        <datalist id="ai-model-list">{models.map((m) => <option key={m} value={m} />)}</datalist>
-      </label>
+      <div className="block">
+        <span className="text-slate-400">Model{models.length ? ` — ${models.length} model từ máy chủ, chọn trong danh sách hoặc nhập tay` : ' — nhập tay hoặc bấm “Test kết nối” để tải danh sách'}</span>
+        {models.length > 0 && (
+          <select value={models.includes(model) ? model : ''} onChange={(e) => { if (e.target.value) setModel(e.target.value); }} className={`${inputCls} font-mono mb-1.5`}>
+            <option value="">— Chọn model —</option>
+            {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={format === 'anthropic' ? 'claude-haiku-5-5' : 'tên model, ví dụ gpt-4o-mini'} className={`${inputCls} font-mono`} autoComplete="off" spellCheck={false} />
+        {models.length > 0 && model && !models.includes(model) && (
+          <div className="text-amber-300 mt-1">Model “{model}” không có trong danh sách của máy chủ — hãy chọn một model ở trên.</div>
+        )}
+      </div>
       {report && (
         <div className="p-2 rounded border border-slate-700 bg-slate-900/60 space-y-0.5">
           <div className={report.models.length ? 'text-emerald-300' : 'text-amber-300'}>

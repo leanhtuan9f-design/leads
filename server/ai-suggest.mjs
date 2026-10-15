@@ -236,6 +236,11 @@ export async function testConnection({ baseUrl, apiKey, format, model }) {
   if (c.format === 'openai' && !c.baseUrl) throw new AiError('Kiểu OpenAI cần nhập Base URL.', 'config');
   const out = { models: [], modelsError: '', chatOk: false, chatError: '', reply: '', ms: 0 };
   try { out.models = await listModels(c); } catch (e) { out.modelsError = e.message; }
+  if (out.models.length && c.model && !out.models.includes(c.model)) {
+    out.model = c.model;
+    out.chatError = `Model “${c.model}” không có trong danh sách của máy chủ. Hãy chọn một model trong danh sách rồi test lại.`;
+    return out;
+  }
   if (!c.model && out.models.length) c.model = out.models[0];
   out.model = c.model;
   if (!c.model) { out.chatError = 'Chưa có model để thử gọi. Hãy nhập model thủ công.'; return out; }
