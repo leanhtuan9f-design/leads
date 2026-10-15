@@ -248,6 +248,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       }
     } catch (err) {
       setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, status: 'failed' } : j)));
+      lastFailedRef.current = true;
       setScrapeError(err instanceof Error ? err.message : 'Cào thất bại');
     } finally {
       setActiveJobId(null);
@@ -263,7 +264,34 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     return () => clearTimeout(t);
   }, [completionSummary]);
 
+  // Chạy ngầm hàng loạt: lần lượt từng cặp (từ khóa × thành phố), mỗi cặp là một job riêng
+  const businessesRef = useRef(businesses);
+  businessesRef.current = businesses;
+  const batchCancelRef = useRef(false);
+  const lastFailedRef = useRef(false);
+  const [batch, setBatch] = useState<{ done: number; total: number; label: string } | null>(null);
+
+  const handleStartBatch = async (items: ScraperOptions[]) => {
+    if (activeJobId || batch || items.length === 0) return;
+    batchCancelRef.current = false;
+    let done = 0;
+    for (const item of items) {
+      if (batchCancelRef.current) break;
+      setBatch({ done, total: items.length, label: item.query });
+      lastFailedRef.current = false;
+      // lấy bảng lead mới nhất để cặp sau bỏ qua cơ sở cặp trước vừa tìm được
+      await handleStartScrape({ ...item, existingBusinesses: businessesRef.current });
+      if (lastFailedRef.current) break; // lỗi (hết hạn mức, máy chủ bận…) → dừng cả loạt
+      done++;
+    }
+    setBatch(null);
+    if (batchCancelRef.current) setNotice(`Đã dừng chạy ngầm sau ${done}/${items.length} lượt tìm.`);
+    else if (!lastFailedRef.current) setNotice(`Chạy ngầm xong ${done}/${items.length} lượt tìm. Xem các kết quả ở bảng Lead hoặc tab Lịch sử.`);
+    else setNotice(`Chạy ngầm dừng sau ${done}/${items.length} lượt vì có lỗi.`);
+  };
+
   const handleCancelScrape = () => {
+    batchCancelRef.current = true;
     isCancelledRef.current = true;
     if (activeJobId) {
       setJobs(prev => prev.map(j => (j.id === activeJobId ? { ...j, status: 'paused' } : j)));
@@ -325,7 +353,10 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           <DirectScrapeBar
             existingBusinesses={businesses}
             onStartScrape={handleStartScrape}
-            isRunning={Boolean(activeJobId)}
+            onStartBatch={handleStartBatch}
+            batch={batch}
+            onStopBatch={() => { batchCancelRef.current = true; handleCancelScrape(); }}
+            isRunning={Boolean(activeJobId) || Boolean(batch)}
             proxiesText={proxiesText}
             onChangeProxies={setProxiesText}
             proxyCount={parseProxies(proxiesText).length}
