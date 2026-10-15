@@ -156,7 +156,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS auto_runs (
 for (const col of ["level INTEGER NOT NULL DEFAULT 0", "parent_id INTEGER", "saturated INTEGER NOT NULL DEFAULT 0", "attempts INTEGER NOT NULL DEFAULT 1", "split_state TEXT NOT NULL DEFAULT ''"]) {
   try { db.exec(`ALTER TABLE auto_runs ADD COLUMN ${col}`); } catch { /* đã có cột */ }
 }
-for (const col of ["burst_n INTEGER NOT NULL DEFAULT 0", "rest_min INTEGER NOT NULL DEFAULT 0", "since_rest INTEGER NOT NULL DEFAULT 0", "rest_until INTEGER NOT NULL DEFAULT 0"]) {
+for (const col of ["burst_n INTEGER NOT NULL DEFAULT 0", "rest_min INTEGER NOT NULL DEFAULT 0", "rest_max INTEGER NOT NULL DEFAULT 0", "win_on INTEGER NOT NULL DEFAULT 0", "win_start INTEGER NOT NULL DEFAULT 8", "win_end INTEGER NOT NULL DEFAULT 19", "tz TEXT NOT NULL DEFAULT ''", "since_rest INTEGER NOT NULL DEFAULT 0", "rest_until INTEGER NOT NULL DEFAULT 0"]) {
   try { db.exec(`ALTER TABLE auto_tasks ADD COLUMN ${col}`); } catch { /* đã có cột */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS auto_areas (place TEXT PRIMARY KEY, areas TEXT NOT NULL, at INTEGER NOT NULL)');
@@ -1037,8 +1037,8 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
     autoQueue: {
       total: db.prepare("SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending'").get().n,
-      next: db.prepare("SELECT r.keyword, r.city, r.level, r.attempts, t.product, t.country, t.rest_until FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 15").all()
-        .map((x) => ({ keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: x.rest_until > Date.now() ? x.rest_until : 0 })),
+      next: db.prepare("SELECT r.keyword, r.city, r.level, r.attempts, t.* FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 15").all()
+        .map((x) => { const w = taskWait(x); return { keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: w ? w.until : 0, waitReason: w ? w.reason : '' }; }),
     },
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
     recent: stmt.recentLog.all().map((r) => ({
@@ -1075,10 +1075,16 @@ async function pickAuto() {
     setImmediate(next);
     return;
   }
-  const r = stmt.autoNextRun.get(Date.now());
+  // chọn cặp chờ đầu tiên của tác vụ không đang nghỉ và đang trong khung giờ làm việc; tác vụ bị chặn → hẹn giờ thức dậy sớm nhất
+  let r = null, wake = 0;
+  for (const t of db.prepare("SELECT * FROM auto_tasks WHERE status='running' AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id").all()) {
+    const w = taskWait(t);
+    if (w) { wake = wake ? Math.min(wake, w.until) : w.until; continue; }
+    r = db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
+    if (r) break;
+  }
   if (!r) {
-    const w = stmt.autoNextWake.get(Date.now())?.w; // tác vụ đang nghỉ → hẹn giờ thức dậy
-    if (w) setTimeout(next, Math.max(1000, w - Date.now()) + 100).unref();
+    if (wake) setTimeout(next, Math.max(1000, wake - Date.now()) + 100).unref();
     return;
   }
   autoPicking = true;
@@ -1116,6 +1122,34 @@ async function pickAuto() {
   }
 }
 
+// Khung giờ làm việc theo múi giờ của nước đích: chỉ cào khi giờ địa phương nằm trong [win_start, win_end)
+const localHour = (tz, t) => {
+  try { return Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t))); } catch { return null; }
+};
+const inWindow = (task, t = Date.now()) => {
+  if (!task.win_on || !task.tz) return true;
+  const h = localHour(task.tz, t);
+  if (h === null) return true;
+  return task.win_start <= task.win_end ? h >= task.win_start && h < task.win_end : h >= task.win_start || h < task.win_end;
+};
+const nextWindowOpen = (task, t = Date.now()) => { // thời điểm gần nhất (làm tròn 5 phút) mà khung giờ mở; 0 nếu đang mở
+  if (inWindow(task, t)) return 0;
+  for (let i = 1; i <= 24 * 12 + 12; i++) { const x = t + i * 5 * 60000; if (inWindow(task, x)) return x; }
+  return 0;
+};
+// Thời điểm tác vụ được phép cào tiếp: sau nghỉ định kỳ và trong khung giờ làm việc
+const taskWait = (task, now = Date.now()) => {
+  const rest = task.rest_until > now ? task.rest_until : 0;
+  const win = nextWindowOpen(task, Math.max(now, rest));
+  return win ? { until: win, reason: 'window' } : rest ? { until: rest, reason: 'rest' } : null;
+};
+
+// Thời gian nghỉ ngẫu nhiên đều trong [min, max] phút (max < min hoặc 0 = cố định bằng min), làm tròn đến giây
+const restDelayMs = (minM, maxM) => {
+  const lo = Math.min(minM, maxM > 0 ? maxM : minM), hi = Math.max(minM, maxM);
+  return Math.round((lo + Math.random() * (hi - lo)) * 60) * 1000;
+};
+
 function finishAutoRun(job) {
   const { runId, taskId } = job.spec.auto;
   const run = db.prepare('SELECT * FROM auto_runs WHERE id=?').get(runId);
@@ -1133,10 +1167,10 @@ function finishAutoRun(job) {
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
   // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần cào thật thì nghỉ M phút
   if (!job.cacheOnly) {
-    const t = db.prepare('SELECT burst_n, rest_min, since_rest FROM auto_tasks WHERE id=?').get(taskId);
-    if (t && t.burst_n > 0 && t.rest_min > 0) {
+    const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest FROM auto_tasks WHERE id=?').get(taskId);
+    if (t && t.burst_n > 0 && (t.rest_min > 0 || t.rest_max > 0)) {
       const n = t.since_rest + 1;
-      if (n >= t.burst_n) db.prepare('UPDATE auto_tasks SET since_rest=0, rest_until=? WHERE id=?').run(Date.now() + t.rest_min * 60000, taskId);
+      if (n >= t.burst_n) db.prepare('UPDATE auto_tasks SET since_rest=0, rest_until=? WHERE id=?').run(Date.now() + restDelayMs(t.rest_min, t.rest_max), taskId);
       else db.prepare('UPDATE auto_tasks SET since_rest=? WHERE id=?').run(n, taskId);
     }
   }
@@ -1214,7 +1248,8 @@ const taskView = (t) => ({
   current: db.prepare("SELECT keyword, city, started_at AS startedAt FROM auto_runs WHERE task_id=? AND status='running' LIMIT 1").get(t.id) || null,
   next: db.prepare("SELECT keyword, city FROM auto_runs WHERE task_id=? AND status='pending' ORDER BY id LIMIT 6").all(t.id),
   proxyMode: parseJsonCol(t.proxies, []).length ? 'proxy' : 'server',
-  burstN: t.burst_n, restMin: t.rest_min, restUntil: t.rest_until > Date.now() ? t.rest_until : 0,
+  burstN: t.burst_n, restMin: t.rest_min, restMax: Math.max(t.rest_min, t.rest_max), restUntil: t.rest_until > Date.now() ? t.rest_until : 0,
+  win: { on: Boolean(t.win_on), start: t.win_start, end: t.win_end, tz: t.tz, open: inWindow(t), openAt: nextWindowOpen(t), localHour: t.tz ? localHour(t.tz, Date.now()) : null },
 });
 
 app.get('/api/admin/auto', requireAdmin, (_req, res) => {
@@ -1267,16 +1302,23 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
   if (keywords.length * cities.length > AUTO_MAX_PAIRS) cities.length = Math.max(1, Math.floor(AUTO_MAX_PAIRS / keywords.length));
 
   // nghỉ định kỳ: mặc định 5 cặp / 30 phút khi không có proxy, 0 (không nghỉ) khi có proxy
-  let burstN = proxies.length ? 0 : 5, restMin = proxies.length ? 0 : 30;
+  let burstN = proxies.length ? 0 : 5, restMin = proxies.length ? 0 : 20, restMax = proxies.length ? 0 : 40;
   if (hasBurst) {
-    burstN = intIn(b.burstN, 0, 100); restMin = intIn(b.restMin, 0, 240);
-    if (burstN === null || restMin === null) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
+    burstN = intIn(b.burstN, 0, 100); restMin = intIn(b.restMin, 0, 240); restMax = b.restMax === undefined || b.restMax === '' ? restMin : intIn(b.restMax, 0, 240);
+    if (burstN === null || restMin === null || restMax === null) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
+    if (restMax < restMin) return res.status(400).json({ error: 'Thời gian nghỉ tối đa phải lớn hơn hoặc bằng tối thiểu.' });
   }
+  const tz = CITY_DATA.tz?.[known?.name || ''] || '';
+  let winOn = tz ? 1 : 0, winStart = 8, winEnd = 19;
+  if (b.winOn !== undefined) winOn = b.winOn && tz ? 1 : 0;
+  if (b.winStart !== undefined && b.winStart !== '') winStart = intIn(b.winStart, 0, 23);
+  if (b.winEnd !== undefined && b.winEnd !== '') winEnd = intIn(b.winEnd, 1, 24);
+  if (winStart === null || winEnd === null || winStart === winEnd) return res.status(400).json({ error: 'Khung giờ làm việc không hợp lệ (giờ bắt đầu 0–23, kết thúc 1–24, khác nhau).' });
   const suffix = known?.name || country;
   const now = Date.now();
   const id = inTx(() => {
-    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(req.user.id, req.user.email, product, suffix, maxResults, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(proxies), 'running', now, burstN, restMin);
+    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min, rest_max, win_on, win_start, win_end, tz) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(req.user.id, req.user.email, product, suffix, maxResults, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(proxies), 'running', now, burstN, restMin, restMax, winOn, winStart, winEnd, tz);
     const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
     for (const city of cities) for (const kw of keywords) {
       const qtext = `${kw} ${city}${new RegExp(`(^|,\\s*)${suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i').test(city) ? '' : `, ${suffix}`}`;
@@ -1297,10 +1339,17 @@ app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
 // Sửa thông số nghỉ của tác vụ đang có (áp dụng từ cặp kế tiếp)
 app.patch('/api/admin/auto/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
-  const n = Number(req.body?.burstN), m = Number(req.body?.restMin);
-  if (!Number.isInteger(n) || n < 0 || n > 100 || !Number.isInteger(m) || m < 0 || m > 240) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
-  const r = db.prepare('UPDATE auto_tasks SET burst_n=?, rest_min=?, since_rest=0, rest_until=0 WHERE id=?').run(n, m, id);
+  const n = Number(req.body?.burstN), m = Number(req.body?.restMin), x = req.body?.restMax === undefined || req.body?.restMax === '' ? m : Number(req.body.restMax);
+  if (!Number.isInteger(n) || n < 0 || n > 100 || !Number.isInteger(m) || m < 0 || m > 240 || !Number.isInteger(x) || x < 0 || x > 240) return res.status(400).json({ error: 'Số cặp nghỉ phải từ 0–100 và số phút nghỉ từ 0–240.' });
+  if (x < m) return res.status(400).json({ error: 'Thời gian nghỉ tối đa phải lớn hơn hoặc bằng tối thiểu.' });
+  const cur = db.prepare('SELECT win_on, win_start, win_end, tz FROM auto_tasks WHERE id=?').get(id);
+  if (!cur) return res.status(404).json({ error: 'Không có tác vụ' });
+  const winOn = req.body?.winOn === undefined ? cur.win_on : (req.body.winOn && cur.tz ? 1 : 0);
+  const ws = req.body?.winStart === undefined ? cur.win_start : Number(req.body.winStart), we = req.body?.winEnd === undefined ? cur.win_end : Number(req.body.winEnd);
+  if (!Number.isInteger(ws) || ws < 0 || ws > 23 || !Number.isInteger(we) || we < 1 || we > 24 || ws === we) return res.status(400).json({ error: 'Khung giờ làm việc không hợp lệ (bắt đầu 0–23, kết thúc 1–24, khác nhau).' });
+  const r = db.prepare('UPDATE auto_tasks SET burst_n=?, rest_min=?, rest_max=?, win_on=?, win_start=?, win_end=?, since_rest=0, rest_until=0 WHERE id=?').run(n, m, x, winOn, ws, we, id);
   if (!r.changes) return res.status(404).json({ error: 'Không có tác vụ' });
+  next(); // thông số mới (khung giờ/nghỉ) có thể cho phép chạy ngay
   res.json({ ok: true });
 });
 app.post('/api/admin/auto/:id/resume', requireAdmin, (req, res) => {
@@ -1337,6 +1386,9 @@ app.get('/api/admin/auto/:id/export.csv', requireAdmin, (req, res) => {
   res.send('﻿' + lines.join('\n'));
 });
 
+for (const t of db.prepare("SELECT id, country FROM auto_tasks WHERE tz=''").all()) { // tác vụ tạo trước khi có khung giờ: gán múi giờ theo nước (chưa bật khung giờ)
+  const z = CITY_DATA.tz?.[t.country]; if (z) db.prepare('UPDATE auto_tasks SET tz=? WHERE id=?').run(z, t.id);
+}
 execFile('sh', ['-c', 'docker ps -aq --filter name=maps-job- | xargs -r docker rm -f'], () => {}); // container mồ côi của lần chạy trước bị ngắt
 try { for (const d of readdirSync(WORK_DIR)) rmSync(path.join(WORK_DIR, d), { recursive: true, force: true }); } catch { /* chưa có thư mục */ } // thư mục tạm của job bị ngắt lần trước
 setTimeout(next, 5000).unref(); // sau khi khởi động, tiếp tục các tác vụ đang dở

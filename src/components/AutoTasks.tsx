@@ -12,8 +12,9 @@ interface Task {
   keywords: string[]; cities: string[]; buyerTypes: { name: string; keyword: string }[]; proxies: number;
   createdAt: number; finishedAt: number | null; note: string; stats: Stats;
   current: { keyword: string; city: string; startedAt: number } | null;
-  burstN: number; restMin: number; restUntil: number;
+  burstN: number; restMin: number; restMax: number; restUntil: number;
   next: { keyword: string; city: string }[];
+  win: { on: boolean; start: number; end: number; tz: string; open: boolean; openAt: number; localHour: number | null };
 }
 interface Run {
   id: number; keyword: string; city: string; status: 'pending' | 'running' | 'done' | 'empty' | 'error';
@@ -55,6 +56,10 @@ export const AutoTasks: React.FC = () => {
   const setCities = (v: string) => { setCitiesRaw(v); save('cities', v); };
   const [burstN, setBurstN] = useState<string | null>(null); // null = chưa chỉnh → máy chủ tự chọn theo có/không proxy
   const [restMin, setRestMin] = useState<string | null>(null);
+  const [restMax, setRestMax] = useState<string | null>(null);
+  const [winOn, setWinOn] = useState(true);
+  const [winStart, setWinStart] = useState('8');
+  const [winEnd, setWinEnd] = useState('19');
   const noProxy = proxies.trim() === '';
 
   const [openId, setOpenIdRaw] = useState<number | null>(() => Number(ls('open')) || null);
@@ -87,7 +92,7 @@ export const AutoTasks: React.FC = () => {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, ...(burstN !== null || restMin !== null ? { burstN: burstN ?? (noProxy ? '5' : '0'), restMin: restMin ?? (noProxy ? '30' : '0') } : {}) });
+      const r = await apiJson<{ id: number }>('/admin/auto', 'POST', { product, country, proxies, cities, winOn, winStart, winEnd, ...(burstN !== null || restMin !== null || restMax !== null ? { burstN: burstN ?? (noProxy ? '5' : '0'), restMin: restMin ?? (noProxy ? '20' : '0'), restMax: restMax ?? restMin ?? (noProxy ? '40' : '0') } : {}) });
       setProduct(''); setCities('');
       setOpenId(r.id); setRuns([]);
       await load();
@@ -109,11 +114,11 @@ export const AutoTasks: React.FC = () => {
     }
   };
 
-  const [editRest, setEditRest] = useState<{ id: number; n: string; m: string } | null>(null);
+  const [editRest, setEditRest] = useState<{ id: number; n: string; a: string; b: string; wOn: boolean; ws: string; we: string } | null>(null);
   const saveRest = async () => {
     if (!editRest) return;
     try {
-      await apiJson(`/admin/auto/${editRest.id}`, 'PATCH', { burstN: Number(editRest.n), restMin: Number(editRest.m) });
+      await apiJson(`/admin/auto/${editRest.id}`, 'PATCH', { burstN: Number(editRest.n), restMin: Number(editRest.a), restMax: Number(editRest.b), winOn: editRest.wOn, winStart: Number(editRest.ws), winEnd: Number(editRest.we) });
       setEditRest(null); setError('');
       await load();
     } catch (err) {
@@ -157,16 +162,18 @@ export const AutoTasks: React.FC = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
-          <div className="md:col-span-5">
+          <div className="md:col-span-4">
             <label className="block text-[11px] text-slate-400 mb-1">Thành phố (tùy chọn — để trống = dùng danh sách có sẵn của nước đó; nhiều thành phố cách nhau bằng dấu phẩy)</label>
             <input value={cities} onChange={e => setCities(e.target.value)} placeholder="vd: Tokyo, Osaka" className={inputCls} />
           </div>
-          <div className="md:col-span-3">
-            <label className="block text-[11px] text-slate-400 mb-1" title="Chống bị Google chặn: cào đủ N cặp thì nghỉ M phút. 0 = không nghỉ.">Nghỉ: sau (cặp) / phút</label>
+          <div className="md:col-span-4">
+            <label className="block text-[11px] text-slate-400 mb-1" title="Chống bị Google chặn: cào đủ N cặp thì nghỉ ngẫu nhiên trong khoảng từ–đến (phút) cho tự nhiên. 0 = không nghỉ.">Nghỉ: sau (cặp) · từ – đến (phút)</label>
             <div className="flex items-center gap-1.5">
               <input type="number" min={0} max={100} value={burstN ?? (noProxy ? '5' : '0')} onChange={e => setBurstN(e.target.value)} className={`${inputCls} text-center`} aria-label="Số cặp cào trước khi nghỉ" />
-              <span className="text-slate-500">/</span>
-              <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '30' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Số phút nghỉ" />
+              <span className="text-slate-500">·</span>
+              <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '20' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Nghỉ tối thiểu (phút)" />
+              <span className="text-slate-500">–</span>
+              <input type="number" min={0} max={240} value={restMax ?? restMin ?? (noProxy ? '40' : '0')} onChange={e => setRestMax(e.target.value)} className={`${inputCls} text-center`} aria-label="Nghỉ tối đa (phút)" />
             </div>
           </div>
           <button type="submit" disabled={busy || !product.trim() || !country.trim() || !aiEnabled}
@@ -174,8 +181,19 @@ export const AutoTasks: React.FC = () => {
             {busy ? 'AI đang chọn từ khóa…' : 'Tạo tác vụ & chạy tự động'}
           </button>
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input type="checkbox" checked={winOn} onChange={e => setWinOn(e.target.checked)} className="rounded bg-slate-800 border-slate-700" />
+            Chỉ chạy trong giờ làm việc của nước đã chọn (giờ địa phương)
+          </label>
+          <input type="number" min={0} max={23} value={winStart} onChange={e => setWinStart(e.target.value)} disabled={!winOn} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white disabled:opacity-40" aria-label="Giờ bắt đầu" />
+          <span>giờ –</span>
+          <input type="number" min={1} max={24} value={winEnd} onChange={e => setWinEnd(e.target.value)} disabled={!winOn} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white disabled:opacity-40" aria-label="Giờ kết thúc" />
+          <span>giờ</span>
+          <span className="text-slate-500">Ngoài khung giờ này tác vụ chờ; cặp đang cào không bị ngắt. Nước chưa có múi giờ trong bảng thì chạy bất kỳ lúc nào.</span>
+        </div>
         {!aiEnabled && <div className="text-amber-300">AI chưa được cấu hình (menu tài khoản → Cấu hình AI).</div>}
-        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định nghỉ 30 phút sau mỗi 5 cặp; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
+        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định sau mỗi 5 cặp nghỉ ngẫu nhiên 20–40 phút; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
         {error && <div className="p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </form>
 
@@ -194,12 +212,12 @@ export const AutoTasks: React.FC = () => {
                   <span className="text-slate-500 font-normal">Mặt hàng: </span><span className="text-white font-semibold">{t.product}</span>
                 </button>
                 <span><span className="text-slate-500">Quốc gia: </span><span className="text-white">{t.country}</span></span>
-                <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}{t.burstN > 0 && t.restMin > 0 ? ` · nghỉ ${t.restMin}p/${t.burstN} cặp` : ''}</span>
+                <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}{t.win.on ? ` · giờ làm việc ${t.win.start}–${t.win.end}h (${t.win.tz})` : ''}{t.burstN > 0 && t.restMax > 0 ? ` · nghỉ ${t.restMin === t.restMax ? t.restMin : `${t.restMin}–${t.restMax}`}p/${t.burstN} cặp` : ''}</span>
                 <span className="ml-auto flex items-center gap-2">
                   <span className="font-mono text-slate-300">{finished}/{s.total} cặp ({pct}%)</span>
                   {t.status === 'running' && <button type="button" onClick={() => act(t.id, 'stop')} className="px-2 py-0.5 border border-amber-500/50 text-amber-300 hover:bg-amber-500/20 rounded">Dừng</button>}
                   {t.status === 'stopped' && s.pending > 0 && <button type="button" onClick={() => act(t.id, 'resume')} className="px-2 py-0.5 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/20 rounded">Tiếp tục</button>}
-                  {t.status !== 'done' && <button type="button" onClick={() => setEditRest(editRest?.id === t.id ? null : { id: t.id, n: String(t.burstN), m: String(t.restMin) })} className="px-2 py-0.5 border border-slate-700 text-slate-300 hover:text-white rounded">Chỉnh nghỉ</button>}
+                  {t.status !== 'done' && <button type="button" onClick={() => setEditRest(editRest?.id === t.id ? null : { id: t.id, n: String(t.burstN), a: String(t.restMin), b: String(t.restMax), wOn: t.win.on, ws: String(t.win.start), we: String(t.win.end) })} className="px-2 py-0.5 border border-slate-700 text-slate-300 hover:text-white rounded">Chỉnh nghỉ / giờ chạy</button>}
                   <button type="button" onClick={() => act(t.id, 'delete')} className="px-2 py-0.5 border border-slate-700 text-slate-400 hover:text-red-300 rounded">Xóa</button>
                 </span>
               </div>
@@ -207,11 +225,22 @@ export const AutoTasks: React.FC = () => {
                 <div className="px-3 pb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
                   Sau mỗi
                   <input type="number" min={0} max={100} value={editRest.n} onChange={e => setEditRest({ ...editRest, n: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Số cặp" />
-                  cặp, nghỉ
-                  <input type="number" min={0} max={240} value={editRest.m} onChange={e => setEditRest({ ...editRest, m: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Số phút" />
+                  cặp, nghỉ ngẫu nhiên từ
+                  <input type="number" min={0} max={240} value={editRest.a} onChange={e => setEditRest({ ...editRest, a: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Nghỉ tối thiểu (phút)" />
+                  đến
+                  <input type="number" min={0} max={240} value={editRest.b} onChange={e => setEditRest({ ...editRest, b: e.target.value })} className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Nghỉ tối đa (phút)" />
                   phút (0 = không nghỉ)
                   <button type="button" onClick={saveRest} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded">Lưu</button>
                   <button type="button" onClick={() => setEditRest(null)} className="px-2 py-1 text-slate-400 hover:text-white">Hủy</button>
+                  <span className="basis-full" />
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input type="checkbox" checked={editRest.wOn} onChange={e => setEditRest({ ...editRest, wOn: e.target.checked })} disabled={!t.win.tz} className="rounded bg-slate-800 border-slate-700" />
+                    Chỉ chạy trong giờ làm việc{t.win.tz ? ` (${t.win.tz})` : ' (nước này chưa có múi giờ)'}
+                  </label>
+                  <input type="number" min={0} max={23} value={editRest.ws} onChange={e => setEditRest({ ...editRest, ws: e.target.value })} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Giờ bắt đầu" />
+                  giờ –
+                  <input type="number" min={1} max={24} value={editRest.we} onChange={e => setEditRest({ ...editRest, we: e.target.value })} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white" aria-label="Giờ kết thúc" />
+                  giờ
                   <span className="text-slate-500">Áp dụng từ cặp kế tiếp; cặp đang cào không bị ngắt.</span>
                 </div>
               )}
@@ -219,8 +248,10 @@ export const AutoTasks: React.FC = () => {
               {t.note && t.status !== 'running' && <div className="px-3 pt-2 text-[11px] text-amber-300">{t.note}</div>}
               {t.status === 'running' && (
                 <div className="px-3 pt-2 text-[11px] text-emerald-300">
-                  {t.restUntil > 0
-                    ? `😴 Đang nghỉ chống bị chặn đến ${new Date(t.restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (sau mỗi ${t.burstN} cặp nghỉ ${t.restMin} phút)`
+                  {t.win.on && !t.win.open
+                    ? `🕘 Đang ngoài giờ làm việc của ${t.country} (bây giờ ở đó là ${t.win.localHour}h, khung ${t.win.start}–${t.win.end}h) — tự chạy lại lúc ${new Date(t.win.openAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (giờ máy bạn)`
+                    : t.restUntil > 0
+                    ? `😴 Đang nghỉ chống bị chặn đến ${new Date(t.restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (sau mỗi ${t.burstN} cặp nghỉ ngẫu nhiên ${t.restMin === t.restMax ? t.restMin : `${t.restMin}–${t.restMax}`} phút)`
                     : t.current
                     ? `⏳ Đang cào: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
                     : `⏸ Đang chờ máy rảnh (ưu tiên lượt của người dùng, nghỉ ${gapSec}s giữa các cặp)`}

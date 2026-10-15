@@ -27,7 +27,7 @@ interface BackgroundInfo {
   now: number;
   running: JobRow | null;
   queue: JobRow[];
-  autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number }[] };
+  autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] };
   pending: { query: string; depth: number; withEmail: boolean; lang: string; proxies: number }[];
   bgDoneThisHour: number;
   bgPerHour: number;
@@ -148,7 +148,12 @@ export const AdminBackgroundView: React.FC = () => {
               ))}
             </ol>
             {info.autoQueue.total > info.autoQueue.next.length && <div className="mt-1 text-slate-500">… và {info.autoQueue.total - info.autoQueue.next.length} cặp nữa</div>}
-            {info.autoQueue.next[0]?.restUntil > 0 && <div className="mt-1 text-amber-300">😴 Đang nghỉ chống bị chặn đến {new Date(info.autoQueue.next[0].restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div>}
+            {info.autoQueue.next[0]?.restUntil > 0 && (
+              <div className="mt-1 text-amber-300">
+                {info.autoQueue.next[0].waitReason === 'window' ? '🕘 Đang ngoài giờ làm việc của nước đích — sẽ chạy lại lúc ' : '😴 Đang nghỉ chống bị chặn đến '}
+                {new Date(info.autoQueue.next[0].restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (giờ máy bạn)
+              </div>
+            )}
           </>
         )}
       </section>
