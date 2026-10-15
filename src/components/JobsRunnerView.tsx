@@ -9,6 +9,7 @@ interface JobsRunnerViewProps {
   onOpenNewJob: () => void;
   onSelectJobResults: (jobResults: ScrapedBusiness[]) => void;
   onDeleteJob: (jobId: string) => void;
+  onResumeJob: (job: ScraperJob) => void;
   onOpenTrash: () => void;
 }
 
@@ -18,6 +19,7 @@ export const JobsRunnerView: React.FC<JobsRunnerViewProps> = ({
   onOpenNewJob,
   onSelectJobResults,
   onDeleteJob,
+  onResumeJob,
   onOpenTrash
 }) => {
   return (
@@ -76,7 +78,7 @@ export const JobsRunnerView: React.FC<JobsRunnerViewProps> = ({
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-white text-sm">{job.name}</h3>
                         <span className="font-mono text-[10px] text-slate-400 uppercase tracking-wider">
-                          [{job.status === 'completed' ? 'Hoàn thành' : job.status === 'running' ? 'Đang chạy' : job.status === 'failed' ? 'Thất bại' : 'Đã dừng'}]
+                          [{job.status === 'completed' ? 'Hoàn thành' : job.status === 'running' ? 'Đang chạy' : job.status === 'failed' ? 'Thất bại' : 'Tạm dừng · chưa xong'}]
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
@@ -89,6 +91,15 @@ export const JobsRunnerView: React.FC<JobsRunnerViewProps> = ({
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
+                    {job.status === 'paused' && !activeJobId && (
+                      <button
+                        onClick={() => onResumeJob(job)}
+                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white border border-blue-500 rounded text-xs transition-colors"
+                        title="Chạy tiếp lần tìm này; lead đã lấy được giữ nguyên"
+                      >
+                        Tiếp tục
+                      </button>
+                    )}
                     <button
                       onClick={() => onSelectJobResults(job.results)}
                       className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs transition-colors flex items-center gap-1"

@@ -50,7 +50,14 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyLeads = `${STORAGE_KEY_LEADS}_u${user.id}`;
   const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
-  const [activeTab, setActiveTab] = useState<ActiveTab>('leads');
+  const keyTab = `gmaps_scraper_tab_u${user.id}`;
+  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'aiconfig'] as ActiveTab[]) : [])];
+  const [activeTab, setActiveTabRaw] = useState<ActiveTab>(() => {
+    try { const t = localStorage.getItem(keyTab) as ActiveTab | null; if (t && TABS.includes(t)) return t; } catch (e) {}
+    return 'leads';
+  });
+  // nhớ tab đang xem để tải lại trang (F5) không bị nhảy về trang Lead
+  const setActiveTab = (t: ActiveTab) => { setActiveTabRaw(t); try { localStorage.setItem(keyTab, t); } catch (e) {} };
   const [businesses, setBusinesses] = useState<ScrapedBusiness[]>(() => {
     try {
       const saved = localStorage.getItem(keyLeads) || localStorage.getItem(STORAGE_KEY_LEADS); // key cũ (trước khi có đăng nhập)
@@ -118,6 +125,16 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       .catch(() => setProxySyncError('Không tải được dữ liệu từ máy chủ — đang dùng bản lưu trong trình duyệt.'));
   }, []);
 
+  // Lần tìm còn ghi 'Đang chạy' nhưng trang vừa tải lại (không còn tiến trình trong trình duyệt) → 'Tạm dừng', giữ nguyên lead đã lấy, có nút Tiếp tục
+  const staleFixedRef = useRef(false);
+  useEffect(() => {
+    if (!jobsSync.ready || staleFixedRef.current) return;
+    staleFixedRef.current = true;
+    setJobs(prev => prev.some(j => j.status === 'running')
+      ? prev.map(j => (j.status === 'running' ? { ...j, status: 'paused' as const, scrapedCount: j.results.length } : j))
+      : prev);
+  }, [jobsSync.ready]);
+
   useEffect(() => {
     if (!(leadsSync.ready && jobsSync.ready && proxiesReady)) return;
     // Đã chuyển dữ liệu key cũ (không hậu tố user) vào tài khoản này → xóa để tài khoản khác không nhận nhầm
@@ -146,8 +163,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   }, [proxiesText, proxiesReady]);
 
   // Handle Starting a Scrape Job
-  const handleStartScrape = async (options: ScraperOptions) => {
-    const jobId = `job_${Date.now()}`;
+  const handleStartScrape = async (options: ScraperOptions, resume?: ScraperJob) => {
+    const jobId = resume ? resume.id : `job_${Date.now()}`;
     const targetName = options.category && options.location
       ? `${options.category} tại ${options.location}`
       : options.query;
@@ -172,7 +189,8 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       results: []
     };
 
-    setJobs(prev => [newJob, ...prev]);
+    if (resume) setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, status: 'running', finishedAt: undefined } : j)));
+    else setJobs(prev => [newJob, ...prev]);
     setActiveJobId(jobId);
     setCompletionSummary(null); // Clear previous summary
     setScrapeError(null);
@@ -200,7 +218,10 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           setJobProgress(progress);
           // Stream new results to live table
           if (progress.newPlace) {
-            setBusinesses(prev => [progress.newPlace!, ...prev]);
+            const np = progress.newPlace;
+            setBusinesses(prev => [np, ...prev]);
+            // ghi ngay vào bản ghi lần tìm để tải lại trang vẫn còn đủ lead đã lấy
+            setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, results: [...j.results, np], scrapedCount: j.results.length + 1 } : j)));
           }
         },
         () => isCancelledRef.current
@@ -213,9 +234,9 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           return {
             ...j,
             status: isCancelledRef.current ? 'paused' : 'completed',
-            scrapedCount: scraped.length,
+            scrapedCount: Math.max(scraped.length, j.results.length),
             finishedAt: finishTime,
-            results: scraped
+            results: j.results.length >= scraped.length ? j.results : scraped
           };
         }
         return j;
@@ -262,6 +283,12 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     const t = setTimeout(() => setCompletionSummary(null), 20000);
     return () => clearTimeout(t);
   }, [completionSummary]);
+
+  const handleResumeJob = (job: ScraperJob) => {
+    if (activeJobId) return;
+    // existingBusinesses để trống → dùng bảng lead hiện tại, nên chỉ lấy thêm phần còn thiếu (phần đã có lấy từ kho rất nhanh)
+    handleStartScrape({ ...job.options, existingBusinesses: undefined }, job);
+  };
 
   const handleCancelScrape = () => {
     isCancelledRef.current = true;
@@ -416,6 +443,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
             jobs={jobs}
             activeJobId={activeJobId}
             onOpenNewJob={() => setActiveTab('leads')}
+            onResumeJob={handleResumeJob}
             onSelectJobResults={handleSelectJobResults}
             onDeleteJob={handleDeleteJob}
             onOpenTrash={() => setTrashKind('jobs')}

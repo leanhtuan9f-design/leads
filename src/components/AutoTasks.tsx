@@ -42,15 +42,22 @@ export const AutoTasks: React.FC = () => {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const [product, setProduct] = useState('');
-  const [country, setCountry] = useState('');
+  // nhớ bản nháp form + báo cáo đang mở qua lần tải lại trang (không lưu proxy vì có mật khẩu)
+  const ls = (k: string) => { try { return localStorage.getItem(`autotask_${k}`) || ''; } catch { return ''; } };
+  const save = (k: string, v: string) => { try { localStorage.setItem(`autotask_${k}`, v); } catch { /* bỏ qua */ } };
+  const [product, setProductRaw] = useState(() => ls('product'));
+  const [country, setCountryRaw] = useState(() => ls('country'));
+  const setProduct = (v: string) => { setProductRaw(v); save('product', v); };
+  const setCountry = (v: string) => { setCountryRaw(v); save('country', v); };
   const [proxies, setProxies] = useState('');
-  const [cities, setCities] = useState('');
+  const [cities, setCitiesRaw] = useState(() => ls('cities'));
+  const setCities = (v: string) => { setCitiesRaw(v); save('cities', v); };
   const [burstN, setBurstN] = useState<string | null>(null); // null = chưa chỉnh → máy chủ tự chọn theo có/không proxy
   const [restMin, setRestMin] = useState<string | null>(null);
   const noProxy = proxies.trim() === '';
 
-  const [openId, setOpenId] = useState<number | null>(null);
+  const [openId, setOpenIdRaw] = useState<number | null>(() => Number(ls('open')) || null);
+  const setOpenId = (v: number | null) => { setOpenIdRaw(v); save('open', v ? String(v) : ''); };
   const [runs, setRuns] = useState<Run[]>([]);
 
   const load = useCallback(async () => {
