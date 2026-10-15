@@ -13,10 +13,6 @@ interface AiConfigView {
   customPrompt: boolean;
   defaultPrompt: string;
   fixedSuffix: string;
-  countryPrompt: string;
-  customCountryPrompt: boolean;
-  defaultCountryPrompt: string;
-  countrySuffix: string;
 }
 
 interface TestReport { models: string[]; modelsError: string; chatOk: boolean; chatError: string; reply: string; ms: number; model: string }
@@ -31,8 +27,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [countryPrompt, setCountryPrompt] = useState('');
-  const [defaults, setDefaults] = useState({ prompt: '', suffix: '', custom: false, countryPrompt: '', countrySuffix: '', customCountry: false });
+  const [defaults, setDefaults] = useState({ prompt: '', suffix: '', custom: false });
   const [models, setModels] = useState<string[]>([]);
   const [meta, setMeta] = useState<{ hasKey: boolean; keyHint: string; keySource: string } | null>(null);
   const [report, setReport] = useState<TestReport | null>(null);
@@ -41,7 +36,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
 
   const apply = (c: AiConfigView) => {
     setFormat(c.format); setBaseUrl(c.baseUrl); setModel(c.model);
-    setPrompt(c.systemPrompt); setCountryPrompt(c.countryPrompt); setDefaults({ prompt: c.defaultPrompt, suffix: c.fixedSuffix, custom: c.customPrompt, countryPrompt: c.defaultCountryPrompt, countrySuffix: c.countrySuffix, customCountry: c.customCountryPrompt });
+    setPrompt(c.systemPrompt); setDefaults({ prompt: c.defaultPrompt, suffix: c.fixedSuffix, custom: c.customPrompt });
     setMeta({ hasKey: c.hasKey, keyHint: c.keyHint, keySource: c.keySource });
   };
 
@@ -65,7 +60,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
   const save = async (clearKey = false) => {
     setBusy('save'); setMsg(null);
     try {
-      const c = await apiJson<AiConfigView>('/admin/ai-config', 'PUT', { format, baseUrl, model, apiKey, clearKey, systemPrompt: prompt, countryPrompt });
+      const c = await apiJson<AiConfigView>('/admin/ai-config', 'PUT', { format, baseUrl, model, apiKey, clearKey, systemPrompt: prompt });
       apply(c); setApiKey('');
       setMsg({ ok: true, text: c.enabled ? 'Đã lưu. Tính năng gợi ý AI đang bật.' : 'Đã lưu, nhưng còn thiếu API key hoặc model nên AI chưa bật.' });
       onSaved();
@@ -119,19 +114,7 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
       </div>
       <div className="block">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-slate-400">Prompt BƯỚC 1 — gợi ý quốc gia (khi người dùng chưa chọn nước){defaults.customCountry ? ' — tùy chỉnh' : ' — mặc định'}</span>
-          <button type="button" onClick={() => setCountryPrompt(defaults.countryPrompt)} disabled={countryPrompt === defaults.countryPrompt} className="text-blue-300 hover:text-blue-200 disabled:text-slate-600">Khôi phục mặc định</button>
-        </div>
-        <textarea value={countryPrompt} onChange={(e) => setCountryPrompt(e.target.value)} rows={12} maxLength={6000} spellCheck={false} className={`${inputCls} font-mono text-[11px] leading-relaxed mt-1`} />
-        <details className="mt-1 text-slate-500">
-          <summary className="cursor-pointer">Phần cố định luôn được nối vào cuối prompt (không sửa được)</summary>
-          <pre className="whitespace-pre-wrap font-mono text-[11px] mt-1 p-2 bg-slate-900/60 border border-slate-800 rounded">{defaults.countrySuffix}</pre>
-        </details>
-        <p className="text-slate-500 mt-1 hidden">Hồ sơ người dùng được gửi kèm trong thẻ <code className="font-mono">&lt;profile&gt;</code>. Lưu prompt mới sẽ làm các gợi ý đã lưu của mọi người dùng cũ đi (lần gợi ý kế tiếp gọi lại AI).</p>
-      </div>
-      <div className="block">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-slate-400">Prompt BƯỚC 2 — gợi ý loại người mua × thành phố của quốc gia đã chọn{defaults.custom ? ' — đang dùng bản tùy chỉnh' : ' — đang dùng mặc định'}</span>
+          <span className="text-slate-400">System prompt — gợi ý quốc gia + từ khóa (1 lần gọi AI){defaults.custom ? ' — đang dùng bản tùy chỉnh' : ' — đang dùng mặc định'}</span>
           <button type="button" onClick={() => setPrompt(defaults.prompt)} disabled={prompt === defaults.prompt} className="text-blue-300 hover:text-blue-200 disabled:text-slate-600">Khôi phục mặc định</button>
         </div>
         <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={16} maxLength={6000} spellCheck={false} className={`${inputCls} font-mono text-[11px] leading-relaxed mt-1`} />

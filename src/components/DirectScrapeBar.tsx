@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Search, MapPin, Briefcase, ChevronRight, Sparkles, Globe } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
 import { Quota, apiJson } from '../auth/types';
+import { citiesFor } from '../data/cities';
 import { estimateMarketTotal } from '../services/scraperEngine';
 
 interface DirectScrapeBarProps {
@@ -16,15 +17,13 @@ interface DirectScrapeBarProps {
   onOpenProfile: () => void;
 }
 
-interface AiSuggestion { category: string; location: string; reason: string }
-interface AiCountry { country: string; buyers: string; reason: string }
+interface AiCountry { country: string; keywords: string[]; reason: string }
 interface AiState {
   enabled: boolean;
   hasProfile: boolean;
   used: number;
   limit: number;
   countries: AiCountry[];
-  byCountry: Record<string, { country: string; items: AiSuggestion[] }>;
   stale: boolean;
 }
 
@@ -79,13 +78,13 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   }, []);
   useEffect(() => { loadAi(); }, [loadAi, profileVersion]);
 
-  // Không truyền quốc gia: AI gợi ý quốc gia trước. Có quốc gia: AI gợi ý loại người mua × thành phố của nước đó.
-  const askAi = async (forCountry?: string) => {
+  // Một lần gọi AI: danh sách quốc gia + từ khóa. Chọn nước xong, từ khóa và thành phố hiện ngay (không gọi AI nữa).
+  const askAi = async () => {
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; byCountry: AiState['byCountry']; used: number; limit: number }>('/suggest', 'POST', forCountry ? { country: forCountry } : {});
-      setAi(prev => (prev ? { ...prev, countries: r.countries, byCountry: r.byCountry, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; used: number; limit: number }>('/suggest', 'POST', {});
+      setAi(prev => (prev ? { ...prev, countries: r.countries, used: r.used, limit: r.limit, stale: false } : prev));
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Không lấy được gợi ý');
       loadAi();
@@ -98,11 +97,13 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setCountry(name);
     setCity('');
     setAiError('');
-    // đã có gợi ý thành phố cho nước này thì dùng luôn, chưa có thì nhờ AI
-    if (ai?.enabled && ai.hasProfile && !ai.byCountry[name.toLowerCase()]?.items?.length && ai.used < ai.limit) askAi(name);
+    const kw = ai?.countries.find(c => c.country.toLowerCase() === name.toLowerCase())?.keywords[0];
+    if (kw && !category.trim()) setCategory(kw);
   };
 
-  const countryItems = ai && country.trim() ? ai.byCountry[country.trim().toLowerCase()]?.items || [] : [];
+  const countryInfo = ai && country.trim() ? ai.countries.find(c => c.country.toLowerCase() === country.trim().toLowerCase()) : undefined;
+  const cityOptions = country.trim() ? citiesFor(country) : [];
+
   // Địa điểm gửi đi: "Thành phố, Quốc gia" (bỏ trùng nếu thành phố đã có tên nước)
   const fullLocation = (() => {
     const c = city.trim(), n = country.trim();
@@ -237,12 +238,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
               </>
             ) : !country.trim() ? (
               <>
-                <span className="text-slate-300 font-medium">Bước 1 · Chọn quốc gia:</span>
+                <span className="text-slate-300 font-medium">Thị trường nên tìm:</span>
                 {ai.countries.map((c) => (
                   <button
                     key={c.country}
                     type="button"
-                    title={`${c.reason}${c.buyers ? ` — Nên tìm: ${c.buyers}` : ''}`}
+                    title={`${c.reason}${c.keywords.length ? ` — Từ khóa: ${c.keywords.join(', ')}` : ''}`}
                     onClick={() => chooseCountry(c.country)}
                     disabled={aiBusy}
                     className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 border border-amber-500/30 rounded transition-colors disabled:opacity-50"
@@ -257,39 +258,44 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                     disabled={aiBusy || ai.used >= ai.limit}
                     className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
                   >
-                    {aiBusy ? 'AI đang nghĩ…' : ai.stale ? 'Cập nhật quốc gia theo hồ sơ mới' : 'AI gợi ý quốc gia cho tôi'}
+                    {aiBusy ? 'AI đang nghĩ…' : ai.stale ? 'Cập nhật gợi ý theo hồ sơ mới' : 'AI gợi ý thị trường cho tôi'}
                   </button>
                 )}
                 <span className="text-slate-500">hoặc tự nhập ô Quốc gia</span>
               </>
             ) : (
               <>
-                <span className="text-slate-300 font-medium">Bước 2 · {country.trim()}:</span>
-                {countryItems.map((it) => (
-                  <button
-                    key={`${it.category}|${it.location}`}
-                    type="button"
-                    title={it.reason}
-                    onClick={() => {
-                      setCategory(it.category);
-                      setCity(it.location.replace(new RegExp(`,\\s*${escRe(country.trim())}$`, 'i'), ''));
-                    }}
-                    className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-slate-200 border border-amber-500/30 rounded transition-colors"
-                  >
-                    <span className="text-amber-300">{it.category}</span>
-                    <span className="text-slate-500 mx-1">@</span>
-                    <span className="font-mono text-emerald-400">{it.location}</span>
-                  </button>
-                ))}
-                {countryItems.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => askAi(country.trim())}
-                    disabled={aiBusy || ai.used >= ai.limit}
-                    className="px-2 py-0.5 text-blue-300 hover:text-white border border-blue-500/40 hover:bg-blue-600/30 disabled:opacity-50 rounded transition-colors"
-                  >
-                    {aiBusy ? 'AI đang nghĩ…' : `AI gợi ý thành phố & đối tác ở ${country.trim()}`}
-                  </button>
+                <span className="text-slate-300 font-medium">{country.trim()}:</span>
+                {countryInfo && (
+                  <>
+                    <span className="text-slate-500">Từ khóa</span>
+                    {countryInfo.keywords.map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        title={countryInfo.reason}
+                        onClick={() => setCategory(k)}
+                        className={`px-2 py-0.5 border rounded transition-colors ${category === k ? 'bg-amber-500/30 border-amber-400 text-white' : 'bg-amber-500/10 hover:bg-amber-500/20 border-amber-500/30 text-amber-200'}`}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </>
+                )}
+                {cityOptions.length > 0 && (
+                  <>
+                    <span className="text-slate-500 ml-1">Thành phố</span>
+                    {cityOptions.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setCity(c)}
+                        className={`px-2 py-0.5 border rounded font-mono transition-colors ${city === c ? 'bg-emerald-500/30 border-emerald-400 text-white' : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-emerald-300'}`}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </>
                 )}
                 <button type="button" onClick={() => { setCountry(''); setCity(''); }} className="text-slate-400 hover:text-white underline">Chọn nước khác</button>
               </>
@@ -300,18 +306,18 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 <button type="button" onClick={onOpenProfile} className="text-slate-400 hover:text-white underline">Sửa hồ sơ</button>
               </>
             )}
-            {ai.hasProfile && (country.trim() ? countryItems : ai.countries).length > 0 && (
+            {ai.hasProfile && ai.countries.length > 0 && !country.trim() && (
               <button type="button" onClick={() => setShowSamples(v => !v)} className="text-slate-500 hover:text-slate-300 underline ml-auto">
                 {showSamples ? 'Ẩn gợi ý mẫu' : 'Gợi ý mẫu'}
               </button>
             )}
           </div>
-          {aiBusy && <div className="text-[11px] text-slate-400">AI đang phân tích… thường mất vài giây.</div>}
+          {aiBusy && <div className="text-[11px] text-slate-400">AI đang phân tích…</div>}
           {aiError && <div className="text-xs text-red-300">{aiError}</div>}
         </div>
       )}
 
-      {(!ai?.enabled || !ai.hasProfile || (country.trim() ? countryItems : ai.countries).length === 0 || showSamples) && (
+      {(!ai?.enabled || !ai.hasProfile || ai.countries.length === 0 || showSamples) && (
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
         {QUICK_SEARCH_EXAMPLES.map((ex) => (
