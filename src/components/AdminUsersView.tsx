@@ -19,17 +19,28 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const copyCreds = async () => {
-    if (!creds) return;
-    const text = `Đăng nhập: ${window.location.origin}\nEmail: ${creds.email}\nMật khẩu: ${creds.password}`;
+  const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
     } catch {
       const ta = document.createElement('textarea'); // trình duyệt không cho clipboard API (http / quyền)
       ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
     }
+  };
+
+  const copyCreds = async () => {
+    if (!creds) return;
+    await copyText(`Đăng nhập: ${window.location.origin}\nEmail: ${creds.email}\nMật khẩu: ${creds.password}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Mật khẩu chỉ lưu dạng băm nên không sao chép lại được; trong danh sách chỉ sao chép link + email
+  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const copyRow = async (u: AdminUserRow) => {
+    await copyText(`Đăng nhập: ${window.location.origin}\nEmail: ${u.email}`);
+    setCopiedId(u.id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const create = async (e: React.FormEvent) => {
@@ -111,6 +122,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
         {error && <div className="mt-3 p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </div>
 
+      <p className="text-slate-500">Mật khẩu chỉ lưu dạng băm nên không thể xem lại. "Sao chép TT" chép link + email; cần mật khẩu mới thì bấm "Đặt lại MK" rồi sao chép thông tin hiện ra.</p>
       <div className="bg-slate-950 border border-slate-800 rounded-lg overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-slate-900 text-slate-400">
@@ -129,6 +141,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
                 <td className="p-2.5 font-mono">{u.refreshUsed} / {u.dailyRefresh}</td>
                 <td className="p-2.5">{u.disabled ? <span className="text-red-300">Đã khóa</span> : <span className="text-emerald-300">Hoạt động</span>}</td>
                 <td className="p-2.5 space-x-2 whitespace-nowrap">
+                  <button onClick={() => copyRow(u)} className="text-emerald-300 hover:text-emerald-200">{copiedId === u.id ? '✓ Đã sao chép' : 'Sao chép TT'}</button>
                   <button onClick={() => editLimit(u, 'dailyNew', 'Hạn mức địa điểm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi hạn mức</button>
                   <button onClick={() => editLimit(u, 'dailyRefresh', 'Số lần làm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi lượt làm mới</button>
                   <button onClick={() => { if (window.confirm(`Đặt lại mật khẩu cho ${u.email}?`)) patch(u.id, { resetPassword: true }); }} className="text-amber-300 hover:text-amber-200">Đặt lại MK</button>
