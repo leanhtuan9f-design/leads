@@ -43,7 +43,7 @@ export interface ScraperOptions {
   city?: string;
   maxResults: number;
   extractEmails: boolean;
-  extractSocials?: boolean; // không còn dùng: gosom không trả link mạng xã hội
+  extractSocials?: boolean; // không còn dùng (engine không trả link mạng xã hội)
   skipWithoutPhone: boolean;
   skipWithoutWebsite: boolean;
   proxyType?: 'direct' | 'datacenter_rotating' | 'residential_proxy'; // chỉ để tương thích job cũ trong localStorage

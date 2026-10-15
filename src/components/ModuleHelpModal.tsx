@@ -1,3 +1,4 @@
+import { APP_NAME, APP_TAGLINE } from '../config/brand';
 import React, { useState } from 'react';
 import { 
   X, 
@@ -190,7 +191,7 @@ export const ModuleHelpModal: React.FC<ModuleHelpModalProps> = ({
         {/* Modal Footer */}
         <div className="p-3.5 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs">
           <div className="text-slate-400 text-[11px]">
-            Hệ thống cào dữ liệu Google Maps mã nguồn mở phát triển theo cấu trúc <strong className="text-white">gosom/google-maps-scraper</strong>
+            <strong className="text-white">{APP_NAME}</strong> — {APP_TAGLINE}
           </div>
           <button
             onClick={onClose}

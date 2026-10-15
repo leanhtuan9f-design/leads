@@ -368,7 +368,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               className="flex items-center gap-1.5 text-slate-400 hover:text-white transition-colors"
             >
               <Code className="w-3.5 h-3.5" />
-              <span>{showRawJson ? 'Ẩn đối tượng JSON' : 'Xem JSON chuẩn schema gosom'}</span>
+              <span>{showRawJson ? 'Ẩn đối tượng JSON' : 'Xem dữ liệu JSON'}</span>
             </button>
 
             {showRawJson && (

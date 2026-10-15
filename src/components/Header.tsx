@@ -1,3 +1,4 @@
+import { APP_NAME } from '../config/brand';
 import React from 'react';
 import { Download, Play, Compass, Database, MapPin, BarChart3, Terminal, HelpCircle } from 'lucide-react';
 import { ActiveTab } from '../types/scraper';
@@ -29,9 +30,9 @@ export const Header: React.FC<HeaderProps> = ({
           className="text-base font-bold tracking-tight text-white flex items-center gap-2 whitespace-nowrap"
         >
           <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white font-mono font-semibold text-xs shadow-sm">
-            GM
+            {APP_NAME.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
           </div>
-          <span>MapsScraper <span className="text-blue-400 font-normal">gosom VN</span></span>
+          <span>{APP_NAME}</span>
         </a>
       </div>
 

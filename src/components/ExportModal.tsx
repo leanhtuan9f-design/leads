@@ -93,7 +93,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ businesses, onClose, o
           {/* JSON schema */}
           <button
             onClick={() => {
-              exportToJson(businesses, `gosom_places_${Date.now()}.json`);
+              exportToJson(businesses, `leads_${Date.now()}.json`);
               onClose();
             }}
             className="p-3 bg-slate-900 border border-slate-800 hover:border-purple-500 rounded-lg text-left transition-all flex items-start gap-3 group"
@@ -103,7 +103,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ businesses, onClose, o
             </div>
             <div className="flex-1">
               <div className="font-semibold text-white group-hover:text-purple-400 transition-colors flex items-center justify-between">
-                <span>Dữ liệu JSON thô (Cấu trúc gosom chuẩn)</span>
+                <span>Dữ liệu JSON thô (đầy đủ trường)</span>
                 <span className="text-[10px] font-mono text-slate-400">.json</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">

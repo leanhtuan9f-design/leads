@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { Terminal, Copy, Check, Code, Play, Shield, Globe } from 'lucide-react';
+import { Terminal, Copy, Check } from 'lucide-react';
 import { HelpButton } from './HelpButton';
 
 interface ApiDocsModalProps {
   onOpenGuide?: (guideId: string) => void;
 }
 
+type Lang = 'curl' | 'node' | 'python';
+
 export const ApiDocsModal: React.FC<ApiDocsModalProps> = ({ onOpenGuide }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [activeLang, setActiveLang] = useState<'cli' | 'curl' | 'node' | 'python'>('cli');
+  const [activeLang, setActiveLang] = useState<Lang>('curl');
+
+  const base = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain';
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -16,149 +20,119 @@ export const ApiDocsModal: React.FC<ApiDocsModalProps> = ({ onOpenGuide }) => {
     setTimeout(() => setCopiedKey(null), 1800);
   };
 
-  const cliSnippet = `# 1. Tải về và biên dịch mã nguồn gosom/google-maps-scraper
-git clone https://github.com/gosom/google-maps-scraper.git
-cd google-maps-scraper
-go build -o google-maps-scraper
-
-# 2. Chạy cào dữ liệu kèm bóc tách Email và xoay vòng Proxy
-./google-maps-scraper \\
-  -depth 50 \\
-  -email \\
-  -proxies proxies.txt \\
-  -results leads.csv \\
-  "Nha khoa tại Hà Nội" "Quán cà phê tại TP.HCM"`;
-
-  const curlSnippet = `curl -X POST "https://api.scraper.gosom.dev/v1/jobs" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+  const curlSnippet = `# 1. Tạo tác vụ cào (trả về {"id": "..."})
+curl -X POST "${base}/api/jobs" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "queries": ["Nha khoa tại Hà Nội", "Thẩm mỹ viện tại TP.HCM"],
-    "max_results": 50,
-    "extract_emails": true,
-    "extract_socials": true,
-    "skip_without_phone": false,
-    "proxy_type": "datacenter_rotating",
-    "webhook_url": "https://your-crm.com/webhooks/gmaps"
-  }'`;
+    "queries": ["Phòng khám nha khoa Cầu Giấy, Hà Nội"],
+    "maxResults": 25,
+    "extractEmails": true,
+    "lang": "vi"
+  }'
 
-  const nodeSnippet = `// Tích hợp Node.js / TypeScript tự động hóa
-import { ScraperClient } from '@gosom/gmaps-scraper';
+# 2. Nhận kết quả theo luồng (Server-Sent Events): event "place" cho mỗi địa điểm, "end" khi xong
+curl -N "${base}/api/jobs/JOB_ID/events"
 
-const client = new ScraperClient({ apiKey: process.env.SCRAPER_API_KEY });
+# 3. Hủy tác vụ
+curl -X DELETE "${base}/api/jobs/JOB_ID"`;
 
-async function run() {
-  const job = await client.createJob({
-    query: 'Công ty thiết kế nội thất tại Đà Nẵng',
-    maxResults: 50,
+  const nodeSnippet = `// Node.js 18+ (fetch có sẵn)
+const BASE = '${base}';
+
+const res = await fetch(\`\${BASE}/api/jobs\`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    queries: ['Quán cà phê Quận 1, Hồ Chí Minh'],
+    maxResults: 25,
     extractEmails: true,
-  });
+  }),
+});
+const { id } = await res.json();
 
-  console.log(\`Tác vụ \${job.id} đã khởi động. Đang nhận dữ liệu stream...\`);
+const stream = await fetch(\`\${BASE}/api/jobs/\${id}/events\`);
+const decoder = new TextDecoder();
+let buf = '';
+for await (const chunk of stream.body) {
+  buf += decoder.decode(chunk, { stream: true });
+  const parts = buf.split('\\n\\n');
+  buf = parts.pop();
+  for (const block of parts) {
+    const event = /^event: (.*)$/m.exec(block)?.[1];
+    const data = /^data: (.*)$/m.exec(block)?.[1];
+    if (event === 'place') {
+      const lead = JSON.parse(data);
+      console.log(lead.title, '|', lead.phone, '|', lead.email);
+    }
+  }
+}`;
 
-  job.on('lead', (lead) => {
-    console.log(\`Tìm thấy: \${lead.title} | Email: \${lead.email} | SĐT: \${lead.phone}\`);
-  });
-
-  const results = await job.waitForCompletion();
-  console.log(\`Đã cào thành công \${results.length} hồ sơ B2B đã xác thực\`);
-}
-
-run();`;
-
-  const pythonSnippet = `# Tích hợp với Python requests
+  const pythonSnippet = `import json
 import requests
-import json
 
-payload = {
-    "queries": ["Khách sạn tại Đà Lạt"],
-    "max_results": 50,
-    "extract_emails": True,
-    "extract_socials": True
-}
+BASE = "${base}"
 
-headers = {
-    "Authorization": "Bearer YOUR_API_KEY",
-    "Content-Type": "application/json"
-}
+job = requests.post(f"{BASE}/api/jobs", json={
+    "queries": ["Công ty luật Đà Nẵng"],
+    "maxResults": 25,
+    "extractEmails": True,
+}).json()
 
-response = requests.post("https://api.scraper.gosom.dev/v1/jobs", json=payload, headers=headers)
-job_data = response.json()
-print(f"Khởi chạy thành công tác vụ ID: {job_data['job_id']}")`;
+with requests.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
+    event = None
+    for line in r.iter_lines(decode_unicode=True):
+        if line.startswith("event: "):
+            event = line[7:]
+        elif line.startswith("data: ") and event == "place":
+            lead = json.loads(line[6:])
+            print(lead["title"], "|", lead["phone"], "|", lead["email"])`;
 
-  const codeMap = {
-    cli: cliSnippet,
-    curl: curlSnippet,
-    node: nodeSnippet,
-    python: pythonSnippet
-  };
+  const codeMap: Record<Lang, string> = { curl: curlSnippet, node: nodeSnippet, python: pythonSnippet };
+  const tabs: { key: Lang; label: string }[] = [
+    { key: 'curl', label: 'cURL' },
+    { key: 'node', label: 'Node.js' },
+    { key: 'python', label: 'Python' },
+  ];
 
   return (
     <div className="space-y-5 text-xs">
-      {/* Intro Banner */}
       <div className="bg-slate-950 border border-slate-800 rounded-lg p-5">
-        <div className="flex items-center justify-between gap-4 mb-2">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-blue-600/20 text-blue-400 rounded-md">
-              <Terminal className="w-5 h-5" />
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className="p-2 bg-blue-600/20 text-blue-400 rounded-md">
+            <Terminal className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-white">Tài liệu REST API</h2>
+              {onOpenGuide && (
+                <HelpButton guideId="api_cli" onOpenGuide={onOpenGuide} tooltipText="Xem hướng dẫn tích hợp API" />
+              )}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-bold text-white">Kiến trúc gosom/google-maps-scraper & Tài liệu REST API</h2>
-                {onOpenGuide && (
-                  <HelpButton guideId="api_cli" onOpenGuide={onOpenGuide} tooltipText="Xem hướng dẫn tích hợp API & CLI" />
-                )}
-              </div>
-              <p className="text-[11px] text-slate-400">Hệ thống cào dữ liệu Google Maps đa luồng viết bằng Go, hỗ trợ Webhook và Proxy Pool</p>
-            </div>
+            <p className="text-[11px] text-slate-400">Tạo tác vụ cào và nhận kết quả theo thời gian thực từ hệ thống của bạn</p>
           </div>
         </div>
-        <p className="text-slate-300 text-xs leading-relaxed mt-2">
-          Phát triển dựa trên kiến trúc mã nguồn mở <strong className="text-white">gosom/google-maps-scraper</strong> sử dụng framework <code className="text-blue-400 font-mono">scrapemate</code>. Hệ thống đạt tốc độ cào bình quân lên tới 120 địa điểm/phút với khả năng giả lập trình duyệt, tự động cuộn danh sách (viewport stepping), bóc tách số điện thoại và quét email từ website.
-        </p>
+        <ul className="text-slate-300 leading-relaxed mt-2 space-y-1 list-disc pl-5">
+          <li><code className="text-blue-400 font-mono">POST /api/jobs</code> — tạo tác vụ. Tham số: <code className="font-mono">queries[]</code> (tối đa 12), <code className="font-mono">maxResults</code> (tối đa 300), <code className="font-mono">extractEmails</code>, <code className="font-mono">lang</code>, <code className="font-mono">geo</code> ("lat,lon") + <code className="font-mono">radius</code> (mét), <code className="font-mono">proxies[]</code> (tối đa 10).</li>
+          <li><code className="text-blue-400 font-mono">GET /api/jobs/:id/events</code> — luồng SSE: <code className="font-mono">status</code>, <code className="font-mono">place</code> (một địa điểm), <code className="font-mono">end</code>.</li>
+          <li><code className="text-blue-400 font-mono">DELETE /api/jobs/:id</code> — hủy tác vụ.</li>
+          <li>Chạy 1 tác vụ tại một thời điểm, tối đa 3 tác vụ xếp hàng; giới hạn 6 yêu cầu tạo tác vụ mỗi phút. Hiện chưa có xác thực.</li>
+        </ul>
       </div>
 
-      <div className="p-3 bg-amber-500/10 border border-amber-500/40 rounded-lg text-xs text-amber-200">
-        <strong>Lưu ý:</strong> Các ví dụ cURL / Node.js / Python bên dưới dùng endpoint <code>api.scraper.gosom.dev</code> và gói <code>@gosom/gmaps-scraper</code> chỉ mang tính minh họa — chúng không tồn tại. API thật của ứng dụng này là <code>POST /api/jobs</code>, <code>GET /api/jobs/:id/events</code> (SSE), <code>DELETE /api/jobs/:id</code>.
-      </div>
-
-      {/* Code Playground */}
       <div className="bg-slate-950 border border-slate-800 rounded-lg overflow-hidden">
-        {/* Language Tabs */}
         <div className="p-3 bg-slate-900 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setActiveLang('cli')}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                activeLang === 'cli' ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Lệnh CLI Terminal
-            </button>
-            <button
-              onClick={() => setActiveLang('curl')}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                activeLang === 'curl' ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              cURL (REST API)
-            </button>
-            <button
-              onClick={() => setActiveLang('node')}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                activeLang === 'node' ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Node.js
-            </button>
-            <button
-              onClick={() => setActiveLang('python')}
-              className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
-                activeLang === 'python' ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Python
-            </button>
+            {tabs.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setActiveLang(t.key)}
+                className={`px-3 py-1 rounded text-xs font-mono transition-colors ${
+                  activeLang === t.key ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           <button
@@ -170,28 +144,21 @@ print(f"Khởi chạy thành công tác vụ ID: {job_data['job_id']}")`;
           </button>
         </div>
 
-        {/* Code Content */}
         <div className="p-4 bg-[#070b12] overflow-x-auto">
-          <pre className="font-mono text-[11px] text-slate-200 leading-relaxed">
-            {codeMap[activeLang]}
-          </pre>
+          <pre className="font-mono text-[11px] text-slate-200 leading-relaxed">{codeMap[activeLang]}</pre>
         </div>
       </div>
 
-      {/* Extracted Schema Field Reference */}
       <div className="bg-slate-950 border border-slate-800 rounded-lg p-5">
-        <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Quy chuẩn dữ liệu đầu ra JSON (33+ trường tiêu chuẩn)</h3>
-        <p className="text-[11px] text-slate-400 mb-3">Tất cả các trường sau đều được trích xuất và hỗ trợ xuất ra file CSV / JSON:</p>
-
+        <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-2">Các trường dữ liệu của mỗi địa điểm (event "place")</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 font-mono text-[11px]">
           {[
             'title (Tên DN)', 'category (Ngành)', 'subcategories[]', 'address (Địa chỉ)',
-            'street (Đường)', 'city (Thành phố)', 'state (Tỉnh)', 'postal_code (Mã bưu chính)',
+            'street (Đường)', 'city (Thành phố)', 'state (Tỉnh)', 'postalCode (Mã bưu chính)',
             'country (Quốc gia)', 'phone (SĐT)', 'website', 'email (Email quét)',
-            'additional_emails[]', 'instagram', 'facebook', 'linkedin',
-            'twitter', 'rating (Điểm sao 1-5)', 'reviews_count (Lượt review)', 'price_level (Mức giá)',
-            'is_claimed (Xác minh)', 'is_open_now (Mở cửa)', 'open_hours (Giờ làm)', 'latitude (Vĩ độ)',
-            'longitude (Kinh độ)', 'google_maps_url (Link Maps)', 'place_id (ID địa điểm)', 'photos_count (Số ảnh)'
+            'additionalEmails[]', 'rating (Điểm sao 1-5)', 'reviewsCount (Lượt review)', 'priceLevel (Mức giá)',
+            'isClaimed (Xác minh)', 'isOpenNow (Mở cửa)', 'openHoursSummary (Giờ làm)', 'latitude (Vĩ độ)',
+            'longitude (Kinh độ)', 'googleMapsUrl (Link Maps)', 'placeId (ID địa điểm)', 'photosCount (Số ảnh)'
           ].map((field, idx) => (
             <div key={idx} className="p-2 bg-slate-900 border border-slate-800 rounded text-slate-300">
               <span className="text-blue-400 font-semibold">{field.split(' ')[0]}</span>

@@ -64,7 +64,7 @@ export const ScraperControls: React.FC<ScraperControlsProps> = ({
           <div className="flex items-center gap-2">
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-white">Cấu hình Google Maps Scraper</h2>
+                <h2 className="text-base font-semibold text-white">Cấu hình cào dữ liệu Google Maps</h2>
                 <HelpButton guideId="scraper_config" onOpenGuide={onOpenGuide} tooltipText="Xem logic cào dữ liệu & hướng dẫn" />
               </div>
               <p className="text-xs text-slate-400 mt-0.5">Thu thập địa điểm Google Maps & bóc tách email từ website doanh nghiệp</p>

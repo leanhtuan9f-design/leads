@@ -222,7 +222,7 @@ function parseQuery(options: ScraperOptions): { category: string; city: string; 
   return { category, city: location, state: 'VN', customLat, customLon };
 }
 
-// ===== Engine cào THẬT: gọi backend /api/jobs (gosom/google-maps-scraper chạy trong Docker) =====
+// ===== Engine cào THẬT: gọi backend /api/jobs (engine cào chạy trong Docker) =====
 const API_BASE = '/api';
 const MAX_JOB_RESULTS = 300;
 const MAX_DISTRICT_QUERIES = 12;

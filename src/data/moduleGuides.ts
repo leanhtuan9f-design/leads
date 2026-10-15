@@ -18,7 +18,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     logicExplanation: [
       'Giao diện tách thành 2 ô nhập: [Ngành nghề / Dịch vụ] và [Địa điểm / Tọa độ GPS].',
       'Hỗ trợ cào theo Tọa độ GPS: nhập cặp tọa độ ví dụ "21.0285, 105.8542" để quét bán kính 10 km quanh điểm đó.',
-      'Engine là gosom/google-maps-scraper chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
+      'Engine cào chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
       'Bóc tách Email: engine truy cập website công khai của doanh nghiệp để tìm địa chỉ email. Chỉ có email nếu doanh nghiệp có website và website đó công bố email. Link mạng xã hội hiện CHƯA được bóc tách.',
       'Mỗi lần chỉ chạy 1 tác vụ; các tác vụ khác xếp hàng chờ (tối đa 3). Tốc độ phụ thuộc Google Maps — thường vài chục giây đến vài phút cho 25 điểm.'
     ],
@@ -48,7 +48,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Khi bạn cào đợt 2 (hoặc bấm "Cào tiếp +25 điểm"): Scraper sẽ kiểm tra tức thì từng địa điểm tìm thấy. Nếu địa điểm đó đã có trong danh sách -> Hệ thống tự động BỎ QUA (Skip duplicate), không tính vào số lượng cào mới và không bị ghi đè. Scraper tiếp tục cào để gom đúng 25 địa điểm MỚI 100%!',
       '',
       '3. LÀM THẾ NÀO ĐỂ CÀO ĐỦ HƠN 100 ĐIỂM (PHƯƠNG PHÁP PHÂN RÃ THEO QUẬN/HUYỆN):',
-      'Để vét sạch hơn 100 phòng khám nha khoa tại Hà Nội, kỹ thuật chuẩn của gosom/google-maps-scraper là "Tự động phân mảnh theo Quận/Huyện" (District Subdivision):',
+      'Để vét sạch hơn 100 phòng khám nha khoa tại Hà Nội, kỹ thuật chuẩn là "Tự động phân mảnh theo Quận/Huyện" (District Subdivision):',
       'Hệ thống tự động chia nhỏ truy vấn thành:',
       '• "Phòng khám nha khoa Quận Cầu Giấy"',
       '• "Phòng khám nha khoa Quận Đống Đa"',
@@ -88,7 +88,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       '• Nếu bạn nhập proxy (Tùy chọn nâng cao → "Proxy của bạn"), mọi truy vấn của bạn đi qua các proxy đó. Nếu để trống, truy vấn ra Google bằng IP máy chủ — dễ bị CAPTCHA/chặn khi cào nhiều.',
       '• Chỉ chạy 1 tác vụ tại một thời điểm; tối đa 3 tác vụ xếp hàng, quá số này sẽ báo bận.',
       '• Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP người dùng, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
-      '• Tốc độ do chính engine gosom/Playwright quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
+      '• Tốc độ do chính engine cào quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
       '',
       '3. CHƯA CÓ (CẦN PHÁT TRIỂN NẾU MỞ CHO NHIỀU NGƯỜI):',
       '• Kho proxy dùng chung/tự xoay vòng (hiện mỗi người tự cung cấp proxy; nên dùng proxy dân cư để ít bị chặn).',
@@ -219,21 +219,20 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
   api_cli: {
     id: 'api_cli',
     title: 'Tài liệu tích hợp REST API & Lệnh CLI Terminal',
-    subtitle: 'API nội bộ của ứng dụng này và cách chạy gosom bằng dòng lệnh',
+    subtitle: 'API nội bộ của ứng dụng này và ví dụ gọi từ cURL, Node.js, Python',
     tag: 'Dành cho Lập trình viên',
     logicExplanation: [
       'API nội bộ THẬT của ứng dụng: POST /api/jobs (tạo tác vụ), GET /api/jobs/:id/events (nhận kết quả theo luồng SSE), DELETE /api/jobs/:id (hủy). Hiện chưa có xác thực.',
-      'Các ví dụ cURL/Node.js/Python trong tab này dùng endpoint api.scraper.gosom.dev và gói @gosom/gmaps-scraper chỉ là MINH HỌA, không tồn tại; đừng chạy nguyên văn.',
-      'Ví dụ CLI là cách chạy gosom/google-maps-scraper độc lập trên máy của bạn (bản gốc mã nguồn mở viết bằng Go).'
+      'Ví dụ cURL / Node.js / Python trong tab này dùng đúng API trên, tự lấy địa chỉ từ tên miền đang truy cập.'
     ],
     steps: [
-      'Bước 1: Chọn tab ngôn ngữ bạn muốn sử dụng (CLI Terminal, cURL, Node.js, Python).',
+      'Bước 1: Chọn tab ngôn ngữ bạn muốn sử dụng (cURL, Node.js, Python).',
       'Bước 2: Nhấn nút "Sao chép mã" ở góc trên bên phải khối lệnh.',
       'Bước 3: Dán vào Terminal của máy chủ hoặc tích hợp vào mã nguồn backend của bạn.',
       'Bước 4: Xem danh sách trường dữ liệu JSON ở phần dưới cùng để map vào cơ sở dữ liệu.'
     ],
     proTips: [
-      'Nếu cào số lượng lớn trên 10,000 địa điểm, hãy chuẩn bị một danh sách proxy dân cư (Residential Proxy) và đưa vào tham số -proxies proxies.txt.'
+      'Nếu cào số lượng lớn, hãy dùng proxy dân cư (nhập ở Tùy chọn nâng cao).'
     ]
   },
   export_dialog: {
@@ -245,7 +244,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Hỗ trợ 4 hình thức xuất dữ liệu chuyên nghiệp:',
       '1. CSV Tiêu chuẩn: Đầy đủ hơn 33 cột dữ liệu, mã hóa UTF-8 với ký tự xuống dòng chuẩn, mở được trực tiếp trên Excel, Google Sheets, LibreOffice.',
       '2. CRM Export: Định dạng sẵn tên cột theo chuẩn quốc tế (Company, Email, Phone, Website, City, Rating) tương thích 100% với Lemlist, Instantly, Smartlead, Apollo, HubSpot.',
-      '3. JSON mảng thô: Cấu trúc đối tượng chi tiết theo đúng schema của gosom, thích hợp cho việc import vào cơ sở dữ liệu MongoDB/PostgreSQL.',
+      '3. JSON mảng thô: Cấu trúc đối tượng đầy đủ các trường, thích hợp cho việc import vào cơ sở dữ liệu MongoDB/PostgreSQL.',
       '4. Sao chép TSV vào Clipboard: Sao chép dạng Tab-Separated Values, bạn chỉ cần mở Google Sheet trống và nhấn Ctrl+V (hoặc Cmd+V) là dữ liệu tự động dàn thành từng cột ngăn nắp.'
     ],
     steps: [
