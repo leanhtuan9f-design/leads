@@ -1106,6 +1106,8 @@ const taskView = (t) => ({
   keywords: parseJsonCol(t.keywords, []), cities: parseJsonCol(t.cities, []), buyerTypes: parseJsonCol(t.buyer_types, []),
   proxies: parseJsonCol(t.proxies, []).length, // chỉ trả số lượng, không lộ user:pass
   createdAt: t.created_at, finishedAt: t.finished_at, note: t.note, stats: taskStats(t),
+  current: db.prepare("SELECT keyword, city, started_at AS startedAt FROM auto_runs WHERE task_id=? AND status='running' LIMIT 1").get(t.id) || null,
+  proxyMode: parseJsonCol(t.proxies, []).length ? 'proxy' : 'server',
 });
 
 app.get('/api/admin/auto', requireAdmin, (_req, res) => {

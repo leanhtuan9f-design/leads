@@ -10,6 +10,7 @@ interface Task {
   id: number; product: string; country: string; maxResults: number; status: 'running' | 'done' | 'stopped'; by: string;
   keywords: string[]; cities: string[]; buyerTypes: { name: string; keyword: string }[]; proxies: number;
   createdAt: number; finishedAt: number | null; note: string; stats: Stats;
+  current: { keyword: string; city: string; startedAt: number } | null;
 }
 interface Run {
   id: number; keyword: string; city: string; status: 'pending' | 'running' | 'done' | 'empty' | 'error';
@@ -171,6 +172,13 @@ export const AutoTasks: React.FC = () => {
                 </span>
               </div>
               <div className="h-1 bg-slate-800 mx-3 rounded"><div className="h-1 bg-emerald-500 rounded" style={{ width: `${pct}%` }} /></div>
+              {t.status === 'running' && (
+                <div className="px-3 pt-2 text-[11px] text-emerald-300">
+                  {t.current
+                    ? `⏳ Đang cào: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
+                    : `⏸ Đang chờ máy rảnh (ưu tiên lượt của người dùng, nghỉ ${gapSec}s giữa các cặp)`}
+                </div>
+              )}
               <div className="px-3 pb-3 pt-2 text-[11px] text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
                 <span>Lead khác nhau: <b className="text-white">{s.uniquePlaces}</b></span>
                 <span>SĐT {s.withPhone}</span><span>Website {s.withWebsite}</span><span>Email {s.withEmail}</span>
