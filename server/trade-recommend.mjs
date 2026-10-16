@@ -62,17 +62,17 @@ function cityRecommendations(country) {
   })).sort((a, b) => b.logisticsScore - a.logisticsScore || a.city.localeCompare(b.city));
 }
 
-export function buildMarketRecommendations(product, countries = []) {
+export function buildMarketRecommendations(product, countries = [], trade = null) {
   const classification = classifyProduct(product);
   const markets = countries.map((item, index) => ({
     country: item.country,
     countryReason: item.reason,
     keywords: item.keywords,
     aiRank: index + 1,
-    tradeData: { status: 'not_loaded', source: null, year: null, exportValueUsd: null, hsCodes: classification.hs },
+    tradeData: trade?.markets?.find((x) => x.country.toLowerCase() === item.country.toLowerCase()) || { status: trade?.status || 'not_loaded', source: null, year: null, exportValueUsd: null, hsCodes: classification.hs },
     cities: cityRecommendations(item.country),
   }));
-  return { classification, markets, tradeDataStatus: 'not_loaded' };
+  return { classification, markets, tradeDataStatus: trade?.status || 'not_loaded' };
 }
 
 export const logisticsCountries = Object.keys(LOGISTICS);

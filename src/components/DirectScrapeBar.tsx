@@ -22,6 +22,8 @@ interface BuyerType { name: string; keyword: string }
 interface MarketCity { city: string; logisticsScore: number; logisticsReason: string; verifiedHub: boolean }
 interface MarketRecommendation { country: string; cities: MarketCity[]; tradeData: { status: string; source: string | null; year: number | null; exportValueUsd: number | null; hsCodes: string[] } }
 interface MarketRecommendations { classification: { name: string; hs: string[]; confidence: string; source: string }; markets: MarketRecommendation[]; tradeDataStatus: string }
+interface TradeMarket { country: string; exportValueUsd: number; growthRate: number | null; share: number; period: string; score: number }
+interface TradeData { status: string; classification?: { name: string; hs: string[]; confidence: string }; markets: TradeMarket[] }
 interface AiState {
   buyerTypes?: BuyerType[];
   enabled: boolean;
@@ -31,6 +33,7 @@ interface AiState {
   limit: number;
   countries: AiCountry[];
   recommendations?: MarketRecommendations | null;
+  tradeData?: TradeData;
   stale: boolean;
 }
 
@@ -99,8 +102,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; recommendations: MarketRecommendations; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
-      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, recommendations: r.recommendations, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; recommendations: MarketRecommendations; tradeData: TradeData; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
+      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, recommendations: r.recommendations, tradeData: r.tradeData, used: r.used, limit: r.limit, stale: false } : prev));
       setAiProduct(product.trim());
       setCountry('');
       setCity('');
@@ -301,6 +304,11 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                     {c.country}
                   </button>
                 ))}
+                {ai.tradeData?.status === 'loaded' && (
+                  <div className="basis-full mt-1 text-[10px] text-emerald-300/80">
+                    Xếp hạng theo dữ liệu xuất khẩu {ai.tradeData.classification?.name || product.trim()} ({ai.tradeData.markets[0]?.period}): {ai.tradeData.markets.slice(0, 3).map((m, i) => `${i + 1}. ${m.country} ${Math.round(m.share)}%`).join(' · ')}
+                  </div>
+                )}
                 {product.trim() && aiProduct !== product.trim() && (
                   <span className="text-amber-300">Sản phẩm đã đổi — bấm “AI gợi ý” để cập nhật.</span>
                 )}
