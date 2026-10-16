@@ -110,6 +110,12 @@ export function importTradeRows(db, rows, meta = {}) {
 
 export function rankTradeMarkets(db, product, limit = 8) {
   const classification = classifyProduct(product);
+  const custom = db.prepare('SELECT hs_code AS hs, product_group AS name FROM product_hs_aliases WHERE instr(lower(?), lower(alias)) > 0 ORDER BY length(alias) DESC').get(String(product || ''));
+  if (custom && !classification.hs.includes(custom.hs)) {
+    classification.hs = [...classification.hs, custom.hs];
+    if (!classification.name) classification.name = custom.name;
+    classification.source = classification.source === 'unclassified' ? 'database-product-alias' : classification.source;
+  }
   if (!classification.hs.length) return { status: 'unclassified', classification, markets: [] };
   const latestRow = db.prepare(`SELECT snapshot_id AS id, period FROM trade_flows WHERE hs_code IN (${classification.hs.map(() => '?').join(',')}) ORDER BY period DESC, snapshot_id DESC LIMIT 1`).get(...classification.hs);
   const latest = latestRow?.id;

@@ -9,8 +9,9 @@ import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
-import { buildMarketRecommendations } from './trade-recommend.mjs';
+import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
+import { ensureLogisticsSchema, loadLogisticsConfig, logisticsView, normalizeLogisticsPoint } from './logistics-config.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
 try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
@@ -105,6 +106,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_qp_qkey ON query_places(qkey, pos);
 `);
 ensureTradeSchema(db);
+ensureLogisticsSchema(db);
+loadLogisticsConfig(db);
 ensureAuthSchema(db);
 db.exec(`CREATE TABLE IF NOT EXISTS user_state (
   user_id INTEGER NOT NULL,
@@ -914,6 +917,58 @@ app.delete('/api/jobs/:id', (req, res) => {
 app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
   res.json({ places: s.places, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
+});
+
+// Cấu hình thị trường/logistics do admin quản lý; đọc nhanh từ SQLite, dùng chung cho mọi user.
+app.get('/api/admin/market-config', requireAdmin, (_req, res) => {
+  const products = db.prepare('SELECT alias, hs_code AS hsCode, product_group AS productGroup, confidence, reviewed, source FROM product_hs_aliases ORDER BY product_group, alias').all();
+  const known = new Set(products.map((p) => p.productGroup));
+  for (const row of db.prepare("SELECT DISTINCT product_group AS productGroup, hs_code AS hsCode FROM trade_flows WHERE product_group IS NOT NULL AND product_group != '' ORDER BY product_group").all()) {
+    if (!known.has(row.productGroup)) products.push({ alias: '', hsCode: row.hsCode, productGroup: row.productGroup, confidence: 'snapshot', reviewed: 1, source: 'GSO snapshot' });
+  }
+  const countries = rankAllExportMarkets(db, 200).markets;
+  res.json({ countries, products, logistics: logisticsView(db), defaults: defaultLogisticsPoints });
+});
+
+app.post('/api/admin/market-config/logistics', requireAdmin, (req, res) => {
+  try {
+    const p = normalizeLogisticsPoint(req.body);
+    const r = db.prepare(`INSERT INTO logistics_points (country, product, city, port, airport, logistics_score, logistics_reason, lat, lon, enabled, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(p.country, p.product, p.city, p.port, p.airport, p.logisticsScore, p.logisticsReason, p.lat, p.lon, p.enabled, Date.now());
+    loadLogisticsConfig(db);
+    res.json({ ok: true, id: Number(r.lastInsertRowid) });
+  } catch (e) { res.status(400).json({ error: e.message || 'Không lưu được điểm logistics' }); }
+});
+
+app.patch('/api/admin/market-config/logistics/:id', requireAdmin, (req, res) => {
+  try {
+    const p = normalizeLogisticsPoint(req.body);
+    const r = db.prepare(`UPDATE logistics_points SET country = ?, product = ?, city = ?, port = ?, airport = ?, logistics_score = ?, logistics_reason = ?, lat = ?, lon = ?, enabled = ?, updated_at = ? WHERE id = ?`).run(p.country, p.product, p.city, p.port, p.airport, p.logisticsScore, p.logisticsReason, p.lat, p.lon, p.enabled, Date.now(), Number(req.params.id));
+    if (!r.changes) return res.status(404).json({ error: 'Không tìm thấy điểm logistics' });
+    loadLogisticsConfig(db);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message || 'Không cập nhật được điểm logistics' }); }
+});
+
+app.delete('/api/admin/market-config/logistics/:id', requireAdmin, (req, res) => {
+  const r = db.prepare('DELETE FROM logistics_points WHERE id = ?').run(Number(req.params.id));
+  if (!r.changes) return res.status(404).json({ error: 'Không tìm thấy điểm logistics' });
+  loadLogisticsConfig(db);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/market-config/products', requireAdmin, (req, res) => {
+  const alias = String(req.body?.alias || '').trim().toLowerCase().slice(0, 120);
+  const hsCode = String(req.body?.hsCode || '').replace(/[^0-9]/g, '').slice(0, 10);
+  const productGroup = String(req.body?.productGroup || '').trim().slice(0, 160);
+  if (!alias || !hsCode || !productGroup) return res.status(400).json({ error: 'Cần nhập từ khóa, mã HS và mặt hàng' });
+  db.prepare('INSERT INTO product_hs_aliases (alias, hs_code, product_group, confidence, reviewed, source) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(alias) DO UPDATE SET hs_code = excluded.hs_code, product_group = excluded.product_group, confidence = excluded.confidence, reviewed = 1, source = excluded.source').run(alias, hsCode, productGroup, 'admin', 'admin');
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/market-config/products/:alias', requireAdmin, (req, res) => {
+  const r = db.prepare('DELETE FROM product_hs_aliases WHERE alias = ? AND source = \'admin\'').run(String(req.params.alias).toLowerCase());
+  if (!r.changes) return res.status(404).json({ error: 'Chỉ có thể xóa từ khóa do admin thêm' });
+  res.json({ ok: true });
 });
 
 // ===== AI gợi ý từ khóa từ hồ sơ người dùng =====

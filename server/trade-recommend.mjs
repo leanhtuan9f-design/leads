@@ -75,6 +75,8 @@ const LOGISTICS_DETAILS = {
   'Dubai': { lat: 25.2048, lon: 55.2708, port: 'Jebel Ali Port', airport: 'Dubai International', source: 'curated-hub-metadata' },
 };
 
+const CUSTOM_LOGISTICS = new Map();
+
 const normalize = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const countryName = (country) => Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(country))
   || Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(CITY_DATA.alias?.[normalize(country)] || '')) || country;
@@ -84,16 +86,28 @@ export function classifyProduct(product) {
   return hit ? { ...hit, confidence: 'medium', source: 'local-product-hints' } : { hs: [], name: '', confidence: 'low', source: 'unclassified' };
 }
 
-function cityRecommendations(country) {
+export function setCustomLogistics(points = []) {
+  CUSTOM_LOGISTICS.clear();
+  for (const point of points) {
+    const country = countryName(point.country);
+    const city = String(point.city || '').trim();
+    if (country && city) CUSTOM_LOGISTICS.set(`${normalize(country)}|${normalize(city)}`, { ...point, country, city, source: point.source || 'admin' });
+  }
+}
+
+function cityRecommendations(country, product = '') {
   const name = countryName(country);
-  const cities = CITY_DATA.cities[name] || [];
+  const productKey = normalize(product);
+  const custom = [...CUSTOM_LOGISTICS.values()].filter((point) => normalize(point.country) === normalize(name) && (!point.product || !productKey || normalize(point.product).includes(productKey) || productKey.includes(normalize(point.product))));
+  const cities = [...new Set([...(CITY_DATA.cities[name] || []), ...custom.map((point) => point.city)])];
   const meta = LOGISTICS[name] || { hubs: {}, reason: 'Chưa có dữ liệu logistics chi tiết; dùng danh sách thành phố hiện có' };
   return cities.map((city, index) => ({
     city,
-    logisticsScore: meta.hubs[city] || Math.max(55, 70 - index),
-    logisticsReason: meta.hubs[city] ? meta.reason : 'Điểm nền từ danh sách thành phố, chưa được xác minh là hub cảng/sân bay',
-    verifiedHub: Boolean(meta.hubs[city]),
+    logisticsScore: CUSTOM_LOGISTICS.get(`${normalize(name)}|${normalize(city)}`)?.logisticsScore || meta.hubs[city] || Math.max(55, 70 - index),
+    logisticsReason: CUSTOM_LOGISTICS.get(`${normalize(name)}|${normalize(city)}`)?.logisticsReason || (meta.hubs[city] ? meta.reason : 'Điểm nền từ danh sách thành phố, chưa được xác minh là hub cảng/sân bay'),
+    verifiedHub: Boolean(CUSTOM_LOGISTICS.get(`${normalize(name)}|${normalize(city)}`) || meta.hubs[city]),
     ...(LOGISTICS_DETAILS[city] || {}),
+    ...(CUSTOM_LOGISTICS.get(`${normalize(name)}|${normalize(city)}`) || {}),
   })).sort((a, b) => b.logisticsScore - a.logisticsScore || a.city.localeCompare(b.city));
 }
 
@@ -105,9 +119,13 @@ export function buildMarketRecommendations(product, countries = [], trade = null
     keywords: item.keywords,
     aiRank: index + 1,
     tradeData: trade?.markets?.find((x) => x.country.toLowerCase() === item.country.toLowerCase()) || { status: trade?.status || 'not_loaded', source: null, year: null, exportValueUsd: null, hsCodes: classification.hs },
-    cities: cityRecommendations(item.country),
+    cities: cityRecommendations(item.country, product),
   }));
   return { classification, markets, tradeDataStatus: trade?.status || 'not_loaded' };
 }
 
 export const logisticsCountries = Object.keys(LOGISTICS);
+export const defaultLogisticsPoints = Object.entries(LOGISTICS).flatMap(([country, meta]) => Object.entries(meta.hubs).map(([city, score]) => ({
+  country, product: '', city, port: LOGISTICS_DETAILS[city]?.port || '', airport: LOGISTICS_DETAILS[city]?.airport || '', logisticsScore: score,
+  logisticsReason: meta.reason, lat: LOGISTICS_DETAILS[city]?.lat ?? null, lon: LOGISTICS_DETAILS[city]?.lon ?? null, source: 'built-in', builtIn: true,
+})));

@@ -13,6 +13,7 @@ import { TrashModal } from './components/TrashModal';
 import { AdminUsersView } from './components/AdminUsersView';
 import { AiSettings } from './components/AiSettings';
 import { AdminBackgroundView } from './components/AdminBackgroundView';
+import { MarketConfig } from './components/MarketConfig';
 import { ProfileModal } from './components/ProfileModal';
 import { AuthUser, Quota, apiJson } from './auth/types';
 
@@ -51,7 +52,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
-  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'aiconfig'] as ActiveTab[]) : [])];
+  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'aiconfig', 'marketconfig'] as ActiveTab[]) : [])];
   const [activeTab, setActiveTabRaw] = useState<ActiveTab>(() => {
     try { const t = localStorage.getItem(keyTab) as ActiveTab | null; if (t && TABS.includes(t)) return t; } catch (e) {}
     return 'leads';
@@ -454,6 +455,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView />}
         {activeTab === 'aiconfig' && user.role === 'admin' && <div className="max-w-xl text-xs"><h2 className="text-sm font-bold text-white mb-1">Cấu hình AI</h2><AiSettings onSaved={() => {}} /></div>}
+        {activeTab === 'marketconfig' && user.role === 'admin' && <MarketConfig />}
 
         {activeTab === 'api' && <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
       </main>
