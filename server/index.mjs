@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 import { buildMarketRecommendations } from './trade-recommend.mjs';
-import { ensureTradeSchema, rankTradeMarkets, mergeAiWithTrade } from './trade-data.mjs';
+import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
 try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
@@ -933,6 +933,7 @@ const savedSuggestions = (uid) => { const r = stmt.getState.get(uid, 'suggestion
 app.get('/api/suggest', (req, res) => {
   const p = subjectOf(req.user.id, req.query.product);
   const trade = p ? rankTradeMarkets(db, p.offer) : { status: 'no_product', markets: [] };
+  const exportMarkets = rankAllExportMarkets(db);
   const saved = savedSuggestions(req.user.id);
   const fresh = Boolean(saved && p && saved.hash === profileHash(p) && saved.countries?.length);
   res.json({
@@ -941,6 +942,7 @@ app.get('/api/suggest', (req, res) => {
     countries: fresh ? saved.countries : [], buyerTypes: fresh ? saved.buyerTypes || [] : [],
     recommendations: fresh ? buildMarketRecommendations(p?.offer, saved.countries, trade) : null,
     tradeData: trade,
+    exportMarkets,
     stale: Boolean(saved?.countries?.length && p && !fresh),
   });
 });
@@ -953,10 +955,11 @@ app.post('/api/suggest', async (req, res) => {
   if (profileIsEmpty(p)) return res.status(400).json({ error: 'Hãy nhập sản phẩm xuất khẩu của bạn (vd: cà phê rang xay, hạt điều) rồi bấm AI gợi ý.' });
   const hash = profileHash(p);
   const trade = rankTradeMarkets(db, p.offer);
+  const exportMarkets = rankAllExportMarkets(db);
   const saved = savedSuggestions(user.id);
   const used = () => ({ used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT });
   // đã có kết quả cho đúng hồ sơ + prompt: dùng lại, không gọi AI, không trừ lượt
-  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, buyerTypes: saved.buyerTypes || [], recommendations: buildMarketRecommendations(p.offer, saved.countries, trade), tradeData: trade, cached: true, ...used() });
+  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, buyerTypes: saved.buyerTypes || [], recommendations: buildMarketRecommendations(p.offer, saved.countries, trade), tradeData: trade, exportMarkets, cached: true, ...used() });
   if (aiUsedToday(user.id) >= AI_DAILY_LIMIT) {
     return res.status(429).json({ error: `Hôm nay bạn đã dùng hết ${AI_DAILY_LIMIT} lượt gợi ý AI. Lượt đặt lại vào 0h (giờ Việt Nam).` });
   }
@@ -977,7 +980,7 @@ app.post('/api/suggest', async (req, res) => {
     const countries = mergeAiWithTrade(result.countries, trade, trade.classification || { name: '' });
     stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, countries, buyerTypes: result.buyerTypes, at }), at);
     stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, result.countries.length, `${((at - t0) / 1000).toFixed(1)}s`);
-    res.json({ countries, buyerTypes: result.buyerTypes, recommendations: buildMarketRecommendations(p.offer, countries, trade), tradeData: trade, cached: false, ...used() });
+    res.json({ countries, buyerTypes: result.buyerTypes, recommendations: buildMarketRecommendations(p.offer, countries, trade), tradeData: trade, exportMarkets, cached: false, ...used() });
   } finally {
     aiInFlight.delete(user.id);
   }

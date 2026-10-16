@@ -63,7 +63,8 @@ const num = (v) => {
 const field = (row, names) => names.map((x) => row[x] ?? row[x.toLowerCase()]).find((x) => x !== undefined && x !== null && x !== '');
 
 export function normalizeTradeRow(row, defaults = {}) {
-  const hs = clean(field(row, ['hs_code', 'hsCode', 'cmdCode', 'commodity_code', 'ma_hs']), 20).replace(/[^0-9]/g, '');
+  const hsRaw = clean(field(row, ['hs_code', 'hsCode', 'cmdCode', 'commodity_code', 'ma_hs']), 20);
+  const hs = hsRaw.toUpperCase() === 'TOTAL' ? 'TOTAL' : hsRaw.replace(/[^0-9]/g, '');
   const partner = clean(field(row, ['partner_iso', 'partnerIso', 'country_iso', 'partner_code', 'country']), 20).toUpperCase();
   const partnerName = clean(field(row, ['partner_name', 'partnerName', 'country_name', 'country']), 120);
   const period = clean(field(row, ['period', 'year', 'nam']), 20) || clean(defaults.period, 20);
@@ -107,7 +108,7 @@ export function importTradeRows(db, rows, meta = {}) {
 export function rankTradeMarkets(db, product, limit = 8) {
   const classification = classifyProduct(product);
   if (!classification.hs.length) return { status: 'unclassified', classification, markets: [] };
-  const latest = db.prepare('SELECT id FROM trade_snapshots ORDER BY id DESC LIMIT 1').get()?.id;
+  const latest = db.prepare(`SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE hs_code IN (${classification.hs.map(() => '?').join(',')})`).get(...classification.hs)?.id;
   if (!latest) return { status: 'not_loaded', classification, markets: [] };
   const placeholders = classification.hs.map(() => '?').join(',');
   const rows = db.prepare(`SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, AVG(yoy_growth) AS growth, COUNT(DISTINCT period) AS periods, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code IN (${placeholders}) GROUP BY partner_iso, partner_name ORDER BY value DESC`).all(latest, ...classification.hs);
@@ -116,6 +117,14 @@ export function rankTradeMarkets(db, product, limit = 8) {
   const markets = rows.map((r) => ({ country: r.partner_name, countryIso: r.partner_iso, exportValueUsd: Number(r.value) || 0, growthRate: r.growth === null ? null : Number(r.growth), periods: Number(r.periods), period: r.period, score: Math.round((Number(r.value) / maxValue * 75 + Math.max(-25, Math.min(25, Number(r.growth) || 0))), 2) })).sort((a, b) => b.score - a.score).slice(0, limit);
   const total = markets.reduce((s, x) => s + x.exportValueUsd, 0) || 1;
   return { status: 'loaded', classification, markets: markets.map((x) => ({ ...x, share: Math.round(x.exportValueUsd / total * 10000) / 100 })) };
+}
+
+export function rankAllExportMarkets(db, limit = 100) {
+  const latest = db.prepare("SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE hs_code = 'TOTAL'").get()?.id;
+  if (!latest) return { status: 'not_loaded', markets: [] };
+  const rows = db.prepare("SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code = 'TOTAL' GROUP BY partner_iso, partner_name ORDER BY value DESC LIMIT ?").all(latest, limit);
+  const total = rows.reduce((s, x) => s + (Number(x.value) || 0), 0) || 1;
+  return { status: rows.length ? 'loaded' : 'not_loaded', period: rows[0]?.period || null, markets: rows.map((r) => ({ country: r.partner_name, countryIso: r.partner_iso, exportValueUsd: Number(r.value) || 0, share: Math.round((Number(r.value) || 0) / total * 10000) / 100, period: r.period })) };
 }
 
 export function mergeAiWithTrade(aiCountries, trade, classification) {

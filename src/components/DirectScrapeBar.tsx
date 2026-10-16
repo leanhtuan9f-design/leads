@@ -24,6 +24,7 @@ interface MarketRecommendation { country: string; cities: MarketCity[]; tradeDat
 interface MarketRecommendations { classification: { name: string; hs: string[]; confidence: string; source: string }; markets: MarketRecommendation[]; tradeDataStatus: string }
 interface TradeMarket { country: string; exportValueUsd: number; growthRate: number | null; share: number; period: string; score: number }
 interface TradeData { status: string; classification?: { name: string; hs: string[]; confidence: string }; markets: TradeMarket[] }
+interface ExportMarkets { status: string; period?: string | null; markets: TradeMarket[] }
 interface AiState {
   buyerTypes?: BuyerType[];
   enabled: boolean;
@@ -34,6 +35,7 @@ interface AiState {
   countries: AiCountry[];
   recommendations?: MarketRecommendations | null;
   tradeData?: TradeData;
+  exportMarkets?: ExportMarkets;
   stale: boolean;
 }
 
@@ -102,8 +104,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; recommendations: MarketRecommendations; tradeData: TradeData; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
-      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, recommendations: r.recommendations, tradeData: r.tradeData, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; recommendations: MarketRecommendations; tradeData: TradeData; exportMarkets: ExportMarkets; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
+      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, recommendations: r.recommendations, tradeData: r.tradeData, exportMarkets: r.exportMarkets, used: r.used, limit: r.limit, stale: false } : prev));
       setAiProduct(product.trim());
       setCountry('');
       setCity('');
@@ -307,6 +309,11 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 {ai.tradeData?.status === 'loaded' && (
                   <div className="basis-full mt-1 text-[10px] text-emerald-300/80">
                     Xếp hạng theo dữ liệu xuất khẩu {ai.tradeData.classification?.name || product.trim()} ({ai.tradeData.markets[0]?.period}): {ai.tradeData.markets.slice(0, 3).map((m, i) => `${i + 1}. ${m.country} ${Math.round(m.share)}%`).join(' · ')}
+                  </div>
+                )}
+                {ai.exportMarkets?.status === 'loaded' && (
+                  <div className="basis-full mt-1 text-[10px] text-sky-300/80">
+                    Việt Nam đang có kim ngạch xuất khẩu tại {ai.exportMarkets.markets.length} quốc gia/vùng lãnh thổ ({ai.exportMarkets.period}): {ai.exportMarkets.markets.slice(0, 8).map((m) => m.country).join(' · ')}
                   </div>
                 )}
                 {product.trim() && aiProduct !== product.trim() && (
