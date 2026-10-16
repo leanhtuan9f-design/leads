@@ -97,12 +97,15 @@ export function importTradeRows(db, rows, meta = {}) {
   const normalized = rows.map((x) => normalizeTradeRow(x, meta));
   if (!normalized.length) throw new Error('Snapshot không có dòng dữ liệu');
   const period = meta.period || normalized[0].period;
-  const result = db.prepare('INSERT INTO trade_snapshots (source, source_url, period, imported_at, row_count) VALUES (?, ?, ?, ?, ?)').run(clean(meta.source || 'unknown', 120), clean(meta.sourceUrl, 500), period, Date.now(), normalized.length);
-  const id = Number(result.lastInsertRowid);
-  const insert = db.prepare('INSERT INTO trade_flows (snapshot_id, period, reporter_iso, partner_iso, partner_name, hs_code, product_group, export_value_usd, quantity, quantity_unit, yoy_growth, source_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   db.exec('BEGIN');
-  try { for (const r of normalized) insert.run(id, r.period, r.reporterIso, r.partnerIso, r.partnerName, r.hsCode, r.productGroup, r.exportValueUsd, r.quantity, r.quantityUnit, r.yoyGrowth, r.sourceUrl); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { snapshotId: id, rows: normalized.length, period };
+  try {
+    const result = db.prepare('INSERT INTO trade_snapshots (source, source_url, period, imported_at, row_count) VALUES (?, ?, ?, ?, ?)').run(clean(meta.source || 'unknown', 120), clean(meta.sourceUrl, 500), period, Date.now(), normalized.length);
+    const id = Number(result.lastInsertRowid);
+    const insert = db.prepare('INSERT INTO trade_flows (snapshot_id, period, reporter_iso, partner_iso, partner_name, hs_code, product_group, export_value_usd, quantity, quantity_unit, yoy_growth, source_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const r of normalized) insert.run(id, r.period, r.reporterIso, r.partnerIso, r.partnerName, r.hsCode, r.productGroup, r.exportValueUsd, r.quantity, r.quantityUnit, r.yoyGrowth, r.sourceUrl);
+    db.exec('COMMIT');
+    return { snapshotId: id, rows: normalized.length, period };
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
 export function rankTradeMarkets(db, product, limit = 8) {

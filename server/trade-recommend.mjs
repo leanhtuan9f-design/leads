@@ -55,6 +55,26 @@ const LOGISTICS = {
   'United Arab Emirates': { hubs: { Dubai: 99, 'Abu Dhabi': 93 }, reason: 'Cảng Jebel Ali và trung tâm hàng không trung chuyển' },
 };
 
+// Tọa độ và loại hub của các điểm ưu tiên. Dùng để giải thích và mở rộng sang
+// khoảng cách ở bước sau; các điểm chưa có bản ghi vẫn chỉ nhận điểm nền.
+const LOGISTICS_DETAILS = {
+  'Yokohama': { lat: 35.4437, lon: 139.6380, port: 'Yokohama Port', airport: 'Narita/Haneda', source: 'curated-hub-metadata' },
+  'Osaka': { lat: 34.6937, lon: 135.5023, port: 'Osaka Port', airport: 'Kansai International', source: 'curated-hub-metadata' },
+  'Busan': { lat: 35.1796, lon: 129.0756, port: 'Busan Port', airport: 'Gimhae International', source: 'curated-hub-metadata' },
+  'Shanghai': { lat: 31.2304, lon: 121.4737, port: 'Port of Shanghai', airport: 'Shanghai Pudong', source: 'curated-hub-metadata' },
+  'Shenzhen': { lat: 22.5431, lon: 114.0579, port: 'Port of Shenzhen', airport: 'Shenzhen Bao’an', source: 'curated-hub-metadata' },
+  'Hamburg': { lat: 53.5511, lon: 9.9937, port: 'Port of Hamburg', airport: 'Hamburg Airport', source: 'curated-hub-metadata' },
+  'Rotterdam': { lat: 51.9244, lon: 4.4777, port: 'Port of Rotterdam', airport: 'Amsterdam Schiphol', source: 'curated-hub-metadata' },
+  'Genoa': { lat: 44.4056, lon: 8.9463, port: 'Port of Genoa', airport: 'Genoa Airport', source: 'curated-hub-metadata' },
+  'Valencia': { lat: 39.4699, lon: -0.3763, port: 'Port of Valencia', airport: 'Valencia Airport', source: 'curated-hub-metadata' },
+  'Los Angeles': { lat: 34.0522, lon: -118.2437, port: 'Port of Los Angeles', airport: 'LAX', source: 'curated-hub-metadata' },
+  'New York': { lat: 40.7128, lon: -74.0060, port: 'Port of New York/New Jersey', airport: 'JFK', source: 'curated-hub-metadata' },
+  'Vancouver': { lat: 49.2827, lon: -123.1207, port: 'Port of Vancouver', airport: 'Vancouver International', source: 'curated-hub-metadata' },
+  'Singapore': { lat: 1.3521, lon: 103.8198, port: 'Port of Singapore', airport: 'Changi', source: 'curated-hub-metadata' },
+  'Mumbai': { lat: 19.0760, lon: 72.8777, port: 'Jawaharlal Nehru Port', airport: 'Mumbai International', source: 'curated-hub-metadata' },
+  'Dubai': { lat: 25.2048, lon: 55.2708, port: 'Jebel Ali Port', airport: 'Dubai International', source: 'curated-hub-metadata' },
+};
+
 const normalize = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const countryName = (country) => Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(country))
   || Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(CITY_DATA.alias?.[normalize(country)] || '')) || country;
@@ -73,6 +93,7 @@ function cityRecommendations(country) {
     logisticsScore: meta.hubs[city] || Math.max(55, 70 - index),
     logisticsReason: meta.hubs[city] ? meta.reason : 'Điểm nền từ danh sách thành phố, chưa được xác minh là hub cảng/sân bay',
     verifiedHub: Boolean(meta.hubs[city]),
+    ...(LOGISTICS_DETAILS[city] || {}),
   })).sort((a, b) => b.logisticsScore - a.logisticsScore || a.city.localeCompare(b.city));
 }
 

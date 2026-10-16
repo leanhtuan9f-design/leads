@@ -19,7 +19,7 @@ interface DirectScrapeBarProps {
 
 interface AiCountry { country: string; keywords: string[]; reason: string }
 interface BuyerType { name: string; keyword: string }
-interface MarketCity { city: string; logisticsScore: number; logisticsReason: string; verifiedHub: boolean }
+interface MarketCity { city: string; logisticsScore: number; logisticsReason: string; verifiedHub: boolean; port?: string; airport?: string; lat?: number; lon?: number; source?: string }
 interface MarketRecommendation { country: string; cities: MarketCity[]; tradeData: { status: string; source: string | null; year: number | null; exportValueUsd: number | null; hsCodes: string[] } }
 interface MarketRecommendations { classification: { name: string; hs: string[]; confidence: string; source: string }; markets: MarketRecommendation[]; tradeDataStatus: string }
 interface TradeMarket { country: string; exportValueUsd: number; growthRate: number | null; share: number; period: string; score: number }
@@ -357,7 +357,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 )}
                 {marketInfo && (
                   <div className="basis-full mt-1 text-[10px] text-slate-500">
-                    Ưu tiên logistics: {marketInfo.cities.slice(0, 3).map((c, i) => `${i + 1}. ${c.city} (${c.logisticsScore}/100)`).join(' · ')}
+                    Ưu tiên logistics: {marketInfo.cities.slice(0, 3).map((c, i) => `${i + 1}. ${c.city} (${c.logisticsScore}/100${c.port ? ` · ${c.port}` : ''}${c.airport ? ` · ${c.airport}` : ''})`).join(' · ')}
                     {ai?.recommendations?.tradeDataStatus === 'not_loaded' && ' · Dữ liệu hải quan đang chờ nạp snapshot chính thức'}
                   </div>
                 )}
