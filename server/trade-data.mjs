@@ -107,8 +107,10 @@ export function importTradeRows(db, rows, meta = {}) {
 export function rankTradeMarkets(db, product, limit = 8) {
   const classification = classifyProduct(product);
   if (!classification.hs.length) return { status: 'unclassified', classification, markets: [] };
+  const latest = db.prepare('SELECT id FROM trade_snapshots ORDER BY id DESC LIMIT 1').get()?.id;
+  if (!latest) return { status: 'not_loaded', classification, markets: [] };
   const placeholders = classification.hs.map(() => '?').join(',');
-  const rows = db.prepare(`SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, AVG(yoy_growth) AS growth, COUNT(DISTINCT period) AS periods, MAX(period) AS period FROM trade_flows WHERE hs_code IN (${placeholders}) GROUP BY partner_iso, partner_name ORDER BY value DESC`).all(...classification.hs);
+  const rows = db.prepare(`SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, AVG(yoy_growth) AS growth, COUNT(DISTINCT period) AS periods, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code IN (${placeholders}) GROUP BY partner_iso, partner_name ORDER BY value DESC`).all(latest, ...classification.hs);
   if (!rows.length) return { status: 'not_loaded', classification, markets: [] };
   const maxValue = Math.max(...rows.map((r) => Number(r.value) || 0), 1);
   const markets = rows.map((r) => ({ country: r.partner_name, countryIso: r.partner_iso, exportValueUsd: Number(r.value) || 0, growthRate: r.growth === null ? null : Number(r.growth), periods: Number(r.periods), period: r.period, score: Math.round((Number(r.value) / maxValue * 75 + Math.max(-25, Math.min(25, Number(r.growth) || 0))), 2) })).sort((a, b) => b.score - a.score).slice(0, limit);
