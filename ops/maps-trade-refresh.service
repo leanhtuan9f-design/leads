@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Vietnam export market snapshots from GSO
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/maps
+EnvironmentFile=/etc/maps/trade-refresh.env
+ExecStart=/usr/bin/node /opt/maps/server/trade-refresh-all.mjs
+TimeoutStartSec=10min

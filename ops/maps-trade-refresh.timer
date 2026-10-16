@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Vietnam export market snapshot refresh
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=20min
+Persistent=true
+Unit=maps-trade-refresh.service
+
+[Install]
+WantedBy=timers.target
