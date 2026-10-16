@@ -108,9 +108,10 @@ export function importTradeRows(db, rows, meta = {}) {
 export function rankTradeMarkets(db, product, limit = 8) {
   const classification = classifyProduct(product);
   if (!classification.hs.length) return { status: 'unclassified', classification, markets: [] };
-  const latest = db.prepare(`SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE hs_code IN (${classification.hs.map(() => '?').join(',')})`).get(...classification.hs)?.id;
+  const latestRow = db.prepare(`SELECT snapshot_id AS id, period FROM trade_flows WHERE hs_code IN (${classification.hs.map(() => '?').join(',')}) ORDER BY period DESC, snapshot_id DESC LIMIT 1`).get(...classification.hs);
+  const latest = latestRow?.id;
   if (!latest) return { status: 'not_loaded', classification, markets: [] };
-  const previous = db.prepare(`SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE snapshot_id < ? AND hs_code IN (${classification.hs.map(() => '?').join(',')})`).get(latest, ...classification.hs)?.id;
+  const previous = db.prepare(`SELECT snapshot_id AS id FROM trade_flows WHERE period < ? AND hs_code IN (${classification.hs.map(() => '?').join(',')}) ORDER BY period DESC, snapshot_id DESC LIMIT 1`).get(latestRow.period, ...classification.hs)?.id;
   const placeholders = classification.hs.map(() => '?').join(',');
   const rows = db.prepare(`SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, AVG(yoy_growth) AS growth, COUNT(DISTINCT period) AS periods, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code IN (${placeholders}) GROUP BY partner_iso, partner_name ORDER BY value DESC`).all(latest, ...classification.hs);
   if (!rows.length) return { status: 'not_loaded', classification, markets: [] };
@@ -127,7 +128,8 @@ export function rankTradeMarkets(db, product, limit = 8) {
 }
 
 export function rankAllExportMarkets(db, limit = 100) {
-  const latest = db.prepare("SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE hs_code = 'TOTAL'").get()?.id;
+  const latestRow = db.prepare("SELECT snapshot_id AS id, period FROM trade_flows WHERE hs_code = 'TOTAL' ORDER BY period DESC, snapshot_id DESC LIMIT 1").get();
+  const latest = latestRow?.id;
   if (!latest) return { status: 'not_loaded', markets: [] };
   const rows = db.prepare("SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code = 'TOTAL' GROUP BY partner_iso, partner_name ORDER BY value DESC LIMIT ?").all(latest, limit);
   const total = rows.reduce((s, x) => s + (Number(x.value) || 0), 0) || 1;
