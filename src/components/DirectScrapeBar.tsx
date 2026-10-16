@@ -19,6 +19,9 @@ interface DirectScrapeBarProps {
 
 interface AiCountry { country: string; keywords: string[]; reason: string }
 interface BuyerType { name: string; keyword: string }
+interface MarketCity { city: string; logisticsScore: number; logisticsReason: string; verifiedHub: boolean }
+interface MarketRecommendation { country: string; cities: MarketCity[]; tradeData: { status: string; source: string | null; year: number | null; exportValueUsd: number | null; hsCodes: string[] } }
+interface MarketRecommendations { classification: { name: string; hs: string[]; confidence: string; source: string }; markets: MarketRecommendation[]; tradeDataStatus: string }
 interface AiState {
   buyerTypes?: BuyerType[];
   enabled: boolean;
@@ -27,6 +30,7 @@ interface AiState {
   used: number;
   limit: number;
   countries: AiCountry[];
+  recommendations?: MarketRecommendations | null;
   stale: boolean;
 }
 
@@ -95,8 +99,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     setAiBusy(true);
     setAiError('');
     try {
-      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
-      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, used: r.used, limit: r.limit, stale: false } : prev));
+      const r = await apiJson<{ countries: AiCountry[]; buyerTypes: BuyerType[]; recommendations: MarketRecommendations; used: number; limit: number }>('/suggest', 'POST', { product: product.trim() });
+      setAi(prev => (prev ? { ...prev, countries: r.countries, buyerTypes: r.buyerTypes, recommendations: r.recommendations, used: r.used, limit: r.limit, stale: false } : prev));
       setAiProduct(product.trim());
       setCountry('');
       setCity('');
@@ -117,7 +121,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   };
 
   const countryInfo = ai && country.trim() ? ai.countries.find(c => c.country.toLowerCase() === country.trim().toLowerCase()) : undefined;
-  const cityOptions = country.trim() ? citiesFor(country) : [];
+  const marketInfo = ai?.recommendations?.markets.find(m => m.country.toLowerCase() === country.trim().toLowerCase());
+  const cityOptions = marketInfo?.cities?.map(c => c.city) || (country.trim() ? citiesFor(country) : []);
 
   // Địa điểm gửi đi: "Thành phố, Quốc gia" (bỏ trùng nếu thành phố đã có tên nước)
   const fullLocation = (() => {
@@ -334,6 +339,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                       </button>
                     ))}
                   </>
+                )}
+                {marketInfo && (
+                  <div className="basis-full mt-1 text-[10px] text-slate-500">
+                    Ưu tiên logistics: {marketInfo.cities.slice(0, 3).map((c, i) => `${i + 1}. ${c.city} (${c.logisticsScore}/100)`).join(' · ')}
+                    {ai?.recommendations?.tradeDataStatus === 'not_loaded' && ' · Dữ liệu hải quan đang chờ nạp snapshot chính thức'}
+                  </div>
                 )}
                 <button type="button" onClick={() => { setCountry(''); setCity(''); }} className="text-slate-400 hover:text-white underline">Chọn nước khác</button>
               </>

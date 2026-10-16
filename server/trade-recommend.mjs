@@ -1,0 +1,78 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const ROOT = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
+const CITY_DATA = JSON.parse(readFileSync(path.join(ROOT, 'src', 'data', 'cities.json'), 'utf8'));
+
+// Bộ từ khóa cục bộ giúp truy xuất nhanh trước khi gọi AI. Mã HS chỉ là ứng viên;
+// không coi đây là phân loại hải quan cuối cùng nếu người dùng chưa xác nhận.
+const PRODUCT_HINTS = [
+  { pattern: /cà phê|coffee/i, hs: ['0901'], name: 'Cà phê' },
+  { pattern: /hạt điều|cashew/i, hs: ['0801'], name: 'Hạt điều' },
+  { pattern: /gạo|rice/i, hs: ['1006'], name: 'Gạo' },
+  { pattern: /hồ tiêu|tiêu đen|pepper/i, hs: ['0904'], name: 'Hồ tiêu' },
+  { pattern: /cao su|rubber/i, hs: ['4001'], name: 'Cao su' },
+  { pattern: /thủy sản|hải sản|tôm|cá tra|seafood|shrimp/i, hs: ['0306', '0304'], name: 'Thủy sản' },
+  { pattern: /dệt may|quần áo|may mặc|textile|garment/i, hs: ['61', '62'], name: 'Dệt may' },
+  { pattern: /giày dép|footwear|shoes/i, hs: ['64'], name: 'Giày dép' },
+  { pattern: /đồ gỗ|gỗ|wood|furniture/i, hs: ['44', '9403'], name: 'Gỗ và đồ gỗ' },
+  { pattern: /trái cây|hoa quả|fruit/i, hs: ['08'], name: 'Trái cây' },
+];
+
+// Điểm logistics là metadata vận hành, không phải số liệu hải quan. Các thành phố
+// trong bảng hiện có nhưng chưa được đánh dấu sẽ vẫn được trả về với điểm nền.
+const LOGISTICS = {
+  'United States': { hubs: { 'Los Angeles': 96, 'New York': 92, 'Houston': 88, 'Seattle': 86, 'Miami': 82, 'Chicago': 78, 'Dallas': 76, 'Atlanta': 74 }, reason: 'Cảng biển lớn và mạng hàng không/kho vận phát triển' },
+  Japan: { hubs: { Tokyo: 94, Osaka: 96, Yokohama: 98, Nagoya: 93, Fukuoka: 84, Kobe: 95 }, reason: 'Cụm cảng Tokyo–Yokohama/Kansai và sân bay hàng hóa' },
+  'South Korea': { hubs: { Busan: 98, Incheon: 94, Seoul: 88, Daegu: 76 }, reason: 'Busan là cảng trung chuyển; Incheon là đầu mối hàng không' },
+  China: { hubs: { Shanghai: 99, Shenzhen: 97, Guangzhou: 95, Qingdao: 91, Beijing: 82 }, reason: 'Các cảng container và sân bay hàng hóa lớn' },
+  Germany: { hubs: { Hamburg: 99, Frankfurt: 96, Bremen: 91, Berlin: 78, Düsseldorf: 84 }, reason: 'Hamburg là cảng biển; Frankfurt là trung tâm hàng không' },
+  France: { hubs: { Marseille: 95, Paris: 94, 'Le Havre': 96, Lyon: 82 }, reason: 'Cảng Marseille/Le Havre và mạng logistics nội địa' },
+  'United Kingdom': { hubs: { London: 92, Manchester: 88, Liverpool: 94, Birmingham: 82, Bristol: 86 }, reason: 'Cảng biển phía Tây/Nam và các trung tâm hàng không' },
+  Netherlands: { hubs: { Rotterdam: 100, Amsterdam: 94, Eindhoven: 82 }, reason: 'Rotterdam là đầu mối cảng biển và logistics châu Âu' },
+  Italy: { hubs: { Genoa: 96, Naples: 88, Milan: 91, Rome: 84 }, reason: 'Cảng Genoa/Naples và trung tâm phân phối miền Bắc' },
+  Spain: { hubs: { Valencia: 96, Barcelona: 94, Madrid: 90, Bilbao: 88 }, reason: 'Cảng biển lớn kết hợp trung tâm hàng không Madrid' },
+  Australia: { hubs: { Sydney: 94, Melbourne: 97, Brisbane: 89, Perth: 86 }, reason: 'Cảng biển và sân bay quốc tế của các đô thị lớn' },
+  Canada: { hubs: { Vancouver: 98, Toronto: 94, Montreal: 92 }, reason: 'Vancouver là cửa ngõ Thái Bình Dương; Toronto là hub hàng không' },
+  Singapore: { hubs: { Singapore: 100 }, reason: 'Cảng trung chuyển và sân bay hàng hóa hàng đầu khu vực' },
+  Malaysia: { hubs: { 'Port Klang': 98, 'Kuala Lumpur': 91, Penang: 89 }, reason: 'Cụm Port Klang và sân bay Kuala Lumpur' },
+  Thailand: { hubs: { Bangkok: 92, 'Laem Chabang': 99 }, reason: 'Cảng Laem Chabang và sân bay Bangkok' },
+  India: { hubs: { Mumbai: 96, Delhi: 91, Chennai: 93, Kolkata: 88 }, reason: 'Cảng biển lớn và các hub hàng không nội địa' },
+  'United Arab Emirates': { hubs: { Dubai: 99, 'Abu Dhabi': 93 }, reason: 'Cảng Jebel Ali và trung tâm hàng không trung chuyển' },
+};
+
+const normalize = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const countryName = (country) => Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(country))
+  || Object.keys(CITY_DATA.cities).find((x) => normalize(x) === normalize(CITY_DATA.alias?.[normalize(country)] || '')) || country;
+
+export function classifyProduct(product) {
+  const hit = PRODUCT_HINTS.find((x) => x.pattern.test(String(product || '')));
+  return hit ? { ...hit, confidence: 'medium', source: 'local-product-hints' } : { hs: [], name: '', confidence: 'low', source: 'unclassified' };
+}
+
+function cityRecommendations(country) {
+  const name = countryName(country);
+  const cities = CITY_DATA.cities[name] || [];
+  const meta = LOGISTICS[name] || { hubs: {}, reason: 'Chưa có dữ liệu logistics chi tiết; dùng danh sách thành phố hiện có' };
+  return cities.map((city, index) => ({
+    city,
+    logisticsScore: meta.hubs[city] || Math.max(55, 70 - index),
+    logisticsReason: meta.hubs[city] ? meta.reason : 'Điểm nền từ danh sách thành phố, chưa được xác minh là hub cảng/sân bay',
+    verifiedHub: Boolean(meta.hubs[city]),
+  })).sort((a, b) => b.logisticsScore - a.logisticsScore || a.city.localeCompare(b.city));
+}
+
+export function buildMarketRecommendations(product, countries = []) {
+  const classification = classifyProduct(product);
+  const markets = countries.map((item, index) => ({
+    country: item.country,
+    countryReason: item.reason,
+    keywords: item.keywords,
+    aiRank: index + 1,
+    tradeData: { status: 'not_loaded', source: null, year: null, exportValueUsd: null, hsCodes: classification.hs },
+    cities: cityRecommendations(item.country),
+  }));
+  return { classification, markets, tradeDataStatus: 'not_loaded' };
+}
+
+export const logisticsCountries = Object.keys(LOGISTICS);

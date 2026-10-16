@@ -9,6 +9,7 @@ import net from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
+import { buildMarketRecommendations } from './trade-recommend.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
 try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
@@ -934,7 +935,9 @@ app.get('/api/suggest', (req, res) => {
   res.json({
     enabled: aiEnabled(), hasProfile: !profileIsEmpty(p), used: aiUsedToday(req.user.id), limit: AI_DAILY_LIMIT,
     profileOffer: profileOf(req.user.id)?.offer || '',
-    countries: fresh ? saved.countries : [], buyerTypes: fresh ? saved.buyerTypes || [] : [], stale: Boolean(saved?.countries?.length && p && !fresh),
+    countries: fresh ? saved.countries : [], buyerTypes: fresh ? saved.buyerTypes || [] : [],
+    recommendations: fresh ? buildMarketRecommendations(p?.offer, saved.countries) : null,
+    stale: Boolean(saved?.countries?.length && p && !fresh),
   });
 });
 
@@ -948,7 +951,7 @@ app.post('/api/suggest', async (req, res) => {
   const saved = savedSuggestions(user.id);
   const used = () => ({ used: aiUsedToday(user.id), limit: AI_DAILY_LIMIT });
   // đã có kết quả cho đúng hồ sơ + prompt: dùng lại, không gọi AI, không trừ lượt
-  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, buyerTypes: saved.buyerTypes || [], cached: true, ...used() });
+  if (saved && saved.hash === hash && saved.countries?.length) return res.json({ countries: saved.countries, buyerTypes: saved.buyerTypes || [], recommendations: buildMarketRecommendations(p.offer, saved.countries), cached: true, ...used() });
   if (aiUsedToday(user.id) >= AI_DAILY_LIMIT) {
     return res.status(429).json({ error: `Hôm nay bạn đã dùng hết ${AI_DAILY_LIMIT} lượt gợi ý AI. Lượt đặt lại vào 0h (giờ Việt Nam).` });
   }
@@ -968,7 +971,7 @@ app.post('/api/suggest', async (req, res) => {
     const at = Date.now();
     stmt.setState.run(user.id, 'suggestions', JSON.stringify({ hash, countries: result.countries, buyerTypes: result.buyerTypes, at }), at);
     stmt.aiLogAdd.run(at, user.id, user.email, 1, result.usage.input, result.usage.output, result.countries.length, `${((at - t0) / 1000).toFixed(1)}s`);
-    res.json({ countries: result.countries, buyerTypes: result.buyerTypes, cached: false, ...used() });
+    res.json({ countries: result.countries, buyerTypes: result.buyerTypes, recommendations: buildMarketRecommendations(p.offer, result.countries), cached: false, ...used() });
   } finally {
     aiInFlight.delete(user.id);
   }
