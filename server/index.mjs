@@ -27,6 +27,7 @@ const AUTO_TIMEOUT_MS = Number(process.env.AUTO_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_QUEUE = 3;
 const MAX_PROXIES = 10;
 const DB_PATH = process.env.DB_PATH || '/var/lib/maps-data/cache.db';
+const TRADE_TIMER_OVERRIDE = '/etc/systemd/system/maps-trade-refresh.timer.d/override.conf';
 const TTL_MS = 14 * 24 * 3600 * 1000; // dữ liệu quá 14 ngày coi là cũ → trả ngay + cập nhật nền
 const FORCE_PER_DAY = 3; // số lần "làm mới" bắt buộc mỗi IP mỗi ngày
 const JOB_LOG_KEEP_MS = 30 * 24 * 3600 * 1000; // giữ lịch sử job 30 ngày
@@ -55,6 +56,20 @@ const isPrivateIp = (ip) => {
   }
   const v = ip.toLowerCase();
   return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80') || v.startsWith('::ffff:');
+};
+
+const systemctl = (args) => new Promise((resolve, reject) => execFile('systemctl', args, { timeout: 10000 }, (error, stdout) => error ? reject(error) : resolve(String(stdout))));
+const tradeTimerInfo = async () => {
+  let schedule = '03:20';
+  try {
+    const override = readFileSync(TRADE_TIMER_OVERRIDE, 'utf8');
+    schedule = override.match(/OnCalendar=\*[-*]-\* (\d{2}:\d{2}):00/)?.[1] || schedule;
+  } catch { /* dùng lịch mặc định trong unit */ }
+  try {
+    const state = await systemctl(['show', 'maps-trade-refresh.timer', '--property=ActiveState,UnitFileState,NextElapseUSecRealtime', '--no-pager']);
+    const values = Object.fromEntries(state.trim().split('\n').map((line) => line.split('=')));
+    return { schedule, enabled: values.UnitFileState === 'enabled', active: values.ActiveState === 'active', next: values.NextElapseUSecRealtime || '' };
+  } catch { return { schedule, enabled: false, active: false, next: '' }; }
 };
 
 // Kiểm tra proxy do người dùng nhập: chỉ http/https/socks5, không cho trỏ vào mạng nội bộ của máy chủ
@@ -920,14 +935,27 @@ app.get('/api/cache/stats', requireAdmin, (_req, res) => {
 });
 
 // Cấu hình thị trường/logistics do admin quản lý; đọc nhanh từ SQLite, dùng chung cho mọi user.
-app.get('/api/admin/market-config', requireAdmin, (_req, res) => {
+app.get('/api/admin/market-config', requireAdmin, async (_req, res) => {
   const products = db.prepare('SELECT alias, hs_code AS hsCode, product_group AS productGroup, confidence, reviewed, source FROM product_hs_aliases ORDER BY product_group, alias').all();
   const known = new Set(products.map((p) => p.productGroup));
   for (const row of db.prepare("SELECT DISTINCT product_group AS productGroup, hs_code AS hsCode FROM trade_flows WHERE product_group IS NOT NULL AND product_group != '' ORDER BY product_group").all()) {
     if (!known.has(row.productGroup)) products.push({ alias: '', hsCode: row.hsCode, productGroup: row.productGroup, confidence: 'snapshot', reviewed: 1, source: 'GSO snapshot' });
   }
   const countries = rankAllExportMarkets(db, 200).markets;
-  res.json({ countries, products, logistics: logisticsView(db), defaults: defaultLogisticsPoints });
+  res.json({ countries, products, logistics: logisticsView(db), defaults: defaultLogisticsPoints, timer: await tradeTimerInfo() });
+});
+
+app.put('/api/admin/market-config/timer', requireAdmin, async (req, res) => {
+  const schedule = String(req.body?.schedule || '').trim();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule)) return res.status(400).json({ error: 'Giờ timer phải có dạng HH:MM' });
+  const enabled = req.body?.enabled !== false;
+  try {
+    mkdirSync(path.dirname(TRADE_TIMER_OVERRIDE), { recursive: true });
+    writeFileSync(TRADE_TIMER_OVERRIDE, `[Timer]\nOnCalendar=\nOnCalendar=*-*-* ${schedule}:00\nRandomizedDelaySec=20min\n`, { mode: 0o644 });
+    await systemctl(['daemon-reload']);
+    await systemctl(enabled ? ['enable', '--now', 'maps-trade-refresh.timer'] : ['disable', '--now', 'maps-trade-refresh.timer']);
+    res.json({ ok: true, timer: await tradeTimerInfo() });
+  } catch (e) { res.status(500).json({ error: `Không cập nhật được timer: ${e.message}` }); }
 });
 
 app.post('/api/admin/market-config/logistics', requireAdmin, (req, res) => {
