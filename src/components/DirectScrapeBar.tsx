@@ -308,7 +308,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
                 ))}
                 {ai.tradeData?.status === 'loaded' && (
                   <div className="basis-full mt-1 text-[10px] text-emerald-300/80">
-                    Xếp hạng theo dữ liệu xuất khẩu {ai.tradeData.classification?.name || product.trim()} ({ai.tradeData.markets[0]?.period}): {ai.tradeData.markets.slice(0, 3).map((m, i) => `${i + 1}. ${m.country} ${Math.round(m.share)}%`).join(' · ')}
+                    Xếp hạng theo dữ liệu xuất khẩu {ai.tradeData.classification?.name || product.trim()} ({ai.tradeData.markets[0]?.period}): {ai.tradeData.markets.slice(0, 3).map((m, i) => `${i + 1}. ${m.country} ${Math.round(m.share)}%${m.growthRate === null ? '' : ` (${m.growthRate > 0 ? '+' : ''}${m.growthRate}%)`}`).join(' · ')}
                   </div>
                 )}
                 {ai.exportMarkets?.status === 'loaded' && (

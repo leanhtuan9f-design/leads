@@ -17,6 +17,20 @@ const PRODUCT_HINTS = [
   { pattern: /giày dép|footwear|shoes/i, hs: ['64'], name: 'Giày dép' },
   { pattern: /đồ gỗ|gỗ|wood|furniture/i, hs: ['44', '9403'], name: 'Gỗ và đồ gỗ' },
   { pattern: /trái cây|hoa quả|fruit/i, hs: ['08'], name: 'Trái cây' },
+  { pattern: /chè|trà|tea/i, hs: ['0902'], name: 'Chè' },
+  { pattern: /bánh kẹo|kẹo|candy|confectionery/i, hs: ['1704', '1905'], name: 'Bánh kẹo' },
+  { pattern: /phân bón|fertilizer/i, hs: ['31'], name: 'Phân bón' },
+  { pattern: /hóa chất|chemical/i, hs: ['28', '29', '38'], name: 'Hóa chất' },
+  { pattern: /nhựa nguyên liệu|plastic resin/i, hs: ['39'], name: 'Chất dẻo nguyên liệu' },
+  { pattern: /xi măng|clinker|cement/i, hs: ['2523'], name: 'Xi măng và clinker' },
+  { pattern: /dầu thô|crude oil/i, hs: ['2709'], name: 'Dầu thô' },
+  { pattern: /xăng dầu|petroleum/i, hs: ['2710'], name: 'Xăng dầu' },
+  { pattern: /điện thoại|smartphone|mobile phone/i, hs: ['8517'], name: 'Điện thoại và linh kiện' },
+  { pattern: /máy tính|computer/i, hs: ['8471'], name: 'Máy tính và linh kiện' },
+  { pattern: /dây điện|electric cable/i, hs: ['8544'], name: 'Dây điện và cáp điện' },
+  { pattern: /đồ chơi|toy/i, hs: ['95'], name: 'Đồ chơi' },
+  { pattern: /túi xách|vali|handbag|luggage/i, hs: ['4202'], name: 'Túi xách và vali' },
+  { pattern: /gốm sứ|ceramic/i, hs: ['69'], name: 'Gốm sứ' },
 ];
 
 // Điểm logistics là metadata vận hành, không phải số liệu hải quan. Các thành phố

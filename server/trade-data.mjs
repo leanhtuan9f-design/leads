@@ -110,11 +110,18 @@ export function rankTradeMarkets(db, product, limit = 8) {
   if (!classification.hs.length) return { status: 'unclassified', classification, markets: [] };
   const latest = db.prepare(`SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE hs_code IN (${classification.hs.map(() => '?').join(',')})`).get(...classification.hs)?.id;
   if (!latest) return { status: 'not_loaded', classification, markets: [] };
+  const previous = db.prepare(`SELECT MAX(snapshot_id) AS id FROM trade_flows WHERE snapshot_id < ? AND hs_code IN (${classification.hs.map(() => '?').join(',')})`).get(latest, ...classification.hs)?.id;
   const placeholders = classification.hs.map(() => '?').join(',');
   const rows = db.prepare(`SELECT partner_iso, partner_name, SUM(export_value_usd) AS value, AVG(yoy_growth) AS growth, COUNT(DISTINCT period) AS periods, MAX(period) AS period FROM trade_flows WHERE snapshot_id = ? AND hs_code IN (${placeholders}) GROUP BY partner_iso, partner_name ORDER BY value DESC`).all(latest, ...classification.hs);
   if (!rows.length) return { status: 'not_loaded', classification, markets: [] };
+  const priorRows = previous ? db.prepare(`SELECT partner_iso, SUM(export_value_usd) AS value FROM trade_flows WHERE snapshot_id = ? AND hs_code IN (${placeholders}) GROUP BY partner_iso`).all(previous, ...classification.hs) : [];
+  const prior = new Map(priorRows.map((r) => [r.partner_iso, Number(r.value) || 0]));
   const maxValue = Math.max(...rows.map((r) => Number(r.value) || 0), 1);
-  const markets = rows.map((r) => ({ country: r.partner_name, countryIso: r.partner_iso, exportValueUsd: Number(r.value) || 0, growthRate: r.growth === null ? null : Number(r.growth), periods: Number(r.periods), period: r.period, score: Math.round((Number(r.value) / maxValue * 75 + Math.max(-25, Math.min(25, Number(r.growth) || 0))), 2) })).sort((a, b) => b.score - a.score).slice(0, limit);
+  const markets = rows.map((r) => {
+    const value = Number(r.value) || 0, old = prior.get(r.partner_iso) || 0;
+    const growth = r.growth === null && old > 0 ? (value - old) / old * 100 : r.growth === null ? null : Number(r.growth);
+    return { country: r.partner_name, countryIso: r.partner_iso, exportValueUsd: value, growthRate: growth === null ? null : Math.round(growth * 100) / 100, periods: Number(r.periods), period: r.period, score: Math.round(value / maxValue * 75 + Math.max(-25, Math.min(25, growth || 0))) };
+  }).sort((a, b) => b.score - a.score).slice(0, limit);
   const total = markets.reduce((s, x) => s + x.exportValueUsd, 0) || 1;
   return { status: 'loaded', classification, markets: markets.map((x) => ({ ...x, share: Math.round(x.exportValueUsd / total * 10000) / 100 })) };
 }
