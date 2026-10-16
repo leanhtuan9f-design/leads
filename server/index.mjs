@@ -61,15 +61,20 @@ const isPrivateIp = (ip) => {
 const systemctl = (args) => new Promise((resolve, reject) => execFile('systemctl', args, { timeout: 10000 }, (error, stdout) => error ? reject(error) : resolve(String(stdout))));
 const tradeTimerInfo = async () => {
   let schedule = '03:20';
+  let frequency = 'daily';
   try {
     const override = readFileSync(TRADE_TIMER_OVERRIDE, 'utf8');
     schedule = override.match(/OnCalendar=\*[-*]-\* (\d{2}:\d{2}):00/)?.[1] || schedule;
+    const calendar = override.match(/OnCalendar=\*-(?:\d{2}|01,04,07,10)-01 (\d{2}:\d{2}):00/)?.[0] || '';
+    if (/\*-01-01/.test(calendar)) frequency = 'yearly';
+    else if (/\*-01,04,07,10-01/.test(calendar)) frequency = 'quarterly';
+    else if (/\*-(?:\d{2})-01/.test(calendar)) frequency = 'monthly';
   } catch { /* dùng lịch mặc định trong unit */ }
   try {
     const state = await systemctl(['show', 'maps-trade-refresh.timer', '--property=ActiveState,UnitFileState,NextElapseUSecRealtime', '--no-pager']);
     const values = Object.fromEntries(state.trim().split('\n').map((line) => line.split('=')));
-    return { schedule, enabled: values.UnitFileState === 'enabled', active: values.ActiveState === 'active', next: values.NextElapseUSecRealtime || '' };
-  } catch { return { schedule, enabled: false, active: false, next: '' }; }
+    return { schedule, frequency, enabled: values.UnitFileState === 'enabled', active: values.ActiveState === 'active', next: values.NextElapseUSecRealtime || '' };
+  } catch { return { schedule, frequency, enabled: false, active: false, next: '' }; }
 };
 
 // Kiểm tra proxy do người dùng nhập: chỉ http/https/socks5, không cho trỏ vào mạng nội bộ của máy chủ
@@ -947,11 +952,14 @@ app.get('/api/admin/market-config', requireAdmin, async (_req, res) => {
 
 app.put('/api/admin/market-config/timer', requireAdmin, async (req, res) => {
   const schedule = String(req.body?.schedule || '').trim();
+  const frequency = String(req.body?.frequency || 'daily');
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule)) return res.status(400).json({ error: 'Giờ timer phải có dạng HH:MM' });
+  if (!['daily', 'monthly', 'quarterly', 'yearly'].includes(frequency)) return res.status(400).json({ error: 'Chu kỳ timer không hợp lệ' });
   const enabled = req.body?.enabled !== false;
   try {
     mkdirSync(path.dirname(TRADE_TIMER_OVERRIDE), { recursive: true });
-    writeFileSync(TRADE_TIMER_OVERRIDE, `[Timer]\nOnCalendar=\nOnCalendar=*-*-* ${schedule}:00\nRandomizedDelaySec=20min\n`, { mode: 0o644 });
+    const calendar = frequency === 'yearly' ? `*-01-01 ${schedule}:00` : frequency === 'quarterly' ? `*-01,04,07,10-01 ${schedule}:00` : frequency === 'monthly' ? `*-*-01 ${schedule}:00` : `*-*-* ${schedule}:00`;
+    writeFileSync(TRADE_TIMER_OVERRIDE, `[Timer]\nOnCalendar=\nOnCalendar=${calendar}\nRandomizedDelaySec=20min\n`, { mode: 0o644 });
     await systemctl(['daemon-reload']);
     await systemctl(enabled ? ['enable', '--now', 'maps-trade-refresh.timer'] : ['disable', '--now', 'maps-trade-refresh.timer']);
     res.json({ ok: true, timer: await tradeTimerInfo() });
