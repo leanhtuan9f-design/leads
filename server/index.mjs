@@ -1340,6 +1340,11 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
       next: db.prepare("SELECT r.keyword, r.city, r.level, r.attempts, t.* FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' ORDER BY r.task_id, r.id LIMIT 15").all()
         .map((x) => { const w = taskWait(x); return { keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: w ? w.until : 0, waitReason: w ? w.reason : '' }; }),
     },
+    autoQueues: Object.fromEntries([['manual', '=0'], ['plan', '>0']].map(([k, cond]) => [k, {
+      total: db.prepare(`SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.plan_round${cond}`).get().n,
+      next: db.prepare(`SELECT r.keyword, r.city, r.level, r.attempts, t.* FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.plan_round${cond} ORDER BY r.task_id, r.id LIMIT 15`).all()
+        .map((x) => { const w = taskWait(x); return { keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: w ? w.until : 0, waitReason: w ? w.reason : '' }; }),
+    }])),
     bgDoneThisHour, bgPerHour: BG_QUERIES_PER_HOUR, ttlDays: TTL_MS / 86400000,
     recent: stmt.recentLog.all().map((r) => ({
       id: r.id, kind: r.kind, auto: r.kind === 'auto', background: r.kind === 'background', force: r.kind === 'force', cacheOnly: r.kind === 'cache',
@@ -1850,7 +1855,7 @@ function taskStats(t) {
   };
 }
 const taskView = (t) => ({
-  id: t.id, product: t.product, country: t.country, maxResults: t.max_results, status: t.status, by: t.created_email,
+  id: t.id, product: t.product, country: t.country, maxResults: t.max_results, status: t.status, by: t.created_email, plan: t.plan_round > 0,
   keywords: parseJsonCol(t.keywords, []), cities: parseJsonCol(t.cities, []), buyerTypes: parseJsonCol(t.buyer_types, []),
   proxies: parseJsonCol(t.proxies, []).length, // chỉ trả số lượng, không lộ user:pass
   createdAt: t.created_at, finishedAt: t.finished_at, note: t.note, stats: taskStats(t),
@@ -1861,8 +1866,9 @@ const taskView = (t) => ({
   win: { on: Boolean(t.win_on), start: t.win_start, end: t.win_end, tz: t.tz, open: inWindow(t), openAt: nextWindowOpen(t), localHour: t.tz ? localHour(t.tz, Date.now()) : null },
 });
 
-app.get('/api/admin/auto', requireAdmin, (_req, res) => {
-  const tasks = db.prepare('SELECT * FROM auto_tasks ORDER BY id DESC LIMIT 50').all();
+app.get('/api/admin/auto', requireAdmin, (req, res) => {
+  const kind = req.query.kind === 'plan' ? 'plan' : req.query.kind === 'manual' ? 'manual' : '';
+  const tasks = db.prepare(`SELECT * FROM auto_tasks ${kind === 'plan' ? 'WHERE plan_round>0' : kind === 'manual' ? 'WHERE plan_round=0' : ''} ORDER BY id DESC LIMIT ${kind === 'plan' ? 200 : 50}`).all();
   res.json({ tasks: tasks.map(taskView), aiEnabled: aiEnabled(), gapSec: AUTO_GAP_MS / 1000, maxPairs: AUTO_MAX_PAIRS });
 });
 

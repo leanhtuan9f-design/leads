@@ -180,6 +180,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     subtitle: 'Cách máy chủ tự tìm lead theo dữ liệu xuất khẩu khi không có ai dùng',
     tag: 'Quản trị',
     logicExplanation: [
+      'HAI TAB: trang Chạy ngầm có hai tab con. Tab "Thủ công" là các tác vụ bạn tự tạo (sản phẩm + quốc gia), kèm hàng chờ của chúng. Tab "Tự động (lịch xoay vòng)" gồm khối cấu hình lịch, các tác vụ do lịch tạo và hàng chờ của lịch. Phần trên hai tab (thống kê, cấu hình đa luồng, đang chạy) và phần dưới (hàng đợi người dùng, kho cũ, lịch sử, gọi AI) dùng chung cho cả hai. Tab đang xem được nhớ khi tải lại trang.',
       'LỊCH XOAY VÒNG THEO DỮ LIỆU XUẤT KHẨU: dùng số liệu xuất khẩu theo mặt hàng của Cục Thống kê (GSO) mới nhất. Mỗi vòng, mỗi mặt hàng chỉ được tìm lead ở MỘT nước nhập khẩu: vòng 1 là nước có kim ngạch cao nhất, vòng 2 là nước thứ hai, và cứ thế. Nhờ vậy mọi mặt hàng đều có lead sớm thay vì dồn hết vào một mặt hàng.',
       'GSO chỉ công bố tối đa 5 nước cho mỗi mặt hàng nên mỗi mặt hàng có tối đa 5 vòng. Dầu thô, xăng dầu, than, quặng, xi măng bị bỏ qua vì không phải ngành tìm người mua trên Google Maps. Nước chưa có danh sách thành phố cũng bị bỏ qua.',
       'Mỗi nước chỉ cào số từ khóa × số thành phố lớn nhất đã đặt (mặc định 3 × 3 = 9 cặp). Từ khóa do AI chọn theo mặt hàng và nước. Cặp nào chạm trần Google (≥100 lead) vẫn tự được tách thành quận/phường.',
@@ -190,7 +191,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     ],
     steps: [
       'Bước 1: Cấu hình AI ở menu tài khoản → Cấu hình AI (bắt buộc, vì AI chọn từ khóa).',
-      'Bước 2: Ở khối "Lịch xoay vòng", chỉnh số từ khóa/nước, số thành phố/nước, thời gian nghỉ chung và (nếu có) dán proxy xoay IP để chạy đa luồng, bấm Thử proxy để kiểm tra rồi bấm Lưu.',
+      'Bước 2: Mở tab "Tự động (lịch xoay vòng)". Ở khối "Lịch xoay vòng", chỉnh số từ khóa/nước, số thành phố/nước, thời gian nghỉ chung và (nếu có) dán proxy xoay IP để chạy đa luồng, bấm Thử proxy để kiểm tra rồi bấm Lưu.',
       'Bước 3: Bấm "Bật lịch". Lịch tạo tác vụ của vòng 1 và máy chủ tự chạy; tiến độ hiển thị ở "Tác vụ tự động" và "Hàng chờ".',
       'Bước 4: Xem báo cáo từng tác vụ (tên có đuôi "(xuất khẩu)", người tạo "Lịch xoay vòng"), tải CSV. Muốn dừng thì "Tắt lịch" (tác vụ đang có vẫn chạy nốt, bấm Dừng ở từng tác vụ nếu muốn dừng hẳn).'
     ],

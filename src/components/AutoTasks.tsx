@@ -37,7 +37,7 @@ const RUN_STATUS: Record<string, [string, string]> = {
   error: ['Lỗi', 'text-red-300']
 };
 
-export const AutoTasks: React.FC = () => {
+export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [maxPairs, setMaxPairs] = useState(80);
@@ -63,13 +63,13 @@ export const AutoTasks: React.FC = () => {
   const [winEnd, setWinEnd] = useState('19');
   const noProxy = proxies.trim() === '';
 
-  const [openId, setOpenIdRaw] = useState<number | null>(() => Number(ls('open')) || null);
-  const setOpenId = (v: number | null) => { setOpenIdRaw(v); save('open', v ? String(v) : ''); };
+  const [openId, setOpenIdRaw] = useState<number | null>(() => Number(ls(`open_${kind}`)) || null);
+  const setOpenId = (v: number | null) => { setOpenIdRaw(v); save(`open_${kind}`, v ? String(v) : ''); };
   const [runs, setRuns] = useState<Run[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const r = await apiJson<{ tasks: Task[]; aiEnabled: boolean; maxPairs: number; gapSec: number }>('/admin/auto');
+      const r = await apiJson<{ tasks: Task[]; aiEnabled: boolean; maxPairs: number; gapSec: number }>(`/admin/auto?kind=${kind}`);
       setTasks(r.tasks); setAiEnabled(r.aiEnabled); setMaxPairs(r.maxPairs); setGapSec(r.gapSec);
       // chưa mở báo cáo nào (hoặc báo cáo đã bị xóa) → tự mở tác vụ đang chạy, không thì tác vụ mới nhất
       let id = openId !== null && r.tasks.some(t => t.id === openId) ? openId : (r.tasks.find(t => t.status === 'running') ?? r.tasks[0])?.id ?? null;
@@ -81,7 +81,7 @@ export const AutoTasks: React.FC = () => {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu');
     }
-  }, [openId]);
+  }, [openId, kind]);
 
   useEffect(() => {
     load();
@@ -139,12 +139,25 @@ export const AutoTasks: React.FC = () => {
 
   return (
     <section className={card}>
-      <h3 className="font-semibold text-white mb-1">Tác vụ tự động (sản phẩm → quốc gia → từ khóa × thành phố)</h3>
-      <p className="text-[11px] text-slate-500 mb-3">
-        Nhập sản phẩm và quốc gia, hệ thống tự nhờ AI chọn từ khóa + loại khách hàng, ghép với thành phố của nước đó rồi cào lần lượt khi máy rảnh
-        (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần cào, tối đa {maxPairs} cặp ban đầu/tác vụ). Để không sót: mỗi cặp cào sâu nhất; cặp nào chạm trần Google (≥100 lead) tự được tách thành quận/phường rồi cào tiếp; cặp lỗi/trống được thử lại; gián đoạn (khởi động lại) thì chạy lại cặp dở. Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
-      </p>
+      {kind === 'manual' ? (
+        <>
+          <h3 className="font-semibold text-white mb-1">Tác vụ thủ công (sản phẩm → quốc gia → từ khóa × thành phố)</h3>
+          <p className="text-[11px] text-slate-500 mb-3">
+            Nhập sản phẩm và quốc gia, hệ thống tự nhờ AI chọn từ khóa + loại khách hàng, ghép với thành phố của nước đó rồi cào lần lượt khi máy rảnh
+            (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần cào, tối đa {maxPairs} cặp ban đầu/tác vụ). Để không sót: mỗi cặp cào sâu nhất; cặp nào chạm trần Google (≥100 lead) tự được tách thành quận/phường rồi cào tiếp; cặp lỗi/trống được thử lại; gián đoạn (khởi động lại) thì chạy lại cặp dở. Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
+          </p>
+        </>
+      ) : (
+        <>
+          <h3 className="font-semibold text-white mb-1">Tác vụ do lịch xoay vòng tạo ({tasks.length})</h3>
+          <p className="text-[11px] text-slate-500 mb-3">
+            Các tác vụ này do lịch tự tạo theo dữ liệu xuất khẩu, không tạo tay ở đây. Bạn có thể xem báo cáo, tải CSV, dừng/tiếp tục hoặc xóa từng tác vụ.
+          </p>
+        </>
+      )}
+      {error && kind === 'plan' && <div className="mb-2 p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
 
+      {kind === 'manual' && (
       <form onSubmit={create} className="space-y-2.5">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
           <div className="md:col-span-4">
@@ -201,9 +214,10 @@ export const AutoTasks: React.FC = () => {
         {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định sau mỗi 5 cặp nghỉ ngẫu nhiên 20–40 phút; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
         {error && <div className="p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </form>
+      )}
 
       <div className="mt-4 space-y-2">
-        {tasks.length === 0 && <div className="text-slate-500">Chưa có tác vụ nào.</div>}
+        {tasks.length === 0 && <div className="text-slate-500">{kind === 'plan' ? 'Chưa có tác vụ nào. Bật lịch xoay vòng ở trên để lịch tự tạo tác vụ.' : 'Chưa có tác vụ nào.'}</div>}
         {tasks.map(t => {
           const s = t.stats;
           const finished = s.done + s.empty + s.error;

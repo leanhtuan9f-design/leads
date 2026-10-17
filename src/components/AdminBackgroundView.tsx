@@ -33,6 +33,7 @@ interface BackgroundInfo {
   scanEnabled?: boolean;
   scanIntervalMinutes?: number;
   queue: JobRow[];
+  autoQueues: Record<'manual' | 'plan', { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] }>;
   autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] };
   pending: { query: string; depth: number; withEmail: boolean; lang: string; proxies: number }[];
   bgDoneThisHour: number;
@@ -68,7 +69,37 @@ const Kind: React.FC<{ j: JobRow }> = ({ j }) => (
   </span>
 );
 
+const QueueSection: React.FC<{ title: string; q: BackgroundInfo['autoQueues']['manual'] }> = ({ title, q }) => (
+  <section className="bg-slate-950 border border-slate-800 rounded-lg p-4">
+    <h3 className="font-semibold text-white mb-2">{title} ({q.total} cặp)</h3>
+    <p className="text-[11px] text-slate-500 mb-2">Các cặp (từ khóa @ khu vực) của tác vụ đang chạy, theo thứ tự sẽ cào. Chạy khi máy rảnh, sau lượt người dùng.</p>
+    {q.total === 0 ? (
+      <div className="text-slate-500">Không có cặp nào đang chờ.</div>
+    ) : (
+      <>
+        <ol className="space-y-1 list-decimal list-inside text-slate-300">
+          {q.next.map((x, i) => (
+            <li key={i}>
+              <span className="text-white">{x.keyword}</span> @ {x.city}
+              <span className="text-slate-500"> · {x.product} → {x.country}{x.level > 0 ? ' · khu nhỏ' : ''}{x.attempts > 1 ? ` · thử lại lần ${x.attempts}` : ''}</span>
+            </li>
+          ))}
+        </ol>
+        {q.total > q.next.length && <div className="mt-1 text-slate-500">… và {q.total - q.next.length} cặp nữa</div>}
+        {q.next[0]?.restUntil > 0 && (
+          <div className="mt-1 text-amber-300">
+            {q.next[0].waitReason === 'window' ? '🕘 Đang ngoài giờ làm việc của nước đích — sẽ chạy lại lúc ' : '😴 Đang nghỉ chống bị chặn đến '}
+            {new Date(q.next[0].restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (giờ máy bạn)
+          </div>
+        )}
+      </>
+    )}
+  </section>
+);
+
 export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => void }> = ({ onOpenGuide }) => {
+  const [bgTab, setBgTabRaw] = useState<'manual' | 'auto'>(() => { try { return localStorage.getItem('gmaps_bg_tab') === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; } });
+  const setBgTab = (v: 'manual' | 'auto') => { setBgTabRaw(v); try { localStorage.setItem('gmaps_bg_tab', v); } catch { /* bỏ qua */ } };
   const [info, setInfo] = useState<BackgroundInfo | null>(null);
   const [error, setError] = useState('');
   const [workerDraft, setWorkerDraft] = useState('');
@@ -217,35 +248,28 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
         ) : <div className="text-slate-500">Máy đang rảnh.</div>}
       </section>
 
-      <AutoPlan />
+      <div className="flex gap-1 border-b border-slate-800" role="tablist">
+        {([['manual', 'Thủ công', info.autoQueues.manual.total], ['auto', 'Tự động (lịch xoay vòng)', info.autoQueues.plan.total]] as const).map(([id, label, n]) => (
+          <button key={id} type="button" role="tab" aria-selected={bgTab === id} onClick={() => setBgTab(id)}
+            className={`px-4 py-2 text-xs font-semibold rounded-t-lg border-b-2 -mb-px ${bgTab === id ? 'text-white border-emerald-500 bg-slate-900' : 'text-slate-400 border-transparent hover:text-white'}`}>
+            {label} <span className="ml-1 text-[10px] text-slate-500">({n} cặp chờ)</span>
+          </button>
+        ))}
+      </div>
 
-      <AutoTasks />
+      {bgTab === 'manual' ? (
+        <>
+          <AutoTasks kind="manual" />
+          <QueueSection title="Hàng chờ tác vụ thủ công" q={info.autoQueues.manual} />
+        </>
+      ) : (
+        <>
+          <AutoPlan />
+          <AutoTasks kind="plan" />
+          <QueueSection title="Hàng chờ lịch xoay vòng" q={info.autoQueues.plan} />
+        </>
+      )}
 
-      <section className={card}>
-        <h3 className="font-semibold text-white mb-2">Hàng chờ tác vụ tự động ({info.autoQueue.total} cặp)</h3>
-        <p className="text-[11px] text-slate-500 mb-2">Các cặp (từ khóa @ khu vực) của tác vụ đang chạy, theo thứ tự sẽ cào. Chạy khi máy rảnh, sau lượt người dùng.</p>
-        {info.autoQueue.total === 0 ? (
-          <div className="text-slate-500">Không có cặp nào đang chờ.</div>
-        ) : (
-          <>
-            <ol className="space-y-1 list-decimal list-inside text-slate-300">
-              {info.autoQueue.next.map((q, i) => (
-                <li key={i}>
-                  <span className="text-white">{q.keyword}</span> @ {q.city}
-                  <span className="text-slate-500"> · {q.product} → {q.country}{q.level > 0 ? ' · khu nhỏ' : ''}{q.attempts > 1 ? ` · thử lại lần ${q.attempts}` : ''}</span>
-                </li>
-              ))}
-            </ol>
-            {info.autoQueue.total > info.autoQueue.next.length && <div className="mt-1 text-slate-500">… và {info.autoQueue.total - info.autoQueue.next.length} cặp nữa</div>}
-            {info.autoQueue.next[0]?.restUntil > 0 && (
-              <div className="mt-1 text-amber-300">
-                {info.autoQueue.next[0].waitReason === 'window' ? '🕘 Đang ngoài giờ làm việc của nước đích — sẽ chạy lại lúc ' : '😴 Đang nghỉ chống bị chặn đến '}
-                {new Date(info.autoQueue.next[0].restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (giờ máy bạn)
-              </div>
-            )}
-          </>
-        )}
-      </section>
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-2">Hàng đợi người dùng ({info.queue.length})</h3>
