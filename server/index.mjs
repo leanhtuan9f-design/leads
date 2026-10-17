@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
@@ -807,6 +808,7 @@ function next() {
   }
 
   if (!running) pickAuto();
+  else if (running.spec.auto) pickAutoExtra();
 }
 
 function backgroundKeyActive(key) {
@@ -1315,7 +1317,7 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
   res.json({
     now: Date.now(),
     running: running ? { ...jobView(running), status: running.status } : null,
-    backgroundRunning: [...backgroundRuns].map((job) => ({ ...jobView(job), status: job.status })),
+    backgroundRunning: [...backgroundRuns, ...autoExtra].map((job) => ({ ...jobView(job), status: job.status })),
     workerCount: bgWorkerLimit,
     scanEnabled: bgScanEnabled,
     scanIntervalMinutes: bgScanIntervalMinutes,
@@ -1378,29 +1380,37 @@ app.put('/api/admin/background/config', requireAdmin, (req, res) => {
 let autoNotBefore = 0;
 let autoPicking = false;
 
-async function pickAuto() {
-  if (running || autoPicking) return;
-  const wait = autoNotBefore - Date.now();
-  if (wait > 0) { setTimeout(next, wait + 50).unref(); return; }
-  const sp = stmt.autoNextSplit.get();
-  if (sp) {
-    autoPicking = true;
-    try { await splitRun(sp); } catch (e) { console.error('splitRun error', e); stmt.autoSetSplit.run('failed', sp.id); } finally { autoPicking = false; }
-    setImmediate(next);
-    return;
-  }
-  // chọn cặp chờ đầu tiên của tác vụ không đang nghỉ và đang trong khung giờ làm việc; tác vụ bị chặn → hẹn giờ thức dậy sớm nhất
+const autoExtra = new Set(); // luồng phụ của lịch xoay vòng (chỉ chạy khi tác vụ có proxy xoay IP)
+let extraNotBefore = 0;
+const memAvailMb = () => { try { return Number(readFileSync('/proc/meminfo', 'utf8').match(/MemAvailable:\s+(\d+)/)[1]) / 1024; } catch { return Infinity; } };
+// Số luồng tự động điều chỉnh theo CPU/RAM: tối thiểu AUTO_MIN_THREADS, tối đa AUTO_MAX_THREADS.
+// Mỗi container cào giới hạn 1,8GB RAM/2 CPU: luồng thứ 3 trở đi chỉ mở khi RAM trống đủ cho một container nữa và tải CPU chưa cao.
+// Không ngắt luồng đang chạy; khi tài nguyên thấp thì số luồng tự giảm dần vì không mở thêm.
+const AUTO_MIN_THREADS = Math.max(1, Number(process.env.AUTO_MIN_THREADS) || 2);
+const AUTO_MAX_THREADS = Math.max(AUTO_MIN_THREADS, Number(process.env.AUTO_MAX_THREADS) || 6);
+const AUTO_MIN_FREE_MB = 2200, AUTO_FLOOR_FREE_MB = 1200, AUTO_MAX_LOAD = 0.75;
+const cpuLoad = () => os.loadavg()[0] / Math.max(1, os.cpus().length);
+function autoThreadBudget() { // { allowed, mem, load }: có được mở thêm một luồng nữa (khi đang chạy `n` luồng) hay không
+  const mem = memAvailMb(), load = cpuLoad(), n = (running?.spec.auto ? 1 : 0) + autoExtra.size;
+  const allowed = n < AUTO_MIN_THREADS ? mem >= AUTO_FLOOR_FREE_MB : n < AUTO_MAX_THREADS && mem >= AUTO_MIN_FREE_MB && load < AUTO_MAX_LOAD;
+  return { allowed, mem: Math.round(mem), load: Math.round(load * 100) / 100, n };
+}
+
+// Chọn cặp chờ đầu tiên của tác vụ không đang nghỉ và đang trong khung giờ làm việc; tác vụ bị chặn → trả giờ thức dậy sớm nhất
+function selectAutoPair(extra) {
   let r = null, wake = 0;
-  for (const t of db.prepare("SELECT * FROM auto_tasks WHERE status='running' AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id").all()) {
+  const filter = extra ? " AND plan_round>0 AND proxies != '[]'" : '';
+  for (const t of db.prepare(`SELECT * FROM auto_tasks WHERE status='running'${filter} AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id`).all()) {
     const w = taskWait(t);
     if (w) { wake = wake ? Math.min(wake, w.until) : w.until; continue; }
     r = db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
     if (r) break;
   }
-  if (!r) {
-    if (wake) setTimeout(next, Math.max(1000, wake - Date.now()) + 100).unref();
-    return;
-  }
+  return { r, wake };
+}
+
+// Bắt đầu cào một cặp. extra=false: luồng chính (chiếm `running`, nhường người dùng); extra=true: luồng phụ
+function launchAuto(r, extra) {
   autoPicking = true;
   try {
     let proxies = [];
@@ -1421,19 +1431,52 @@ async function pickAuto() {
       setImmediate(next);
       return;
     }
-    running = job;
+    if (extra) autoExtra.add(job); else running = job;
     job.startedAt = Date.now();
     runJob(job).catch((e) => { console.error('auto runJob error', e); job.endClients('failed', 'Lỗi nội bộ máy chủ'); }).finally(() => {
       rmSync(job.dir, { recursive: true, force: true });
       logJob(job);
       finishAutoRun(job);
-      autoNotBefore = Date.now() + AUTO_GAP_MS;
-      running = null;
+      if (extra) { autoExtra.delete(job); extraNotBefore = Date.now() + AUTO_GAP_MS; } else { autoNotBefore = Date.now() + AUTO_GAP_MS; running = null; }
       next();
     });
+    setImmediate(next); // lấp đầy các luồng phụ
   } finally {
     autoPicking = false;
   }
+}
+
+async function pickAuto() {
+  if (running || autoPicking) return;
+  const wait = autoNotBefore - Date.now();
+  if (wait > 0) { setTimeout(next, wait + 50).unref(); return; }
+  const sp = stmt.autoNextSplit.get();
+  if (sp) {
+    autoPicking = true;
+    try { await splitRun(sp); } catch (e) { console.error('splitRun error', e); stmt.autoSetSplit.run('failed', sp.id); } finally { autoPicking = false; }
+    setImmediate(next);
+    return;
+  }
+  const { r, wake } = selectAutoPair(false);
+  if (!r) {
+    if (wake) setTimeout(next, Math.max(1000, wake - Date.now()) + 100).unref();
+    return;
+  }
+  launchAuto(r, false);
+}
+
+// Luồng phụ: chỉ khi luồng chính đang chạy một cặp tự động, không có người dùng chờ, còn đủ RAM, và tác vụ có proxy (IP xoay)
+function pickAutoExtra() {
+  if (autoPicking || queue.length > 0) return;
+  const wait = extraNotBefore - Date.now();
+  if (wait > 0) { setTimeout(next, wait + 50).unref(); return; }
+  if (!autoThreadBudget().allowed) { if (autoExtra.size < AUTO_MAX_THREADS - 1) setTimeout(next, 60000).unref(); return; }
+  const { r, wake } = selectAutoPair(true);
+  if (!r) {
+    if (wake) setTimeout(next, Math.max(1000, wake - Date.now()) + 100).unref();
+    return;
+  }
+  launchAuto(r, true);
 }
 
 // Khung giờ làm việc theo múi giờ của nước đích: chỉ cào khi giờ địa phương nằm trong [win_start, win_end)
@@ -1482,10 +1525,10 @@ function finishAutoRun(job) {
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
   // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần cào thật thì nghỉ M phút
   if (!job.cacheOnly) {
-    const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest, plan_round FROM auto_tasks WHERE id=?').get(taskId);
-    if (t && t.plan_round > 0) {
+    const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest, plan_round, proxies FROM auto_tasks WHERE id=?').get(taskId);
+    if (t && t.plan_round > 0) { // có proxy xoay IP thì không cần nghỉ chung
       const cfg = loadPlan();
-      if (cfg.burstN > 0 && ++planSince >= cfg.burstN) { planSince = 0; planRestUntil = Date.now() + restDelayMs(cfg.restMin, cfg.restMax); }
+      if (t.proxies === '[]' && cfg.burstN > 0 && ++planSince >= cfg.burstN) { planSince = 0; planRestUntil = Date.now() + restDelayMs(cfg.restMin, cfg.restMax); }
     } else if (t && t.burst_n > 0 && (t.rest_min > 0 || t.rest_max > 0)) {
       const n = t.since_rest + 1;
       if (n >= t.burst_n) db.prepare('UPDATE auto_tasks SET since_rest=0, rest_until=? WHERE id=?').run(Date.now() + restDelayMs(t.rest_min, t.rest_max), taskId);
@@ -1514,7 +1557,7 @@ function finishAutoRun(job) {
 // Mỗi vòng, mỗi mặt hàng được cào ĐÚNG MỘT nước nhập khẩu (vòng 1 = nước kim ngạch cao nhất, vòng 2 = nước thứ hai…);
 // mỗi nước chỉ cào vài từ khóa × vài thành phố lớn. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong/dừng.
 const PLAN_SKIP_HS = new Set(['2709', '2710', '2701', '26', '2523']); // dầu thô, xăng dầu, than, quặng, xi măng: không phải ngành tìm người mua trên Google Maps
-const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, note: '' };
+const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, proxy: '', note: '' };
 let planRestUntil = 0, planSince = 0, planBusy = false;
 function loadPlan() {
   try { const r = db.prepare("SELECT value FROM app_settings WHERE key='autoplan'").get(); if (r) return { ...PLAN_DEFAULT, ...JSON.parse(r.value) }; } catch { /* dùng mặc định */ }
@@ -1548,7 +1591,7 @@ async function createPlanTask(p, country, cfg) {
   const re = new RegExp(`(^|,\\s*)${known.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
   inTx(() => {
     const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min, rest_max, win_on, win_start, win_end, tz, plan_round, plan_group) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), '[]', 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
+      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(cfg.proxy ? [cfg.proxy] : []), 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
     const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
     for (const city of cities) for (const kw of keywords) {
       const qtext = `${kw} ${city}${re.test(city) ? '' : `, ${known.name}`}`;
@@ -1599,15 +1642,22 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     totalPairs: products.reduce((n, p) => n + p.markets.length, 0) * pairsPer,
     current: { round: cfg.round + 1, tasks: cur.n, running: cur.run || 0 },
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
+    hasProxy: Boolean(cfg.proxy), proxy: undefined,
+    threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });
-app.put('/api/admin/auto-plan', requireAdmin, (req, res) => {
+app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
   const b = req.body || {}; const cfg = loadPlan();
   const int = (v, lo, hi, d) => (v === undefined || v === '' ? d : Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : null);
   const keywords = int(b.keywords, 1, 6, cfg.keywords), cities = int(b.cities, 1, 10, cfg.cities), burstN = int(b.burstN, 0, 100, cfg.burstN), restMin = int(b.restMin, 0, 240, cfg.restMin), restMax = int(b.restMax, 0, 240, cfg.restMax);
   if ([keywords, cities, burstN, restMin, restMax].includes(null)) return res.status(400).json({ error: 'Từ khóa 1–6, thành phố 1–10, số cặp nghỉ 0–100, phút nghỉ 0–240.' });
   if (restMax < restMin) return res.status(400).json({ error: 'Nghỉ tối đa phải ≥ nghỉ tối thiểu.' });
   const next_ = { ...cfg, keywords, cities, burstN, restMin, restMax };
+  if (b.proxy !== undefined) { // chuỗi rỗng = xóa proxy; một endpoint xoay IP (mỗi luồng đi qua cùng endpoint nhưng nhận IP khác nhau)
+    const raw = String(b.proxy).trim();
+    if (raw) { try { next_.proxy = await validateProxy(raw); } catch (e) { return res.status(400).json({ error: e.message }); } } else next_.proxy = '';
+    db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(next_.proxy ? [next_.proxy] : []));
+  }
   if (b.enabled !== undefined) {
     next_.enabled = Boolean(b.enabled);
     if (next_.enabled && !cfg.enabled) { next_.note = 'Đã bật'; if (cfg.note.startsWith('Đã xong một chu kỳ')) { next_.round = 0; next_.filled = false; } }
@@ -1758,7 +1808,7 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
 app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   stmt.autoTaskEnd.run('stopped', Date.now(), 'Admin dừng', id);
-  const activeAuto = [running, ...backgroundRuns].find((job) => job?.spec.auto?.taskId === id);
+  const activeAuto = [running, ...backgroundRuns, ...autoExtra].find((job) => job?.spec.auto?.taskId === id);
   if (activeAuto) { activeAuto.stopRequested = true; activeAuto.abort(); } // dừng luôn cặp đang cào
   res.json({ ok: true });
 });

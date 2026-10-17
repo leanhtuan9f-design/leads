@@ -6,11 +6,13 @@ interface Plan {
   burstN: number; restMin: number; restMax: number; note: string;
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
+  hasProxy: boolean; threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
 export const AutoPlan: React.FC = () => {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [form, setForm] = useState<{ keywords: string; cities: string; burstN: string; restMin: string; restMax: string } | null>(null);
+  const [proxy, setProxy] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -34,7 +36,8 @@ export const AutoPlan: React.FC = () => {
     if (!form) return;
     setBusy(true); setError('');
     try {
-      await apiJson('/admin/auto-plan', 'PUT', { ...form, ...(enabled === undefined ? {} : { enabled }) });
+      await apiJson('/admin/auto-plan', 'PUT', { ...form, ...(proxy.trim() ? { proxy: proxy.trim() } : {}), ...(enabled === undefined ? {} : { enabled }) });
+      setProxy('');
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được');
@@ -78,6 +81,20 @@ export const AutoPlan: React.FC = () => {
             <span>–</span><input type="number" min={0} max={240} value={form.restMax} onChange={set('restMax')} className={inputCls} />
             <span>phút</span>
             <button onClick={() => save()} disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Lưu</button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+            <span>Proxy xoay IP</span>
+            <input value={proxy} onChange={e => setProxy(e.target.value)} type="password" autoComplete="off" spellCheck={false}
+              placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'http://user:pass@host:port'}
+              className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
+            {plan.hasProxy && (
+              <button onClick={async () => { setBusy(true); try { await apiJson('/admin/auto-plan', 'PUT', { proxy: '' }); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không xóa được'); } finally { setBusy(false); } }}
+                disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa proxy</button>
+            )}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            Luồng: {plan.threads.running} đang chạy (tự điều chỉnh {plan.threads.min}–{plan.threads.max} theo RAM/CPU; RAM trống {plan.threads.mem} MB, tải CPU {Math.round(plan.threads.load * 100)}%).
+            {plan.hasProxy ? ' Có proxy: chạy đa luồng, không nghỉ chung.' : ' Chưa có proxy: chỉ chạy 1 luồng và nghỉ chung để tránh bị chặn.'}
           </div>
           {!plan.aiEnabled && <div className="text-amber-300 text-[11px] mt-2">AI chưa được cấu hình (menu tài khoản → Cấu hình AI) nên không thể bật lịch.</div>}
         </>

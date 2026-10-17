@@ -185,11 +185,12 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Mỗi nước chỉ cào số từ khóa × số thành phố lớn nhất đã đặt (mặc định 3 × 3 = 9 cặp). Từ khóa do AI chọn theo mặt hàng và nước. Cặp nào chạm trần Google (≥100 lead) vẫn tự được tách thành quận/phường.',
       'Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong hoặc bị dừng. Hết nước ở mọi mặt hàng thì lịch tự tắt và tính một chu kỳ; bật lại để chạy chu kỳ mới (cặp đã có trong kho sẽ hoàn tất ngay, không mở trình duyệt).',
       'Các tác vụ do lịch tạo dùng CHUNG một bộ đếm nghỉ (sau N cặp nghỉ ngẫu nhiên từ–đến phút), nên máy không bị dồn dập dù có nhiều tác vụ. Mỗi tác vụ vẫn chỉ chạy trong giờ làm việc (8–19h) của nước đích, nên lúc nước này ngoài giờ máy chuyển sang nước khác.',
+      'PROXY XOAY IP & ĐA LUỒNG: nhập một proxy xoay IP (một endpoint, mỗi kết nối nhận IP khác) trong khối Lịch xoay vòng. Có proxy thì các tác vụ của lịch chạy đa luồng cùng lúc và không áp dụng nghỉ chung; không có proxy thì chỉ chạy 1 luồng (IP máy chủ) và nghỉ chung. Số luồng tự điều chỉnh từ tối thiểu 2 đến tối đa 6: luồng thứ 3 trở đi chỉ mở khi RAM trống đủ cho thêm một container (khoảng 2,2GB) và tải CPU dưới 75%; luồng đang chạy không bị ngắt nên khi tài nguyên thấp số luồng giảm dần. Người dùng đang chờ luôn được ưu tiên, không mở thêm luồng phụ khi có hàng đợi. Proxy được lưu ở máy chủ, giao diện chỉ hiện đã cài hay chưa.',
       'TÁC VỤ THỦ CÔNG (sản phẩm + quốc gia) vẫn dùng được song song: cào toàn bộ thành phố của nước đó, có nghỉ riêng từng tác vụ. Người dùng thường luôn được ưu tiên trước mọi tác vụ nền; tác vụ nền không tính hạn mức của ai và lưu vào kho chung.'
     ],
     steps: [
       'Bước 1: Cấu hình AI ở menu tài khoản → Cấu hình AI (bắt buộc, vì AI chọn từ khóa).',
-      'Bước 2: Ở khối "Lịch xoay vòng", chỉnh số từ khóa/nước, số thành phố/nước và thời gian nghỉ chung, bấm Lưu.',
+      'Bước 2: Ở khối "Lịch xoay vòng", chỉnh số từ khóa/nước, số thành phố/nước, thời gian nghỉ chung và (nếu có) dán proxy xoay IP để chạy đa luồng, bấm Lưu.',
       'Bước 3: Bấm "Bật lịch". Lịch tạo tác vụ của vòng 1 và máy chủ tự chạy; tiến độ hiển thị ở "Tác vụ tự động" và "Hàng chờ".',
       'Bước 4: Xem báo cáo từng tác vụ (tên có đuôi "(xuất khẩu)", người tạo "Lịch xoay vòng"), tải CSV. Muốn dừng thì "Tắt lịch" (tác vụ đang có vẫn chạy nốt, bấm Dừng ở từng tác vụ nếu muốn dừng hẳn).'
     ],
