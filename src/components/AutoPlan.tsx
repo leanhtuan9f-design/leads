@@ -20,6 +20,7 @@ export const AutoPlan: React.FC = () => {
   const [proxy, setProxy] = useState('');
   const [test, setTest] = useState<ProxyTest | null>(null);
   const [testing, setTesting] = useState(false);
+  const [saved, setSaved] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -105,6 +106,8 @@ export const AutoPlan: React.FC = () => {
             <input value={proxy} onChange={e => setProxy(e.target.value)} type="password" autoComplete="off" spellCheck={false}
               placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'host:port  |  host:port:user:pass  |  http://user:pass@host:port'}
               className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
+            <button onClick={async () => { setBusy(true); setError(''); try { await apiJson('/admin/auto-plan', 'PUT', { proxy: proxy.trim() }); setProxy(''); setTest(null); setSaved('Đã lưu proxy'); setTimeout(() => setSaved(''), 4000); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không lưu được proxy'); } finally { setBusy(false); } }}
+              disabled={busy || !proxy.trim()} className="py-1 px-3 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">Lưu proxy</button>
             <button onClick={testProxy} disabled={testing || (!proxy.trim() && !plan.hasProxy)}
               className="py-1 px-3 bg-blue-700 hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">
               {testing ? 'Đang thử…' : proxy.trim() ? 'Thử proxy trong ô' : 'Thử proxy đã lưu'}
@@ -114,6 +117,7 @@ export const AutoPlan: React.FC = () => {
                 disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa proxy</button>
             )}
           </div>
+          {saved && <div className="mt-1 text-[11px] text-emerald-300">✅ {saved}</div>}
           {test && (
             <div className={`mt-2 text-[11px] rounded border p-2 ${test.connected && test.mapsOk ? 'border-emerald-700 text-emerald-300' : 'border-amber-700 text-amber-300'}`}>
               <div>{test.connected ? `✅ Kết nối thành công (${test.ips.length}/3 lần, trung bình ${test.avgMs} ms)` : `❌ Không kết nối được: ${test.error}`}</div>
