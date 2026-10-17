@@ -30,5 +30,11 @@
       "Bash(git push --force*)",
       "Bash(git push -f*)"
     ]
+  },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Chạy `git push origin main` (không force) để đẩy commit của repo /opt/maps lên remote origin là việc được người dùng cho phép thường trực khi hoàn thành nhiệm vụ, theo quy tắc 6 trong CLAUDE.md."
+    ]
   }
 }
