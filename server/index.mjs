@@ -1646,6 +1646,41 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });
+// Thử proxy: 3 lần gọi qua proxy tới dịch vụ hỏi IP (xem IP có đổi không) + 1 lần tới Google Maps (xem có bị chặn không).
+// Proxy truyền cho curl qua stdin (-K -) để không lộ user:pass trên danh sách tiến trình.
+const curlViaProxy = (proxy, url, timeoutS = 15) => new Promise((resolve) => {
+  const t0 = Date.now();
+  const child = execFile('curl', ['-K', '-', '-sS', '-L', '--max-time', String(timeoutS), '-o', '-', '-w', '\n%{http_code}', '-A', 'Mozilla/5.0', url],
+    { timeout: (timeoutS + 5) * 1000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const out = String(stdout || ''); const i = out.lastIndexOf('\n');
+      resolve({ ok: !error, ms: Date.now() - t0, body: i >= 0 ? out.slice(0, i) : out, status: Number(i >= 0 ? out.slice(i + 1) : 0) || 0, error: error ? String(stderr || error.message).replace(/\/\/[^@\s]*@/g, '//***@').slice(0, 200) : '' });
+    });
+  child.stdin.end(`proxy = "${proxy.replace(/["\\]/g, '')}"\n`);
+});
+app.post('/api/admin/auto-plan/test-proxy', requireAdmin, async (req, res) => {
+  let proxy = String(req.body?.proxy || '').trim() || loadPlan().proxy;
+  if (!proxy) return res.status(400).json({ error: 'Chưa có proxy để thử (nhập vào ô hoặc lưu proxy trước).' });
+  try { proxy = await validateProxy(proxy); } catch (e) { return res.status(400).json({ error: e.message }); }
+  const ips = [];
+  let firstError = '';
+  for (let i = 0; i < 3; i++) {
+    const r = await curlViaProxy(proxy, 'https://api.ipify.org');
+    if (r.ok && r.status === 200 && /^[0-9a-f.:]{7,45}$/i.test(r.body.trim())) ips.push({ ip: r.body.trim(), ms: r.ms });
+    else if (!firstError) firstError = r.error || `HTTP ${r.status}`;
+  }
+  const g = await curlViaProxy(proxy, 'https://www.google.com/maps?hl=en', 20);
+  const blocked = g.ok && (g.status === 429 || /unusual traffic|\/sorry\//i.test(g.body));
+  const distinct = new Set(ips.map((x) => x.ip)).size;
+  const connected = ips.length > 0;
+  const mapsOk = g.ok && g.status === 200 && !blocked;
+  res.json({
+    connected, mapsOk, ips, distinct, rotating: ips.length >= 2 && distinct > 1,
+    avgMs: ips.length ? Math.round(ips.reduce((n, x) => n + x.ms, 0) / ips.length) : null,
+    maps: { status: g.status, ms: g.ms, blocked, error: g.ok ? '' : g.error },
+    error: connected ? '' : firstError || 'Không kết nối được qua proxy',
+  });
+});
+
 app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
   const b = req.body || {}; const cfg = loadPlan();
   const int = (v, lo, hi, d) => (v === undefined || v === '' ? d : Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : null);

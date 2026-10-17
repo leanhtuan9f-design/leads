@@ -9,10 +9,17 @@ interface Plan {
   hasProxy: boolean; threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
+interface ProxyTest {
+  connected: boolean; mapsOk: boolean; ips: { ip: string; ms: number }[]; distinct: number; rotating: boolean; avgMs: number | null;
+  maps: { status: number; ms: number; blocked: boolean; error: string }; error: string;
+}
+
 export const AutoPlan: React.FC = () => {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [form, setForm] = useState<{ keywords: string; cities: string; burstN: string; restMin: string; restMax: string } | null>(null);
   const [proxy, setProxy] = useState('');
+  const [test, setTest] = useState<ProxyTest | null>(null);
+  const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -31,6 +38,17 @@ export const AutoPlan: React.FC = () => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5000);
     return () => clearInterval(t);
   }, [load]);
+
+  const testProxy = async () => {
+    setTesting(true); setTest(null); setError('');
+    try {
+      setTest(await apiJson<ProxyTest>('/admin/auto-plan/test-proxy', 'POST', { proxy: proxy.trim() }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không thử được proxy');
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const save = async (enabled?: boolean) => {
     if (!form) return;
@@ -87,11 +105,22 @@ export const AutoPlan: React.FC = () => {
             <input value={proxy} onChange={e => setProxy(e.target.value)} type="password" autoComplete="off" spellCheck={false}
               placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'http://user:pass@host:port'}
               className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
+            <button onClick={testProxy} disabled={testing || (!proxy.trim() && !plan.hasProxy)}
+              className="py-1 px-3 bg-blue-700 hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">
+              {testing ? 'Đang thử…' : proxy.trim() ? 'Thử proxy trong ô' : 'Thử proxy đã lưu'}
+            </button>
             {plan.hasProxy && (
               <button onClick={async () => { setBusy(true); try { await apiJson('/admin/auto-plan', 'PUT', { proxy: '' }); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không xóa được'); } finally { setBusy(false); } }}
                 disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa proxy</button>
             )}
           </div>
+          {test && (
+            <div className={`mt-2 text-[11px] rounded border p-2 ${test.connected && test.mapsOk ? 'border-emerald-700 text-emerald-300' : 'border-amber-700 text-amber-300'}`}>
+              <div>{test.connected ? `✅ Kết nối thành công (${test.ips.length}/3 lần, trung bình ${test.avgMs} ms)` : `❌ Không kết nối được: ${test.error}`}</div>
+              {test.connected && <div>IP nhận được: {test.ips.map(x => x.ip).join(', ')} — {test.rotating ? `✅ IP đổi giữa các lần (${test.distinct} IP khác nhau)` : '⚠️ IP không đổi giữa 3 lần thử (có thể không phải proxy xoay, hoặc xoay theo thời gian)'}</div>}
+              {test.connected && <div>Google Maps: {test.mapsOk ? `✅ truy cập được (HTTP ${test.maps.status}, ${test.maps.ms} ms)` : test.maps.blocked ? '❌ Google đang chặn/yêu cầu CAPTCHA với IP này' : `❌ lỗi ${test.maps.error || `HTTP ${test.maps.status}`}`}</div>}
+            </div>
+          )}
           <div className="mt-1 text-[11px] text-slate-400">
             Luồng: {plan.threads.running} đang chạy (tự điều chỉnh {plan.threads.min}–{plan.threads.max} theo RAM/CPU; RAM trống {plan.threads.mem} MB, tải CPU {Math.round(plan.threads.load * 100)}%).
             {plan.hasProxy ? ' Có proxy: chạy đa luồng, không nghỉ chung.' : ' Chưa có proxy: chỉ chạy 1 luồng và nghỉ chung để tránh bị chặn.'}
