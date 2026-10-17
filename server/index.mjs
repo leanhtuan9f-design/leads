@@ -1646,7 +1646,8 @@ const ownProxyExpired = (c) => c.proxyExpiresAt > 0 && c.proxyExpiresAt <= Date.
 const KEY_FAIL_FALLBACK_MS = 30 * 60 * 1000;
 const keysExpired = (c) => c.keys.length > 0 && c.keys.every((k) => { const st = keyState.get(k); return st && st.failingSince > 0 && Date.now() - st.failingSince >= KEY_FAIL_FALLBACK_MS && !(st.proxy && st.expiresAt > Date.now()); });
 // Proxy đã hết hạn mà không gia hạn → lịch chạy như tab Thủ công không proxy: IP máy chủ, 1 luồng, nghỉ chống chặn
-const planFallback = (c) => (c.keys.length > 0 ? keysExpired(c) : c.proxies.length > 0 && ownProxyExpired(c));
+// Mốc chính là NGÀY HẾT HẠN do admin nhập (áp dụng cho cả Key lẫn proxy tự nhập); riêng Key còn tự rơi vào dự phòng nếu liên tục không lấy được proxy ≥30 phút
+const planFallback = (c) => (c.keys.length > 0 || c.proxies.length > 0) && (ownProxyExpired(c) || (c.keys.length > 0 && keysExpired(c)));
 // Proxy dùng cho tác vụ của lịch: chế độ Key → proxy khỏe từ Key; không thì proxy tự nhập; hết hạn → không proxy
 const planProxies = () => { const c = loadPlan(); return planFallback(c) ? [] : c.keys.length ? keyHealthy() : c.proxies; };
 // Có Key/proxy còn hạn nhưng chưa dùng được (đang đổi proxy) → không mở cặp mới, tuyệt đối không cào bằng IP máy chủ
@@ -1670,6 +1671,7 @@ async function refreshKeyProxies(force = false) {
     const cfg = loadPlan();
     for (const k of [...keyState.keys()]) if (!cfg.keys.includes(k)) keyState.delete(k);
     if (!cfg.keys.length) return;
+    if (ownProxyExpired(cfg)) return; // đã quá ngày hết hạn admin nhập: không gọi API của nhà cung cấp nữa
     const whitelist = await serverPublicIp();
     for (const key of cfg.keys) {
       const st = keyState.get(key) || {}, now = Date.now();
@@ -1762,7 +1764,7 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
     hasProxy: cfg.proxies.length > 0 || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
     proxyList: cfg.proxies.map((x) => x.replace(/^[a-z0-9]+:\/\/([^@]*@)?/i, '')), proxyExpiresAt: cfg.proxyExpiresAt, proxyExpired: ownProxyExpired(cfg), blocked: planBlocked(cfg), fallback: planFallback(cfg),
-    mode: cfg.keys.length > 0 ? (planFallback(cfg) ? 'fallback' : planBlocked(cfg) ? 'switching' : 'key') : cfg.proxies.length > 0 ? (ownProxyExpired(cfg) ? 'fallback' : 'own') : 'none',
+    mode: planFallback(cfg) ? 'fallback' : cfg.keys.length > 0 ? (planBlocked(cfg) ? 'switching' : 'key') : cfg.proxies.length > 0 ? 'own' : 'none',
     keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0, readyAt: st.readyAt > Date.now() ? st.readyAt : 0, changing: Boolean(st.proxy && st.expiresAt - Date.now() < KEY_REFRESH_BEFORE_MS) }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
@@ -1818,6 +1820,7 @@ app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
   const keywords = int(b.keywords, 1, 6, cfg.keywords), cities = int(b.cities, 1, 10, cfg.cities), burstN = int(b.burstN, 0, 100, cfg.burstN), restMin = int(b.restMin, 0, 240, cfg.restMin), restMax = int(b.restMax, 0, 240, cfg.restMax);
   if ([keywords, cities, burstN, restMin, restMax].includes(null)) return res.status(400).json({ error: 'Từ khóa 1–6, thành phố 1–10, số cặp nghỉ 0–100, phút nghỉ 0–240.' });
   if (restMax < restMin) return res.status(400).json({ error: 'Nghỉ tối đa phải ≥ nghỉ tối thiểu.' });
+  const wasFallback = planFallback(cfg);
   const next_ = { ...cfg, keywords, cities, burstN, restMin, restMax };
   let proxiesChanged = false;
   if (b.proxies !== undefined || b.proxy !== undefined) { // mỗi dòng một proxy tự nhập (như tab Thủ công, tối đa 10); rỗng = xóa
@@ -1849,6 +1852,7 @@ app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
     if (next_.keys.length) await refreshKeyProxies(true);
     else keyState.clear();
   }
+  if (next_.keys.length && !keysChanged && wasFallback && !planFallback(next_)) await refreshKeyProxies(true); // gia hạn xong: lấy proxy Key mới ngay
   if (proxiesChanged || keysChanged) { // cập nhật ngay proxy của các tác vụ lịch đang chạy (cặp mới dùng ngay), bỏ nghỉ chung dư nếu đã có proxy
     const list = planProxies();
     if (list.length > 0) { planRestUntil = 0; planSince = 0; }

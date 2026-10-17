@@ -159,7 +159,7 @@ export const AutoPlan: React.FC = () => {
                 placeholder={plan.proxyList.length ? `Đã lưu ${plan.proxyList.length} proxy — nhập danh sách mới (mỗi dòng một proxy) để thay` : 'Mỗi dòng một proxy (tối đa 10): host:port | host:port:user:pass | http://user:pass@host:port'}
                 className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
               <div className="flex flex-col gap-1">
-                <label className="text-slate-400">Ngày hết hạn proxy
+                <label className="text-slate-400" title="Mốc chung cho Key và proxy tự nhập: quá mốc mà chưa gia hạn thì lịch chạy như luồng thủ công">Ngày hết hạn proxy / Key
                   <input type="datetime-local" value={expiry ?? toInput(plan.proxyExpiresAt)} onChange={e => setExpiry(e.target.value)}
                     className="ml-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white" />
                 </label>
@@ -178,14 +178,15 @@ export const AutoPlan: React.FC = () => {
               </div>
             </div>
             {plan.proxyList.length > 0 && <div className="text-slate-400">Đang dùng: {plan.proxyList.join(' · ')}</div>}
-            {plan.proxyList.length > 0 && plan.keyCount === 0 && plan.proxyExpiresAt > 0 && (
+            {(plan.proxyList.length > 0 || plan.keyCount > 0) && plan.proxyExpiresAt > 0 && (
               plan.proxyExpired
-                ? <div className="p-2 rounded border border-red-700 text-red-300">⛔ Proxy đã hết hạn từ {fmtDT(plan.proxyExpiresAt)} và chưa gia hạn: lịch đang chạy như tab Thủ công — không proxy (IP máy chủ), 1 luồng xếp hàng chung với tab Thủ công, nghỉ chống chặn {plan.burstN} cặp/{plan.restMin}–{plan.restMax} phút. Nhập proxy mới hoặc đổi ngày hết hạn rồi bấm “Lưu proxy” để quay lại chạy đa luồng ngay.</div>
+                ? <div className="p-2 rounded border border-red-700 text-red-300">⛔ Proxy/Key đã hết hạn từ {fmtDT(plan.proxyExpiresAt)} và chưa gia hạn: lịch đang chạy như tab Thủ công — không proxy (IP máy chủ), 1 luồng xếp hàng chung với tab Thủ công, nghỉ chống chặn {plan.burstN} cặp/{plan.restMin}–{plan.restMax} phút. Nhập proxy mới hoặc đổi ngày hết hạn rồi bấm “Lưu proxy” để quay lại chạy đa luồng ngay.</div>
                 : plan.proxyExpiresAt - Date.now() < 86400000
-                ? <div className="text-amber-300">⚠️ Proxy hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}). Hết hạn lịch sẽ tự dừng mở cặp mới.</div>
-                : <div className="text-slate-400">Proxy hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}).</div>
+                ? <div className="text-amber-300">⚠️ Proxy/Key hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}). Hết hạn lịch sẽ tự dừng mở cặp mới.</div>
+                : <div className="text-slate-400">Proxy/Key hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}).</div>
             )}
-            {plan.keyCount > 0 && plan.proxyList.length > 0 && <div className="text-slate-500">Đang có Key nên lịch dùng proxy từ Key; proxy tự nhập chỉ dùng khi xóa hết Key.</div>}
+            {plan.keyCount > 0 && plan.proxyList.length > 0 && <div className="text-slate-500">Đang có Key nên lịch dùng proxy từ Key; proxy tự nhập chỉ dùng khi xóa hết Key. Ngày hết hạn ở trên áp dụng cho cả hai.</div>}
+            {plan.proxyExpiresAt === 0 && (plan.proxyList.length > 0 || plan.keyCount > 0) && <div className="text-slate-500">Chưa đặt ngày hết hạn: lịch dùng proxy/Key cho tới khi bạn đặt ngày hoặc Key không lấy được proxy liên tục 30 phút.</div>}
           </div>
           {saved && <div className="mt-1 text-[11px] text-emerald-300">✅ {saved}</div>}
           {test && (
