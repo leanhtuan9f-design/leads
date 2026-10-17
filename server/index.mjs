@@ -1610,6 +1610,13 @@ function planProducts() {
 const KEY_REFRESH_BEFORE_MS = 150000;
 const keyState = new Map(); // key -> { proxy, expiresAt, error, retryAt, location, carrier }
 let serverIpCache = { ip: '', at: 0 };
+// Proxy còn hạn được lưu để khởi động lại (mỗi lần deploy) dùng tiếp, không gọi lại API (nhà cung cấp giới hạn tần suất đổi IP)
+const saveKeyState = () => db.prepare("INSERT INTO app_settings (key, value) VALUES ('keyproxy', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+  .run(JSON.stringify(Object.fromEntries([...keyState].filter(([, st]) => st.proxy && st.expiresAt > Date.now()).map(([k, st]) => [k, { proxy: st.proxy, expiresAt: st.expiresAt, location: st.location, carrier: st.carrier }]))));
+try {
+  const saved = db.prepare("SELECT value FROM app_settings WHERE key='keyproxy'").get();
+  if (saved) for (const [k, st] of Object.entries(JSON.parse(saved.value))) if (st.expiresAt > Date.now() + 60000 && loadPlan().keys.includes(k)) keyState.set(k, { ...st, error: '', retryAt: 0 });
+} catch { /* không có thì lấy mới */ }
 async function serverPublicIp() {
   if (process.env.SERVER_PUBLIC_IP) return process.env.SERVER_PUBLIC_IP;
   if (serverIpCache.ip && Date.now() - serverIpCache.at < 3600000) return serverIpCache.ip;
@@ -1638,10 +1645,13 @@ async function refreshKeyProxies(force = false) {
         const r = await fetchKeyProxy(key, { whitelist });
         await validateProxy(r.proxy);
         keyState.set(key, { ...r, error: '', retryAt: 0 });
+        console.log(`[key …${key.slice(-4)}] lấy proxy OK ${r.proxy.replace(/^http:\/\/([^@]*@)?/, '')} ${r.carrier} ${r.location}, sống ${Math.round((r.expiresAt - Date.now()) / 1000)}s`);
       } catch (e) {
         keyState.set(key, { ...st, error: String(e?.message || e).slice(0, 200), retryAt: Date.now() + (e?.retryAfterMs || 60000) });
+        console.log(`[key …${key.slice(-4)}] lỗi: ${String(e?.message || e).slice(0, 200)} — thử lại sau ${Math.round((e?.retryAfterMs || 60000) / 1000)}s`);
       }
     }
+    saveKeyState();
     const list = keyProxies();
     if (list.length) { // cặp mới dùng proxy mới; cặp đang cào giữ proxy cũ cho tới khi xong
       const json = JSON.stringify(list);
