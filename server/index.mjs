@@ -1402,8 +1402,11 @@ const AUTO_MIN_THREADS = Math.max(1, Number(process.env.AUTO_MIN_THREADS) || 2);
 const AUTO_MAX_THREADS = Math.max(AUTO_MIN_THREADS, Number(process.env.AUTO_MAX_THREADS) || 6);
 const AUTO_MIN_FREE_MB = 2200, AUTO_FLOOR_FREE_MB = 1200, AUTO_MAX_LOAD = 0.75;
 const cpuLoad = () => os.loadavg()[0] / Math.max(1, os.cpus().length);
+const recentLaunches = []; // thời điểm mở các luồng gần đây: container mới chưa kịp chiếm RAM/CPU nên phải tăng luồng từ từ, mỗi lần một luồng
+const AUTO_RAMP_MS = 60000, AUTO_RESERVE_MB = 1000;
 function autoThreadBudget() { // { allowed, mem, load }: có được mở thêm một luồng nữa (khi đang chạy `n` luồng) hay không
-  const mem = memAvailMb(), load = cpuLoad(), n = (running?.spec.auto ? 1 : 0) + autoExtra.size;
+  while (recentLaunches.length && Date.now() - recentLaunches[0] > AUTO_RAMP_MS) recentLaunches.shift();
+  const mem = memAvailMb() - recentLaunches.length * AUTO_RESERVE_MB, load = cpuLoad() + recentLaunches.length * 0.15, n = (running?.spec.auto ? 1 : 0) + autoExtra.size;
   const allowed = n < AUTO_MIN_THREADS ? mem >= AUTO_FLOOR_FREE_MB : n < AUTO_MAX_THREADS && mem >= AUTO_MIN_FREE_MB && load < AUTO_MAX_LOAD;
   return { allowed, mem: Math.round(mem), load: Math.round(load * 100) / 100, n };
 }
@@ -1445,6 +1448,7 @@ function launchAuto(r, extra) {
       return;
     }
     if (extra) autoExtra.add(job); else running = job;
+    recentLaunches.push(Date.now());
     job.startedAt = Date.now();
     runJob(job).catch((e) => { console.error('auto runJob error', e); job.endClients('failed', 'Lỗi nội bộ máy chủ'); }).finally(() => {
       rmSync(job.dir, { recursive: true, force: true });
@@ -1453,7 +1457,7 @@ function launchAuto(r, extra) {
       if (extra) { autoExtra.delete(job); extraNotBefore = Date.now() + AUTO_GAP_MS; } else { autoNotBefore = Date.now() + AUTO_GAP_MS; running = null; }
       next();
     });
-    setImmediate(next); // lấp đầy các luồng phụ
+    setTimeout(next, 5000).unref(); // lấp đầy các luồng phụ, mỗi lần một luồng (autoThreadBudget giữ chỗ RAM cho container vừa mở)
   } finally {
     autoPicking = false;
   }
