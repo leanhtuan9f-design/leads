@@ -6,7 +6,9 @@ interface Plan {
   burstN: number; restMin: number; restMax: number; note: string;
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
-  hasProxy: boolean; threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
+  hasProxy: boolean; keyCount: number;
+  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string }[];
+  threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
 interface ProxyTest {
@@ -21,6 +23,7 @@ export const AutoPlan: React.FC = () => {
   const [test, setTest] = useState<ProxyTest | null>(null);
   const [testing, setTesting] = useState(false);
   const [saved, setSaved] = useState('');
+  const [keysText, setKeysText] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -100,6 +103,34 @@ export const AutoPlan: React.FC = () => {
             <span>–</span><input type="number" min={0} max={240} value={form.restMax} onChange={set('restMax')} className={inputCls} />
             <span>phút</span>
             <button onClick={() => save()} disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Lưu</button>
+          </div>
+          <div className="mt-2 space-y-1 text-[11px] text-slate-300">
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="pt-1">Key proxy xoay (proxy.vn)</span>
+              <textarea value={keysText} onChange={e => setKeysText(e.target.value)} rows={2} spellCheck={false} autoComplete="off"
+                placeholder={plan.keyCount ? `Đã lưu ${plan.keyCount} Key — nhập danh sách mới (mỗi dòng một Key) để thay` : 'Mỗi dòng một Key (tối đa 6)'}
+                className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
+              <div className="flex flex-col gap-1">
+                <button onClick={async () => { setBusy(true); setError(''); try { await apiJson('/admin/auto-plan', 'PUT', { keys: keysText }); setKeysText(''); setSaved('Đã lưu Key và lấy proxy'); setTimeout(() => setSaved(''), 4000); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không lưu được Key'); } finally { setBusy(false); } }}
+                  disabled={busy || !keysText.trim()} className="py-1 px-3 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">Lưu Key & lấy proxy</button>
+                {plan.keyCount > 0 && (
+                  <>
+                    <button onClick={async () => { setBusy(true); setError(''); try { await apiJson('/admin/auto-plan/refresh-keys', 'POST', {}); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không lấy được proxy mới'); } finally { setBusy(false); } }}
+                      disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Lấy proxy mới</button>
+                    <button onClick={async () => { setBusy(true); try { await apiJson('/admin/auto-plan', 'PUT', { keys: '' }); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không xóa được'); } finally { setBusy(false); } }}
+                      disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa Key</button>
+                  </>
+                )}
+              </div>
+            </div>
+            {plan.keyStatus.map(k => (
+              <div key={k.id} className={k.ok ? 'text-emerald-300' : 'text-amber-300'}>
+                Key {k.id}: {k.ok
+                  ? `✅ ${k.hostPort}${k.carrier ? ` · ${k.carrier}` : ''}${k.location ? ` · ${k.location}` : ''} · còn ${Math.max(0, Math.round((k.expiresAt - Date.now()) / 60000))} phút (tự lấy proxy mới trước khi hết hạn)`
+                  : `❌ ${k.error || 'đang lấy proxy…'}`}
+              </div>
+            ))}
+            <div className="text-slate-500">Máy chủ tự gọi API của nhà cung cấp và tự cho phép IP máy chủ (whitelist). Có Key thì dùng proxy từ Key, bỏ qua ô proxy cố định bên dưới. Mỗi Key chỉ có một IP tại một thời điểm (đổi khoảng 30 phút/lần): muốn nhiều IP cho nhiều luồng thì dùng nhiều Key.</div>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
             <span>Proxy xoay IP</span>

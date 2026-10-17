@@ -14,6 +14,7 @@ import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-reco
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
 import { ensureLogisticsSchema, loadLogisticsConfig, logisticsView, normalizeLogisticsPoint } from './logistics-config.mjs';
 import { ensureBillingSchema, createBillingService } from './billing.mjs';
+import { isKey, fetchKeyProxy } from './key-proxy.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
 try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
@@ -1405,8 +1406,9 @@ function autoThreadBudget() { // { allowed, mem, load }: có được mở thêm
 function selectAutoPair(extra) {
   let r = null, wake = 0;
   const filter = extra ? " AND plan_round>0 AND proxies != '[]'" : '';
+  const keyMode = loadPlan().keys.length > 0, keyOk = !keyMode || keyProxies().length > 0;
   for (const t of db.prepare(`SELECT * FROM auto_tasks WHERE status='running'${filter} AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id`).all()) {
-    const w = taskWait(t);
+    const w = taskWait(t) || (t.plan_round > 0 && !keyOk ? { until: Date.now() + 30000 } : null); // chế độ Key mà chưa có proxy hợp lệ: chờ, tuyệt đối không cào bằng IP máy chủ
     if (w) { wake = wake ? Math.min(wake, w.until) : w.until; continue; }
     r = db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
     if (r) break;
@@ -1562,7 +1564,7 @@ function finishAutoRun(job) {
 // Mỗi vòng, mỗi mặt hàng được cào ĐÚNG MỘT nước nhập khẩu (vòng 1 = nước kim ngạch cao nhất, vòng 2 = nước thứ hai…);
 // mỗi nước chỉ cào vài từ khóa × vài thành phố lớn. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong/dừng.
 const PLAN_SKIP_HS = new Set(['2709', '2710', '2701', '26', '2523']); // dầu thô, xăng dầu, than, quặng, xi măng: không phải ngành tìm người mua trên Google Maps
-const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, proxy: '', note: '' };
+const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, proxy: '', keys: [], note: '' };
 let planRestUntil = 0, planSince = 0, planBusy = false;
 function loadPlan() {
   try { const r = db.prepare("SELECT value FROM app_settings WHERE key='autoplan'").get(); if (r) return { ...PLAN_DEFAULT, ...JSON.parse(r.value) }; } catch { /* dùng mặc định */ }
@@ -1583,6 +1585,53 @@ function planProducts() {
   }
   return [...by.values()].sort((a, b) => b.total - a.total);
 }
+// Proxy xoay theo Key (proxy.vn): mỗi Key cho một proxy sống ~30 phút; gọi lại gần hết hạn để lấy proxy (IP) mới.
+// Key là bí mật: chỉ lưu trong app_settings, không bao giờ trả về trình duyệt hay ghi vào log.
+const KEY_REFRESH_BEFORE_MS = 150000;
+const keyState = new Map(); // key -> { proxy, expiresAt, error, retryAt, location, carrier }
+let serverIpCache = { ip: '', at: 0 };
+async function serverPublicIp() {
+  if (process.env.SERVER_PUBLIC_IP) return process.env.SERVER_PUBLIC_IP;
+  if (serverIpCache.ip && Date.now() - serverIpCache.at < 3600000) return serverIpCache.ip;
+  try {
+    const t = (await (await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(8000) })).text()).trim();
+    if (/^[0-9a-f.:]{7,45}$/i.test(t)) serverIpCache = { ip: t, at: Date.now() };
+  } catch { /* dùng IP cũ nếu có */ }
+  return serverIpCache.ip;
+}
+const keyProxies = () => [...keyState.values()].filter((st) => st.proxy && st.expiresAt > Date.now()).map((st) => st.proxy);
+const planProxies = () => { const c = loadPlan(); return c.keys.length ? keyProxies() : c.proxy ? [c.proxy] : []; };
+let keyRefreshing = false;
+async function refreshKeyProxies(force = false) {
+  if (keyRefreshing) return;
+  keyRefreshing = true;
+  try {
+    const cfg = loadPlan();
+    for (const k of [...keyState.keys()]) if (!cfg.keys.includes(k)) keyState.delete(k);
+    if (!cfg.keys.length) return;
+    const whitelist = await serverPublicIp();
+    for (const key of cfg.keys) {
+      const st = keyState.get(key) || {}, now = Date.now();
+      if (!force && st.proxy && st.expiresAt - now >= KEY_REFRESH_BEFORE_MS) continue;
+      if (!force && st.retryAt > now) continue;
+      try {
+        const r = await fetchKeyProxy(key, { whitelist });
+        await validateProxy(r.proxy);
+        keyState.set(key, { ...r, error: '', retryAt: 0 });
+      } catch (e) {
+        keyState.set(key, { ...st, error: String(e?.message || e).slice(0, 200), retryAt: Date.now() + (e?.retryAfterMs || 60000) });
+      }
+    }
+    const list = keyProxies();
+    if (list.length) { // cặp mới dùng proxy mới; cặp đang cào giữ proxy cũ cho tới khi xong
+      const json = JSON.stringify(list);
+      db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running' AND proxies != ?").run(json, json);
+    }
+  } finally { keyRefreshing = false; }
+}
+setInterval(() => { refreshKeyProxies().then(() => next()).catch((e) => console.error('refreshKeyProxies', e?.message)); }, 30000).unref();
+setTimeout(() => { refreshKeyProxies().catch((e) => console.error('refreshKeyProxies', e?.message)); }, 6000).unref();
+
 async function createPlanTask(p, country, cfg) {
   const known = citiesOfCountry(country);
   const cities = known.cities.slice(0, cfg.cities);
@@ -1596,7 +1645,7 @@ async function createPlanTask(p, country, cfg) {
   const re = new RegExp(`(^|,\\s*)${known.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
   inTx(() => {
     const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min, rest_max, win_on, win_start, win_end, tz, plan_round, plan_group) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(cfg.proxy ? [cfg.proxy] : []), 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
+      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(planProxies()), 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
     const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
     for (const city of cities) for (const kw of keywords) {
       const qtext = `${kw} ${city}${re.test(city) ? '' : `, ${known.name}`}`;
@@ -1647,7 +1696,8 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     totalPairs: products.reduce((n, p) => n + p.markets.length, 0) * pairsPer,
     current: { round: cfg.round + 1, tasks: cur.n, running: cur.run || 0 },
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
-    hasProxy: Boolean(cfg.proxy), proxy: undefined,
+    hasProxy: Boolean(cfg.proxy) || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
+    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '' }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });
@@ -1663,7 +1713,7 @@ const curlViaProxy = (proxy, url, timeoutS = 15) => new Promise((resolve) => {
   child.stdin.end(`proxy = "${proxy.replace(/["\\]/g, '')}"\n`);
 });
 app.post('/api/admin/auto-plan/test-proxy', requireAdmin, async (req, res) => {
-  let proxy = String(req.body?.proxy || '').trim() || loadPlan().proxy;
+  let proxy = String(req.body?.proxy || '').trim() || (loadPlan().keys.length ? keyProxies()[0] : '') || loadPlan().proxy;
   if (!proxy) return res.status(400).json({ error: 'Chưa có proxy để thử (nhập vào ô hoặc lưu proxy trước).' });
   try { proxy = await validateProxy(proxy); } catch (e) { return res.status(400).json({ error: e.message }); }
   const ips = [];
@@ -1706,14 +1756,33 @@ app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
   if (b.proxy !== undefined) { // chuỗi rỗng = xóa proxy; một endpoint xoay IP (mỗi luồng đi qua cùng endpoint nhưng nhận IP khác nhau)
     const raw = String(b.proxy).trim();
     if (raw) { try { next_.proxy = await validateProxy(raw); } catch (e) { return res.status(400).json({ error: e.message }); } } else next_.proxy = '';
-    db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(next_.proxy ? [next_.proxy] : []));
   }
+  let keysChanged = false;
+  if (b.keys !== undefined) { // mỗi dòng một Key proxy xoay (tối đa 6); rỗng = xóa; Key chỉ ghi vào, không bao giờ trả lại
+    const list = [...new Set(String(Array.isArray(b.keys) ? b.keys.join('\n') : b.keys).split(/[\s,;]+/).filter(Boolean))];
+    if (list.length > 6) return res.status(400).json({ error: 'Tối đa 6 Key.' });
+    if (!list.every(isKey)) return res.status(400).json({ error: 'Key chỉ gồm chữ và số (10–64 ký tự), mỗi dòng một Key.' });
+    keysChanged = JSON.stringify(list) !== JSON.stringify(cfg.keys);
+    next_.keys = list;
+  }
+  if (!next_.keys.length && b.proxy !== undefined) db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(next_.proxy ? [next_.proxy] : []));
   if (b.enabled !== undefined) {
     next_.enabled = Boolean(b.enabled);
     if (next_.enabled && !cfg.enabled) { next_.note = 'Đã bật'; if (cfg.note.startsWith('Đã xong một chu kỳ')) { next_.round = 0; next_.filled = false; } }
   }
   savePlan(next_);
+  if (keysChanged) {
+    if (next_.keys.length) await refreshKeyProxies(true);
+    else { keyState.clear(); if (next_.proxy || b.proxy === undefined) db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(next_.proxy ? [next_.proxy] : [])); }
+  }
   if (next_.enabled) planTick().catch((e) => console.error('planTick', e));
+  next();
+  res.json({ ok: true });
+});
+app.post('/api/admin/auto-plan/refresh-keys', requireAdmin, async (_req, res) => {
+  if (!loadPlan().keys.length) return res.status(400).json({ error: 'Chưa có Key proxy xoay.' });
+  await refreshKeyProxies(true);
+  next();
   res.json({ ok: true });
 });
 
