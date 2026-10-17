@@ -1420,11 +1420,11 @@ function autoThreadBudget() { // { allowed, mem, load }: có được mở thêm
 function selectAutoPair(extra) {
   let r = null, wake = 0;
   const filter = extra ? " AND plan_round>0 AND proxies != '[]'" : '';
-  const keyMode = loadPlan().keys.length > 0, keyOk = !keyMode || keyProxies().length > 0;
+  const keyMode = loadPlan().keys.length > 0, keyOk = !keyMode || keyHealthy().length > 0;
   for (const t of db.prepare(`SELECT * FROM auto_tasks WHERE status='running'${filter} AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id`).all()) {
-    const w = taskWait(t) || (t.plan_round > 0 && !keyOk ? { until: Date.now() + 30000 } : null); // chế độ Key mà chưa có proxy hợp lệ: chờ, tuyệt đối không cào bằng IP máy chủ
+    const w = taskWait(t) || (t.plan_round > 0 && !keyOk ? { until: Date.now() + 15000 } : null); // chế độ Key mà chưa có proxy hợp lệ: chờ, tuyệt đối không cào bằng IP máy chủ
     if (w) { wake = wake ? Math.min(wake, w.until) : w.until; continue; }
-    r = db.prepare("SELECT r.*, t.max_results, t.proxies FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
+    r = db.prepare("SELECT r.*, t.max_results, t.proxies, t.plan_round FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
     if (r) break;
   }
   return { r, wake };
@@ -1436,6 +1436,7 @@ function launchAuto(r, extra) {
   try {
     let proxies = [];
     try { proxies = JSON.parse(r.proxies || '[]'); } catch { proxies = []; }
+    if (r.plan_round > 0 && loadPlan().keys.length) proxies = keyHealthy(); // luôn dùng proxy mới nhất đã sẵn sàng, không dùng cột cũ trong DB
     stmt.autoRunStart.run(Date.now(), r.id);
     const job = new Job({
       queries: [{ text: r.qtext, key: makeKey(r.qtext, 'vi', '') }], geo: '', radius: 10000, depth: neededDepth(MAX_RESULTS, 1), maxResults: MAX_RESULTS, // khóa tính lại từ qtext: khóa cũ lưu trong DB của từ khóa không phải Latin đã bị trùng
@@ -1608,6 +1609,7 @@ function planProducts() {
 // Proxy xoay theo Key (proxy.vn): mỗi Key cho một proxy sống ~30 phút; gọi lại gần hết hạn để lấy proxy (IP) mới.
 // Key là bí mật: chỉ lưu trong app_settings, không bao giờ trả về trình duyệt hay ghi vào log.
 const KEY_REFRESH_BEFORE_MS = 150000;
+const KEY_SETTLE_MS = 60000; // sau khi lấy proxy mới, chờ thêm 1 phút rồi mới cào tiếp
 const keyState = new Map(); // key -> { proxy, expiresAt, error, retryAt, location, carrier }
 let serverIpCache = { ip: '', at: 0 };
 // Proxy còn hạn được lưu để khởi động lại (mỗi lần deploy) dùng tiếp, không gọi lại API (nhà cung cấp giới hạn tần suất đổi IP)
@@ -1627,6 +1629,8 @@ async function serverPublicIp() {
   return serverIpCache.ip;
 }
 const keyProxies = () => [...keyState.values()].filter((st) => st.proxy && st.expiresAt > Date.now()).map((st) => st.proxy);
+// Proxy "khỏe" = còn hạn quá cửa sổ gia hạn và đã qua thời gian chờ sau khi lấy: chỉ khi có proxy khỏe mới mở cặp mới (đang đổi proxy thì dừng mở cặp mới)
+const keyHealthy = () => { const now = Date.now(); return [...keyState.values()].filter((st) => st.proxy && st.expiresAt - now >= KEY_REFRESH_BEFORE_MS && now >= (st.readyAt || 0)).map((st) => st.proxy); };
 const planProxies = () => { const c = loadPlan(); return c.keys.length ? keyProxies() : c.proxy ? [c.proxy] : []; };
 let keyRefreshing = false;
 async function refreshKeyProxies(force = false) {
@@ -1644,15 +1648,15 @@ async function refreshKeyProxies(force = false) {
       try {
         const r = await fetchKeyProxy(key, { whitelist });
         await validateProxy(r.proxy);
-        keyState.set(key, { ...r, error: '', retryAt: 0 });
-        console.log(`[key …${key.slice(-4)}] lấy proxy OK ${r.proxy.replace(/^http:\/\/([^@]*@)?/, '')} ${r.carrier} ${r.location}, sống ${Math.round((r.expiresAt - Date.now()) / 1000)}s`);
+        keyState.set(key, { ...r, error: '', retryAt: 0, readyAt: Date.now() + KEY_SETTLE_MS });
+        console.log(`[key …${key.slice(-4)}] lấy proxy OK ${r.proxy.replace(/^http:\/\/([^@]*@)?/, '')} ${r.carrier} ${r.location}, sống ${Math.round((r.expiresAt - Date.now()) / 1000)}s, chạy tiếp sau ${KEY_SETTLE_MS / 1000}s`);
       } catch (e) {
         keyState.set(key, { ...st, error: String(e?.message || e).slice(0, 200), retryAt: Date.now() + (e?.retryAfterMs || 60000) });
         console.log(`[key …${key.slice(-4)}] lỗi: ${String(e?.message || e).slice(0, 200)} — thử lại sau ${Math.round((e?.retryAfterMs || 60000) / 1000)}s`);
       }
     }
     saveKeyState();
-    const list = keyProxies();
+    const list = keyHealthy();
     if (list.length) { // cặp mới dùng proxy mới; cặp đang cào giữ proxy cũ cho tới khi xong
       const json = JSON.stringify(list);
       db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running' AND proxies != ?").run(json, json);
@@ -1727,7 +1731,7 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     current: { round: cfg.round + 1, tasks: cur.n, running: cur.run || 0 },
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
     hasProxy: Boolean(cfg.proxy) || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
-    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0 }; }),
+    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0, readyAt: st.readyAt > Date.now() ? st.readyAt : 0, changing: Boolean(st.proxy && st.expiresAt - Date.now() < KEY_REFRESH_BEFORE_MS) }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });

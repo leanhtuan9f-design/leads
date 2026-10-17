@@ -7,7 +7,7 @@ interface Plan {
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
   hasProxy: boolean; keyCount: number;
-  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number }[];
+  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean }[];
   threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
@@ -126,7 +126,7 @@ export const AutoPlan: React.FC = () => {
             {plan.keyStatus.map(k => (
               <div key={k.id} className={k.ok ? 'text-emerald-300' : 'text-amber-300'}>
                 Key {k.id}: {!k.ok && k.error && k.retryAt > Date.now() ? `⏳ ${k.error} — tự thử lại sau ${Math.max(1, Math.round((k.retryAt - Date.now()) / 1000))} giây` : k.ok
-                  ? `✅ ${k.hostPort}${k.carrier ? ` · ${k.carrier}` : ''}${k.location ? ` · ${k.location}` : ''} · còn ${Math.max(0, Math.round((k.expiresAt - Date.now()) / 60000))} phút (tự lấy proxy mới trước khi hết hạn)`
+                  ? `${k.readyAt > Date.now() ? '⏳ Đã lấy proxy mới, chạy tiếp sau ' + Math.max(1, Math.round((k.readyAt - Date.now()) / 1000)) + ' giây — ' : k.changing ? '⏸ Sắp hết hạn, tạm dừng mở cặp mới để đổi proxy — ' : '✅ '}${k.hostPort}${k.carrier ? ` · ${k.carrier}` : ''}${k.location ? ` · ${k.location}` : ''} · còn ${Math.max(0, Math.round((k.expiresAt - Date.now()) / 60000))} phút (tự lấy proxy mới trước khi hết hạn)`
                   : `❌ ${k.error || 'đang lấy proxy…'}`}
               </div>
             ))}
