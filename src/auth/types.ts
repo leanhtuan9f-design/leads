@@ -1,7 +1,7 @@
 export interface AuthUser {
   id: number;
   email: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'trial';
 }
 
 export interface Quota {
@@ -30,7 +30,7 @@ export async function apiJson<T>(path: string, method = 'GET', body?: unknown): 
     credentials: 'same-origin'
   });
   const data = await resp.json().catch(() => ({}));
-  if (resp.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
+  if (resp.status === 401 && !['/auth/login', '/auth/me', '/trial/start'].includes(path)) {
     window.dispatchEvent(new Event('auth:expired'));
   }
   if (!resp.ok) throw new Error((data as { error?: string }).error || `Lỗi ${resp.status}`);

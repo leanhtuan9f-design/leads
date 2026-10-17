@@ -22,7 +22,7 @@ export default function AuthGate() {
   }, []);
 
   useEffect(() => {
-    apiJson<MeResponse>('/auth/me')
+    apiJson<MeResponse & { trial?: boolean }>('/trial/start', 'POST', {})
       .then(me => { setUser(me.user); setQuota(me.quota); setState('in'); })
       .catch(() => setState('out'));
     const onExpired = () => { setUser(null); setQuota(null); setState('out'); };

@@ -1,6 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson } from '../auth/types';
 import { AutoTasks } from './AutoTasks';
+import { AutoPlan } from './AutoPlan';
+import { HelpButton } from './HelpButton';
 
 interface JobRow {
   id: string;
@@ -26,6 +28,10 @@ interface JobRow {
 interface BackgroundInfo {
   now: number;
   running: JobRow | null;
+  backgroundRunning?: JobRow[];
+  workerCount?: number;
+  scanEnabled?: boolean;
+  scanIntervalMinutes?: number;
   queue: JobRow[];
   autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] };
   pending: { query: string; depth: number; withEmail: boolean; lang: string; proxies: number }[];
@@ -62,18 +68,53 @@ const Kind: React.FC<{ j: JobRow }> = ({ j }) => (
   </span>
 );
 
-export const AdminBackgroundView: React.FC = () => {
+export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => void }> = ({ onOpenGuide }) => {
   const [info, setInfo] = useState<BackgroundInfo | null>(null);
   const [error, setError] = useState('');
+  const [workerDraft, setWorkerDraft] = useState('');
+  const [savingWorkers, setSavingWorkers] = useState(false);
+  const [workerMessage, setWorkerMessage] = useState('');
+  const workerDirty = useRef(false);
+  const [scanEnabled, setScanEnabled] = useState(false);
+  const [intervalDraft, setIntervalDraft] = useState('60');
+  const configDirty = useRef(false);
 
   const load = useCallback(async () => {
     try {
-      setInfo(await apiJson<BackgroundInfo>('/admin/background'));
+      const next = await apiJson<BackgroundInfo>('/admin/background');
+      setInfo(next);
+      if (!configDirty.current) {
+        setWorkerDraft(String(next.workerCount || 1));
+        setScanEnabled(Boolean(next.scanEnabled));
+        setIntervalDraft(String(next.scanIntervalMinutes || 60));
+      }
       setError('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Lỗi tải dữ liệu');
     }
   }, []);
+
+  const saveWorkers = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingWorkers(true);
+    setWorkerMessage('');
+    try {
+      const result = await apiJson<{ workerCount: number; scanEnabled: boolean; scanIntervalMinutes: number }>('/admin/background/config', 'PUT', {
+        workers: Number(workerDraft), enabled: scanEnabled, intervalMinutes: Number(intervalDraft),
+      });
+      workerDirty.current = false;
+      configDirty.current = false;
+      setWorkerDraft(String(result.workerCount));
+      setScanEnabled(result.scanEnabled);
+      setIntervalDraft(String(result.scanIntervalMinutes));
+      setWorkerMessage('Đã lưu và áp dụng cho lượt chạy nền tiếp theo.');
+      await load();
+    } catch (e) {
+      setWorkerMessage(e instanceof Error ? e.message : 'Không lưu được cấu hình');
+    } finally {
+      setSavingWorkers(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -82,6 +123,10 @@ export const AdminBackgroundView: React.FC = () => {
   }, [load]);
 
   if (!info) return <div className="text-xs text-slate-400">{error ? `⚠️ ${error}` : 'Đang tải…'}</div>;
+
+  // Tương thích với backend cũ trong lúc service chưa restart/deploy đồng bộ.
+  const backgroundRunning = info.backgroundRunning || [];
+  const workerCount = info.workerCount || 1;
 
   const card = 'bg-slate-950 border border-slate-800 rounded-lg p-4';
   const stat = (label: string, value: React.ReactNode) => (
@@ -94,13 +139,13 @@ export const AdminBackgroundView: React.FC = () => {
   return (
     <div className="space-y-4 text-xs">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-white">Chạy ngầm</h2>
+        <h2 className="text-sm font-bold text-white flex items-center gap-2">Chạy ngầm{onOpenGuide && <HelpButton guideId="admin_background" onOpenGuide={onOpenGuide} />}</h2>
         <span className="text-[11px] text-slate-500">Tự làm mới mỗi 5 giây · {fmtTime(info.now)}</span>
       </div>
       {error && <div className="p-2 bg-amber-500/10 border border-amber-500/40 rounded text-amber-200">⚠️ {error}</div>}
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
-        {stat('Đang chạy', info.running ? 1 : 0)}
+        {stat('Đang chạy', `${(info.running ? 1 : 0) + backgroundRunning.length}/${workerCount + 1}`)}
         {stat('Hàng đợi người dùng', info.queue.length)}
         {stat('Cặp tự động đang chờ', info.autoQueue.total)}
         {stat('Chờ cập nhật kho cũ', info.pending.length)}
@@ -108,27 +153,71 @@ export const AdminBackgroundView: React.FC = () => {
         {stat('Kho', `${info.cache.places} điểm`)}
       </div>
       <p className="text-[11px] text-slate-500">
-        Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại ở nền khi máy rảnh (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
+        Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại bằng tối đa {workerCount} luồng nền (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
 
       <section className={card}>
+        <h3 className="font-semibold text-white mb-2">Cấu hình chạy đa luồng</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="p-3 bg-slate-900/70 border border-slate-800 rounded-lg">
+            <div className="text-[11px] text-slate-400">Luồng nền tối đa</div>
+            <div className="text-lg font-bold text-cyan-300 font-mono">{workerCount} luồng</div>
+          </div>
+          <div className="p-3 bg-slate-900/70 border border-slate-800 rounded-lg">
+            <div className="text-[11px] text-slate-400">Giới hạn cập nhật nền</div>
+            <div className="text-lg font-bold text-cyan-300 font-mono">{info.bgPerHour} truy vấn/giờ</div>
+          </div>
+          <div className="p-3 bg-slate-900/70 border border-slate-800 rounded-lg">
+            <div className="text-[11px] text-slate-400">Worker người dùng</div>
+            <div className="text-lg font-bold text-emerald-300 font-mono">1 ưu tiên</div>
+          </div>
+        </div>
+        <form onSubmit={saveWorkers} className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="text-[11px] text-slate-400">Số luồng nền (1–8)
+            <input value={workerDraft} onChange={(e) => { workerDirty.current = true; configDirty.current = true; setWorkerDraft(e.target.value); }} type="number" min={1} max={8} step={1}
+              className="mt-1 block w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan-400" />
+          </label>
+          <label className="text-[11px] text-slate-400">Chu kỳ quét (phút)
+            <input value={intervalDraft} onChange={(e) => { configDirty.current = true; setIntervalDraft(e.target.value); }} type="number" min={5} max={1440} step={5}
+              className="mt-1 block w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white outline-none focus:border-cyan-400" />
+          </label>
+          <label className="flex items-center gap-2 pb-2 text-[11px] text-slate-300">
+            <input checked={scanEnabled} onChange={(e) => { configDirty.current = true; setScanEnabled(e.target.checked); }} type="checkbox" className="accent-cyan-500" />
+            Tự động quét kho cũ
+          </label>
+          <button type="submit" disabled={savingWorkers}
+            className="rounded bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50">
+            {savingWorkers ? 'Đang lưu…' : 'Lưu cấu hình'}
+          </button>
+          {workerMessage && <span className="text-[11px] text-cyan-300">{workerMessage}</span>}
+        </form>
+        <p className="mt-2 text-[11px] text-slate-500">Job người dùng luôn được ưu tiên. Thay đổi được lưu trong database và không cần restart service.</p>
+      </section>
+
+      <section className={card}>
         <h3 className="font-semibold text-white mb-2">Đang chạy</h3>
-        {info.running ? (
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2"><Kind j={info.running} />
-              <span className="text-slate-300">{info.running.autoTask ? `Tác vụ #${info.running.autoTask.id}${info.running.autoTask.product ? ` · ${info.running.autoTask.product} → ${info.running.autoTask.country}` : ''}` : info.running.user || 'hệ thống'}</span>
-              <span className="text-slate-500">· {info.running.startedAt ? fmtDur(info.now - info.running.startedAt) : 'đang khởi động'}</span>
-              <span className="text-slate-500">· {info.running.count} điểm (kho {info.running.cache} / mới {info.running.live})</span>
-              {info.running.proxies > 0 ? <span className="text-slate-500">· {info.running.proxies} proxy</span> : <span className="text-slate-500">· IP máy chủ</span>}
-              {info.running.detached && <span className="text-amber-300">· đã ngắt kết nối, đang chạy nốt</span>}
-            </div>
-            <div className="text-slate-300 font-mono break-words">{info.running.queries.join(' | ')}</div>
+        {[info.running, ...backgroundRunning].filter(Boolean).length > 0 ? (
+          <div className="space-y-3">
+            {[info.running, ...backgroundRunning].filter((j): j is JobRow => Boolean(j)).map((job) => (
+              <div key={job.id} className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2"><Kind j={job} />
+                  <span className="text-slate-300">{job.autoTask ? `Tác vụ #${job.autoTask.id}${job.autoTask.product ? ` · ${job.autoTask.product} → ${job.autoTask.country}` : ''}` : job.user || 'hệ thống'}</span>
+                  <span className="text-slate-500">· {job.startedAt ? fmtDur(info.now - job.startedAt) : 'đang khởi động'}</span>
+                  <span className="text-slate-500">· {job.count} điểm (kho {job.cache} / mới {job.live})</span>
+                  {job.proxies > 0 ? <span className="text-slate-500">· {job.proxies} proxy</span> : <span className="text-slate-500">· IP máy chủ</span>}
+                  {job.detached && <span className="text-amber-300">· đã ngắt kết nối, đang chạy nốt</span>}
+                </div>
+                <div className="text-slate-300 font-mono break-words">{job.queries.join(' | ')}</div>
+              </div>
+            ))}
           </div>
         ) : info.autoQueue.total > 0 ? (
           <div className="text-slate-400">Máy đang rảnh trong giây lát (nghỉ giữa các cặp hoặc nghỉ chống bị chặn). Còn {info.autoQueue.total} cặp của tác vụ tự động đang chờ.</div>
         ) : <div className="text-slate-500">Máy đang rảnh.</div>}
       </section>
+
+      <AutoPlan />
 
       <AutoTasks />
 

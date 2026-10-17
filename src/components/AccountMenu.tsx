@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, LogOut, KeyRound, Terminal, Users, UserCog, Sparkles, MapPinned } from 'lucide-react';
+import { User, LogOut, KeyRound, Terminal, Users, UserCog, Sparkles, MapPinned, CreditCard } from 'lucide-react';
 import { apiJson, AuthUser, Quota } from '../auth/types';
 import { ActiveTab } from '../types/scraper';
 
@@ -10,9 +10,10 @@ interface AccountMenuProps {
   activeTab: ActiveTab;
   onNavigate: (tab: ActiveTab) => void;
   onOpenProfile: () => void;
+  onOpenBilling: () => void;
 }
 
-export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout, activeTab, onNavigate, onOpenProfile }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout, activeTab, onNavigate, onOpenProfile, onOpenBilling }) => {
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const [cur, setCur] = useState('');
@@ -75,12 +76,21 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout,
           <button onClick={() => { onOpenProfile(); setOpen(false); }} className="w-full flex items-center gap-1.5 text-slate-300 hover:text-white">
             <UserCog className="w-3.5 h-3.5" /> Hồ sơ của tôi
           </button>
+          <button onClick={() => { onOpenBilling(); setOpen(false); }} className="w-full rounded-md bg-blue-600 px-2 py-2 text-left font-semibold text-white hover:bg-blue-500">Nâng cấp gói dịch vụ</button>
           <button
             onClick={() => { onNavigate('api'); setOpen(false); }}
             className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'api' ? 'text-blue-400' : 'text-slate-300'}`}
           >
             <Terminal className="w-3.5 h-3.5" /> Tài liệu API
           </button>
+          {user.role === 'admin' && (
+            <button
+              onClick={() => { onNavigate('billingconfig'); setOpen(false); }}
+              className={`w-full flex items-center gap-1.5 hover:text-white ${activeTab === 'billingconfig' ? 'text-blue-400' : 'text-slate-300'}`}
+            >
+              <CreditCard className="w-3.5 h-3.5" /> Cấu hình thanh toán & gói
+            </button>
+          )}
           {user.role === 'admin' && (
             <button
               onClick={() => { onNavigate('admin'); setOpen(false); }}

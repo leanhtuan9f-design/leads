@@ -10,6 +10,7 @@ interface HeaderProps {
   setActiveTab: (tab: ActiveTab) => void;
   onOpenGuide: (guideId: string) => void;
   onOpenProfile: () => void;
+  onOpenBilling: () => void;
   totalLeadsCount: number;
   user: AuthUser;
   quota: Quota | null;
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   onOpenGuide,
   onOpenProfile,
+  onOpenBilling,
   totalLeadsCount,
   user,
   quota,
@@ -75,7 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <HelpCircle className="w-4 h-4 text-blue-400" />
         </button>
-        <AccountMenu user={user} quota={quota} onLogout={onLogout} activeTab={activeTab} onNavigate={setActiveTab} onOpenProfile={onOpenProfile} />
+        <AccountMenu user={user} quota={quota} onLogout={onLogout} activeTab={activeTab} onNavigate={setActiveTab} onOpenProfile={onOpenProfile} onOpenBilling={onOpenBilling} />
       </div>
     </header>
   );

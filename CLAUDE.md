@@ -14,8 +14,8 @@ Bản đồ logic dự án nằm ở **`/home/claude/repo-maps.md`**.
 6. **Tự động commit + push + deploy khi hoàn thành nhiệm vụ** (người dùng đã cho phép thường trực). Thứ tự:
    1. Cập nhật `/home/claude/repo-maps.md` (quy tắc 2).
    2. Kiểm tra: `npx tsc --noEmit` phải sạch, rồi `/opt/maps/deploy.sh` (git pull --ff-only + build) phải thành công. Nếu lỗi → **dừng, không commit/push**, báo lỗi cho người dùng.
-   3. `git add` chỉ các file thuộc nhiệm vụ (không `git add -A`; không bao giờ commit `.env*`, secret, `node_modules`, `dist`).
+   3. `git add` theo danh sách file cụ thể (không `git add -A`; không bao giờ commit `.env*`, secret, `node_modules`, `dist`). **Luôn commit khi hoàn thành, không được bỏ qua vì working tree còn thay đổi chưa commit của nhiệm vụ trước**: nếu một file chứa lẫn thay đổi của nhiệm vụ khác (hoặc file mới chưa theo dõi mà code đang import, ví dụ `server/billing.mjs`), thêm luôn các file đó vào cùng commit để repo build được, và nêu rõ trong thông điệp commit + báo người dùng. Chỉ để lại ngoài commit những file không liên quan tới code đang chạy. Không dừng ở trạng thái "đã deploy nhưng chưa commit".
    4. `git commit` với thông điệp ngắn gọn, mô tả rõ thay đổi, kết thúc bằng dòng `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
    5. `git push origin main`. Cấm `--force`. Nếu push bị từ chối (remote đi trước) → pull --ff-only/rebase, build lại, rồi push; xung đột thì dừng và báo.
    6. Ghi hash commit vào nhật ký `repo-maps.md`, rồi báo người dùng: commit, trạng thái push, trạng thái deploy.
-   Chỉ áp dụng cho nhiệm vụ thay đổi code/cấu hình của repo. Câu hỏi, đọc/giải thích thì không commit. Các thao tác khác ngoài repo này (xóa dữ liệu, đổi DNS/SSL/nginx của site khác) vẫn phải hỏi trước.
+   Mỗi nhiệm vụ thay đổi code/cấu hình đều kết thúc bằng đủ 6 bước này (đã được người dùng cho phép thường trực, không cần hỏi lại). Chỉ áp dụng cho nhiệm vụ thay đổi code/cấu hình của repo. Câu hỏi, đọc/giải thích thì không commit. Các thao tác khác ngoài repo này (xóa dữ liệu, đổi DNS/SSL/nginx của site khác) vẫn phải hỏi trước.

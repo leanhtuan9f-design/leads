@@ -1,20 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { DataTable } from './components/DataTable';
 import { MapView } from './components/MapView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { JobsRunnerView } from './components/JobsRunnerView';
-import { ApiDocsModal } from './components/ApiDocsModal';
 import { JobProgressBanner } from './components/JobProgressBanner';
 import { LeadDrawer } from './components/LeadDrawer';
-import { OutreachModal } from './components/OutreachModal';
-import { ModuleHelpModal } from './components/ModuleHelpModal';
-import { TrashModal } from './components/TrashModal';
-import { AdminUsersView } from './components/AdminUsersView';
-import { AiSettings } from './components/AiSettings';
-import { AdminBackgroundView } from './components/AdminBackgroundView';
-import { MarketConfig } from './components/MarketConfig';
-import { ProfileModal } from './components/ProfileModal';
 import { AuthUser, Quota, apiJson } from './auth/types';
 
 import { ScrapedBusiness, ScraperJob, ScraperOptions, ActiveTab } from './types/scraper';
@@ -25,6 +16,18 @@ import { playCompletionSound } from './utils/sound';
 
 import { DirectScrapeBar } from './components/DirectScrapeBar';
 import { CompletionSummaryData } from './components/JobProgressBanner';
+
+const ApiDocsModal = lazy(() => import('./components/ApiDocsModal').then(m => ({ default: m.ApiDocsModal })));
+const OutreachModal = lazy(() => import('./components/OutreachModal').then(m => ({ default: m.OutreachModal })));
+const ModuleHelpModal = lazy(() => import('./components/ModuleHelpModal').then(m => ({ default: m.ModuleHelpModal })));
+const TrashModal = lazy(() => import('./components/TrashModal').then(m => ({ default: m.TrashModal })));
+const AdminUsersView = lazy(() => import('./components/AdminUsersView').then(m => ({ default: m.AdminUsersView })));
+const AiSettings = lazy(() => import('./components/AiSettings').then(m => ({ default: m.AiSettings })));
+const BillingSettings = lazy(() => import('./components/BillingSettings').then(m => ({ default: m.BillingSettings })));
+const AdminBackgroundView = lazy(() => import('./components/AdminBackgroundView').then(m => ({ default: m.AdminBackgroundView })));
+const MarketConfig = lazy(() => import('./components/MarketConfig').then(m => ({ default: m.MarketConfig })));
+const ProfileModal = lazy(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
+const BillingModal = lazy(() => import('./components/BillingModal').then(m => ({ default: m.BillingModal })));
 
 const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v3';
 const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v3';
@@ -52,7 +55,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
-  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'aiconfig', 'marketconfig'] as ActiveTab[]) : [])];
+  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
   const [activeTab, setActiveTabRaw] = useState<ActiveTab>(() => {
     try { const t = localStorage.getItem(keyTab) as ActiveTab | null; if (t && TABS.includes(t)) return t; } catch (e) {}
     return 'leads';
@@ -97,6 +100,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const [outreachLeads, setOutreachLeads] = useState<ScrapedBusiness[] | null>(null);
   const [activeGuideId, setActiveGuideId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [profileVersion, setProfileVersion] = useState(0); // tăng khi lưu hồ sơ → thanh tìm kiếm tải lại gợi ý
 
   // Active Job Execution state
@@ -335,13 +339,15 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const infoNote = notice ? `⚠️ ${notice}` : dataNote ? `📦 ${dataNote}` : null;
   const showProgress = Boolean(activeJobId) || Boolean(completionSummary);
 
-  return (
+  return <Suspense fallback={<div className="min-h-[16rem] flex items-center justify-center text-sm text-slate-500">Đang tải…</div>}>
+    <>
     <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
         onOpenProfile={() => setProfileOpen(true)}
+        onOpenBilling={() => setBillingOpen(true)}
         totalLeadsCount={businesses.length}
         user={user}
         quota={quota}
@@ -453,8 +459,9 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         {activeTab === 'admin' && user.role === 'admin' && <AdminUsersView currentUserId={user.id} />}
 
-        {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView />}
+        {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
         {activeTab === 'aiconfig' && user.role === 'admin' && <div className="max-w-xl text-xs"><h2 className="text-sm font-bold text-white mb-1">Cấu hình AI</h2><AiSettings onSaved={() => {}} /></div>}
+        {activeTab === 'billingconfig' && user.role === 'admin' && <div className="max-w-3xl text-xs"><BillingSettings /></div>}
         {activeTab === 'marketconfig' && user.role === 'admin' && <MarketConfig />}
 
         {activeTab === 'api' && <ApiDocsModal onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
@@ -481,6 +488,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       {trashKind && <TrashModal kind={trashKind} onRestore={trashKind === 'leads' ? handleRestoreLeads : handleRestoreJobs} onClose={() => setTrashKind(null)} />}
 
       {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} onSaved={() => setProfileVersion(v => v + 1)} />}
+      {billingOpen && <BillingModal userEmail={user.email} trialId={user.role === 'trial' ? String(user.id) : undefined} onClose={() => setBillingOpen(false)} onActivated={() => window.location.reload()} />}
 
       {activeGuideId && (
         <ModuleHelpModal
@@ -490,5 +498,6 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         />
       )}
     </div>
-  );
+    </>
+  </Suspense>;
 }

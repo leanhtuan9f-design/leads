@@ -12,6 +12,7 @@ import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, rando
 import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
 import { ensureLogisticsSchema, loadLogisticsConfig, logisticsView, normalizeLogisticsPoint } from './logistics-config.mjs';
+import { ensureBillingSchema, createBillingService } from './billing.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
 try { process.loadEnvFile(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '.env')); } catch { /* không có .env */ }
@@ -32,6 +33,12 @@ const TTL_MS = 14 * 24 * 3600 * 1000; // dữ liệu quá 14 ngày coi là cũ �
 const FORCE_PER_DAY = 3; // số lần "làm mới" bắt buộc mỗi IP mỗi ngày
 const JOB_LOG_KEEP_MS = 30 * 24 * 3600 * 1000; // giữ lịch sử job 30 ngày
 const BG_QUERIES_PER_HOUR = 6; // trần số truy vấn cập nhật nền mỗi giờ
+const bgWorkersEnv = Number(process.env.BG_WORKERS || 2);
+const DEFAULT_BG_WORKERS = Number.isFinite(bgWorkersEnv) ? Math.max(1, Math.min(8, Math.floor(bgWorkersEnv))) : 2;
+let bgWorkerLimit = DEFAULT_BG_WORKERS; // có thể đổi trực tiếp trong giao diện admin
+let bgScanEnabled = false;
+let bgScanIntervalMinutes = 60;
+let bgScanTimer = null;
 const PURGE_AFTER_MS = 180 * 24 * 3600 * 1000; // xóa dữ liệu không ai dùng sau 180 ngày
 const DEPTHS = [1, 2, 4, 8, 16, 32, 40];
 const AUTO_GAP_MS = Number(process.env.AUTO_GAP_MS ?? 20000); // nghỉ giữa hai lần cào thật của tác vụ tự động (tránh dồn dập lên Google)
@@ -127,6 +134,7 @@ db.exec(`
 `);
 ensureTradeSchema(db);
 ensureLogisticsSchema(db);
+ensureBillingSchema(db);
 loadLogisticsConfig(db);
 ensureAuthSchema(db);
 db.exec(`CREATE TABLE IF NOT EXISTS user_state (
@@ -171,6 +179,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_log (
 )`);
 db.exec('CREATE INDEX IF NOT EXISTS ai_log_at ON ai_log(at)');
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+try {
+  const saved = db.prepare("SELECT value FROM app_settings WHERE key = 'background' ").get();
+  const config = JSON.parse(saved?.value || '{}');
+  const n = Number(config.workers);
+  if (Number.isInteger(n) && n >= 1 && n <= 8) bgWorkerLimit = n;
+  if (config.enabled === true) bgScanEnabled = true;
+  const interval = Number(config.intervalMinutes);
+  if (Number.isInteger(interval) && interval >= 5 && interval <= 1440) bgScanIntervalMinutes = interval;
+} catch (e) { console.error('Không đọc được cấu hình chạy nền', e?.message); }
 db.exec(`CREATE TABLE IF NOT EXISTS auto_tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT, created_by INTEGER, created_email TEXT, product TEXT NOT NULL, country TEXT NOT NULL,
   max_results INTEGER NOT NULL, keywords TEXT NOT NULL, cities TEXT NOT NULL, buyer_types TEXT NOT NULL DEFAULT '[]', proxies TEXT NOT NULL DEFAULT '[]',
@@ -182,7 +199,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS auto_runs (
 for (const col of ["level INTEGER NOT NULL DEFAULT 0", "parent_id INTEGER", "saturated INTEGER NOT NULL DEFAULT 0", "attempts INTEGER NOT NULL DEFAULT 1", "split_state TEXT NOT NULL DEFAULT ''"]) {
   try { db.exec(`ALTER TABLE auto_runs ADD COLUMN ${col}`); } catch { /* đã có cột */ }
 }
-for (const col of ["burst_n INTEGER NOT NULL DEFAULT 0", "rest_min INTEGER NOT NULL DEFAULT 0", "rest_max INTEGER NOT NULL DEFAULT 0", "win_on INTEGER NOT NULL DEFAULT 0", "win_start INTEGER NOT NULL DEFAULT 8", "win_end INTEGER NOT NULL DEFAULT 19", "tz TEXT NOT NULL DEFAULT ''", "since_rest INTEGER NOT NULL DEFAULT 0", "rest_until INTEGER NOT NULL DEFAULT 0"]) {
+for (const col of ["burst_n INTEGER NOT NULL DEFAULT 0", "rest_min INTEGER NOT NULL DEFAULT 0", "rest_max INTEGER NOT NULL DEFAULT 0", "win_on INTEGER NOT NULL DEFAULT 0", "win_start INTEGER NOT NULL DEFAULT 8", "win_end INTEGER NOT NULL DEFAULT 19", "tz TEXT NOT NULL DEFAULT ''", "since_rest INTEGER NOT NULL DEFAULT 0", "rest_until INTEGER NOT NULL DEFAULT 0", "plan_round INTEGER NOT NULL DEFAULT 0", "plan_group TEXT NOT NULL DEFAULT ''"]) {
   try { db.exec(`ALTER TABLE auto_tasks ADD COLUMN ${col}`); } catch { /* đã có cột */ }
 }
 db.exec('CREATE TABLE IF NOT EXISTS auto_areas (place TEXT PRIMARY KEY, areas TEXT NOT NULL, at INTEGER NOT NULL)');
@@ -266,6 +283,7 @@ const stmt = {
   purgeLinks: db.prepare('DELETE FROM query_places WHERE qkey NOT IN (SELECT qkey FROM query_runs)'),
   purgePlaces: db.prepare('DELETE FROM places WHERE place_id NOT IN (SELECT place_id FROM query_places)'),
 };
+const billing = createBillingService({ db, stmt, hashPassword });
 function purgeOld() {
   stmt.purgeSessions.run(Date.now());
   stmt.purgeUsage.run(new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10));
@@ -321,6 +339,88 @@ app.use((req, _res, next) => {
 const requireAuth = (req, res, next) => (req.user ? next() : res.status(401).json({ error: 'Chưa đăng nhập' }));
 const requireAdmin = (req, res, next) => (!req.user ? res.status(401).json({ error: 'Chưa đăng nhập' }) : req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Không có quyền' }));
 const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.userId === user.id));
+
+// ===== Central CRM billing =====
+app.get('/api/billing/config', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const config = billing.getConfig();
+  res.json({ sourceKey: config.sourceKey, plans: config.plans, prices: config.prices, features: config.features, skus: config.skus });
+});
+app.get('/api/admin/billing-config', requireAdmin, (_req, res) => {
+  const config = billing.getConfig();
+  res.json({ sourceKey: config.sourceKey, skus: config.skus, plans: config.plans, prices: config.prices, features: config.features, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
+});
+app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
+  const sourceKey = String(req.body?.sourceKey || '').trim().slice(0, 120);
+  const rawSkus = req.body?.skus || {};
+  const rawPlans = req.body?.plans || {};
+  const rawPrices = req.body?.prices || {};
+  const rawFeatures = req.body?.features || {};
+  const skus = Object.fromEntries(['BASIC_MONTHLY', 'BASIC_ANNUAL', 'ADVANCED_MONTHLY', 'ADVANCED_ANNUAL'].map((key) => [key, String(rawSkus[key] || '').trim().slice(0, 160)]));
+  const plans = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, { dailyNew: Math.max(0, Math.min(1000000, Number(rawPlans[key]?.dailyNew) || 0)), dailyRefresh: Math.max(0, Math.min(100000, Number(rawPlans[key]?.dailyRefresh) || 0)) }]));
+  const prices = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, { MONTHLY: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.MONTHLY) || 0)), ANNUAL: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.ANNUAL) || 0)) }]));
+  const features = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, Array.isArray(rawFeatures[key]) ? rawFeatures[key].map((item) => String(item).trim().slice(0, 200)).filter(Boolean).slice(0, 12) : []]));
+  if (!sourceKey || Object.values(skus).some((sku) => !sku)) return res.status(422).json({ error: 'Cần nhập Source key và đủ 4 SKU hiện có trong CRM' });
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('billing', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ sourceKey, skus, plans, prices, features }));
+  res.json({ sourceKey, skus, plans, prices, features, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
+});
+app.post('/api/billing/checkout', async (req, res) => {
+  try {
+    const existingUser = req.user && req.user.role !== 'trial' ? { id: req.user.id, email: req.user.email, pass: req.user.pass } : undefined;
+    const result = await billing.createCheckout({ name: req.body?.name, emailAddress: req.body?.email, phone: req.body?.phone, password: req.body?.password, plan: req.body?.plan, billingCycle: req.body?.billingCycle, trialId: req.body?.trialId, existingUser });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(Number(error?.statusCode) || 502).json({ code: error?.code || 'CHECKOUT_FAILED', error: error?.message || 'Không tạo được đơn thanh toán' });
+  }
+});
+app.get('/api/billing/orders/:id/status', async (req, res) => {
+  try {
+    const result = await billing.status(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Không tìm thấy đơn thanh toán' });
+    // Trial checkout creates the paid account only after CRM confirms payment.
+    // Once fulfilled, move the current trial session to that newly created account
+    // so the browser does not reload back into the old trial session.
+    if ((result.status === 'PAID' || result.status === 'FULFILLED') && req.user?.role === 'trial') {
+      const order = db.prepare('SELECT email, trial_id FROM billing_orders WHERE order_id = ?').get(req.params.id);
+      if (order?.trial_id && String(order.trial_id) === String(req.user.id)) {
+        const paidUser = stmt.userByEmail.get(order.email);
+        if (paidUser && !paidUser.disabled) {
+          const token = newToken();
+          stmt.insertSession.run(sha256(token), paidUser.id, Date.now() + SESSION_MS);
+          setCookie(res, token, SESSION_MS / 1000);
+        }
+      }
+    }
+    res.json(result);
+  } catch (error) {
+    res.status(Number(error?.statusCode) || 503).json({ code: error?.code || 'PAYMENT_STATUS_FAILED', error: error?.message || 'Không đọc được trạng thái thanh toán' });
+  }
+});
+app.post('/api/integrations/crm/entitlements', (req, res) => {
+  try {
+    const providedKey = req.get('x-crm-to-maps-payment-key') || req.get('x-crm-callback-secret');
+    res.status(200).json(billing.applyEntitlement({ ...req.body, providedKey }));
+  } catch (error) {
+    res.status(Number(error?.statusCode) || 503).json({ code: error?.code || 'CRM_CALLBACK_FAILED', error: error?.message || 'Không xử lý được callback CRM' });
+  }
+});
+app.get('/api/account/plan', requireAuth, (req, res) => {
+  let accountUser = req.user;
+  if (accountUser.role === 'trial') {
+    const paidOrder = db.prepare("SELECT email FROM billing_orders WHERE trial_id = ? AND status = 'FULFILLED' ORDER BY updated_at DESC LIMIT 1").get(String(accountUser.id));
+    const paidUser = paidOrder ? stmt.userByEmail.get(paidOrder.email) : null;
+    if (paidUser && !paidUser.disabled) {
+      const token = newToken();
+      stmt.insertSession.run(sha256(token), paidUser.id, Date.now() + SESSION_MS);
+      setCookie(res, token, SESSION_MS / 1000);
+      accountUser = paidUser;
+    }
+  }
+  const plan = db.prepare('SELECT plan, billing_cycle AS billingCycle, order_id AS orderId, effective_from AS effectiveFrom, effective_until AS effectiveUntil FROM user_plans WHERE user_id = ?').get(accountUser.id);
+  const config = billing.getConfig();
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.json({ plan: plan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices, features: config.features });
+});
 app.use('/api/jobs', requireAuth);
 app.use(['/api/state', '/api/items'], requireAuth);
 
@@ -407,6 +507,29 @@ function quotaOf(u) {
 
 const loginFails = new Map(); // key -> { n, until }
 const failKey = (req, email) => `${req.headers['x-real-ip'] || req.ip}|${email}`;
+app.post('/api/trial/start', (req, res) => {
+  if (req.user) {
+    if (req.user.role === 'trial') {
+      const paidOrder = db.prepare("SELECT email FROM billing_orders WHERE trial_id = ? AND status = 'FULFILLED' ORDER BY updated_at DESC LIMIT 1").get(String(req.user.id));
+      const paidUser = paidOrder ? stmt.userByEmail.get(paidOrder.email) : null;
+      if (paidUser && !paidUser.disabled) {
+        const token = newToken();
+        stmt.insertSession.run(sha256(token), paidUser.id, Date.now() + SESSION_MS);
+        setCookie(res, token, SESSION_MS / 1000);
+        return res.json({ user: publicUser(paidUser), quota: quotaOf(paidUser), trial: false });
+      }
+    }
+    return res.json({ user: publicUser(req.user), quota: quotaOf(req.user), trial: true });
+  }
+  const trialId = newToken();
+  const trialEmail = `trial_${trialId.slice(0, 24)}@trial.local`;
+  const userId = stmt.insertUser.run(trialEmail, hashPassword(randomPassword()), 'trial', 20, 3, Date.now()).lastInsertRowid;
+  const token = newToken();
+  stmt.insertSession.run(sha256(token), Number(userId), Date.now() + SESSION_MS);
+  setCookie(res, token, SESSION_MS / 1000);
+  const user = stmt.userById.get(Number(userId));
+  res.status(201).json({ user: publicUser(user), quota: quotaOf(user), trial: true, trialId: String(userId) });
+});
 app.post('/api/auth/login', (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 200);
   const password = String(req.body?.password || '').slice(0, 200);
@@ -603,6 +726,7 @@ class Job {
 }
 
 let running = null;
+const backgroundRuns = new Set();
 const queue = [];
 const bgPending = new Map(); // key -> { q, depth, withEmail, lang, geo, radius, proxies }
 let bgDoneThisHour = 0;
@@ -638,22 +762,8 @@ function jobView(job) {
   };
 }
 
-function next() {
-  if (running) return;
-  let job = queue.shift();
-  if (!job && bgPending.size > 0 && bgDoneThisHour < BG_QUERIES_PER_HOUR) {
-    const [key, e] = bgPending.entries().next().value;
-    bgPending.delete(key);
-    bgDoneThisHour++;
-    job = new Job({
-      queries: [e.q], geo: e.geo, radius: e.radius, depth: e.depth, extractEmails: e.withEmail,
-      lang: e.lang, proxies: e.proxies || [], force: true, background: true,
-    });
-    jobs.set(job.id, job);
-    job.live = prepareCached(job);
-  }
-  if (!job) { pickAuto(); return; }
-  running = job;
+function runManagedJob(job, pool = false) {
+  if (pool) backgroundRuns.add(job); else running = job;
   job.startedAt = Date.now();
   runJob(job).catch((e) => {
     console.error('runJob error', e);
@@ -662,9 +772,78 @@ function next() {
     rmSync(job.dir, { recursive: true, force: true });
     logJob(job);
     if (job.spec.auto) finishAutoRun(job);
-    running = null;
+    if (pool) backgroundRuns.delete(job); else running = null;
     next();
   });
+}
+
+function startBackgroundRefresh() {
+  if (bgPending.size === 0 || bgDoneThisHour >= BG_QUERIES_PER_HOUR || backgroundRuns.size >= bgWorkerLimit) return false;
+  const [key, e] = bgPending.entries().next().value;
+  bgPending.delete(key);
+  bgDoneThisHour++;
+  const job = new Job({
+    queries: [e.q], geo: e.geo, radius: e.radius, depth: e.depth, extractEmails: e.withEmail,
+    lang: e.lang, proxies: e.proxies || [], force: true, background: true,
+  });
+  jobs.set(job.id, job);
+  job.live = prepareCached(job);
+  runManagedJob(job, true);
+  return true;
+}
+
+function next() {
+  // Job người dùng luôn chiếm worker chính và được ưu tiên trước nền.
+  if (!running && queue.length > 0) {
+    const job = queue.shift();
+    runManagedJob(job);
+    return;
+  }
+
+  // Có thể chạy nhiều cập nhật kho đồng thời, kể cả khi một tác vụ nền khác đang chạy.
+  // Khi có người dùng đang chờ, nhường tài nguyên cho họ.
+  if (queue.length === 0) {
+    while (startBackgroundRefresh()) { /* lấp đầy pool nền */ }
+  }
+
+  if (!running) pickAuto();
+}
+
+function backgroundKeyActive(key) {
+  if (bgPending.has(key)) return true;
+  return [...backgroundRuns].some((job) => job.spec.background && job.spec.queries.some((q) => q.key === key));
+}
+
+function scanBackgroundCache() {
+  if (!bgScanEnabled) return;
+  const cutoff = Date.now() - TTL_MS;
+  const stale = db.prepare('SELECT qkey, query_text, depth, with_email FROM query_runs WHERE last_run_at < ? ORDER BY last_run_at LIMIT 100').all(cutoff);
+  for (const row of stale) {
+    if (backgroundKeyActive(row.qkey)) continue;
+    const parts = String(row.qkey).split('|');
+    const lang = /^[a-z]{2}(-[A-Za-z]{2})?$/i.test(parts[0]) ? parts[0] : 'vi';
+    let geo = '';
+    let radius = 10000;
+    const geoPart = parts[1] || '';
+    const geoMatch = geoPart.match(/^(-?\d+(?:\.\d+)?,-?\d+(?:\.\d+)?)@(\d+)$/);
+    if (geoMatch) { geo = geoMatch[1]; radius = Number(geoMatch[2]) || radius; }
+    bgPending.set(row.qkey, {
+      q: { text: row.query_text, key: row.qkey }, depth: row.depth, withEmail: Boolean(row.with_email),
+      lang, geo, radius, proxies: [],
+    });
+  }
+  next();
+}
+
+function scheduleBackgroundScan(delay = bgScanIntervalMinutes * 60 * 1000) {
+  if (bgScanTimer) clearTimeout(bgScanTimer);
+  if (!bgScanEnabled) return;
+  bgScanTimer = setTimeout(() => {
+    bgScanTimer = null;
+    scanBackgroundCache();
+    scheduleBackgroundScan();
+  }, Math.max(1000, delay));
+  bgScanTimer.unref();
 }
 
 // Chạy gosom cho đúng 1 truy vấn → lưu vào kho; trả về số địa điểm
@@ -1136,6 +1315,10 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
   res.json({
     now: Date.now(),
     running: running ? { ...jobView(running), status: running.status } : null,
+    backgroundRunning: [...backgroundRuns].map((job) => ({ ...jobView(job), status: job.status })),
+    workerCount: bgWorkerLimit,
+    scanEnabled: bgScanEnabled,
+    scanIntervalMinutes: bgScanIntervalMinutes,
     queue: queue.map(jobView),
     pending: [...bgPending.values()].map((e) => ({ query: e.q.text, depth: e.depth, withEmail: e.withEmail, lang: e.lang, proxies: (e.proxies || []).length })),
     autoQueue: {
@@ -1160,6 +1343,34 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     logTotal: stmt.countLog.get().n, logKeepDays: JOB_LOG_KEEP_MS / 86400000,
     cache: { places: s.places, queries: s.queries, hits: s.hits },
   });
+});
+
+app.put('/api/admin/background/workers', requireAdmin, (req, res) => {
+  const workers = Number(req.body?.workers);
+  if (!Number.isInteger(workers) || workers < 1 || workers > 8) {
+    return res.status(400).json({ error: 'Số luồng phải là số nguyên từ 1 đến 8.' });
+  }
+  bgWorkerLimit = workers;
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('background', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(JSON.stringify({ workers, enabled: bgScanEnabled, intervalMinutes: bgScanIntervalMinutes }));
+  next();
+  res.json({ ok: true, workerCount: bgWorkerLimit });
+});
+
+app.put('/api/admin/background/config', requireAdmin, (req, res) => {
+  const workers = Number(req.body?.workers);
+  const intervalMinutes = Number(req.body?.intervalMinutes);
+  const enabled = req.body?.enabled === true;
+  if (!Number.isInteger(workers) || workers < 1 || workers > 8) return res.status(400).json({ error: 'Số luồng phải là số nguyên từ 1 đến 8.' });
+  if (!Number.isInteger(intervalMinutes) || intervalMinutes < 5 || intervalMinutes > 1440) return res.status(400).json({ error: 'Chu kỳ quét phải từ 5 đến 1440 phút.' });
+  bgWorkerLimit = workers;
+  bgScanIntervalMinutes = intervalMinutes;
+  bgScanEnabled = enabled;
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('background', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(JSON.stringify({ workers, enabled, intervalMinutes }));
+  if (bgScanEnabled) { scanBackgroundCache(); scheduleBackgroundScan(); }
+  else if (bgScanTimer) { clearTimeout(bgScanTimer); bgScanTimer = null; }
+  res.json({ ok: true, workerCount: bgWorkerLimit, scanEnabled: bgScanEnabled, scanIntervalMinutes: bgScanIntervalMinutes });
 });
 
 
@@ -1242,7 +1453,8 @@ const nextWindowOpen = (task, t = Date.now()) => { // thời điểm gần nhấ
 };
 // Thời điểm tác vụ được phép cào tiếp: sau nghỉ định kỳ và trong khung giờ làm việc
 const taskWait = (task, now = Date.now()) => {
-  const rest = task.rest_until > now ? task.rest_until : 0;
+  const restAt = Math.max(task.rest_until, task.plan_round > 0 ? planRestUntil : 0); // tác vụ của lịch xoay vòng dùng chung một bộ đếm nghỉ
+  const rest = restAt > now ? restAt : 0;
   const win = nextWindowOpen(task, Math.max(now, rest));
   return win ? { until: win, reason: 'window' } : rest ? { until: rest, reason: 'rest' } : null;
 };
@@ -1270,8 +1482,11 @@ function finishAutoRun(job) {
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
   // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần cào thật thì nghỉ M phút
   if (!job.cacheOnly) {
-    const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest FROM auto_tasks WHERE id=?').get(taskId);
-    if (t && t.burst_n > 0 && (t.rest_min > 0 || t.rest_max > 0)) {
+    const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest, plan_round FROM auto_tasks WHERE id=?').get(taskId);
+    if (t && t.plan_round > 0) {
+      const cfg = loadPlan();
+      if (cfg.burstN > 0 && ++planSince >= cfg.burstN) { planSince = 0; planRestUntil = Date.now() + restDelayMs(cfg.restMin, cfg.restMax); }
+    } else if (t && t.burst_n > 0 && (t.rest_min > 0 || t.rest_max > 0)) {
       const n = t.since_rest + 1;
       if (n >= t.burst_n) db.prepare('UPDATE auto_tasks SET since_rest=0, rest_until=? WHERE id=?').run(Date.now() + restDelayMs(t.rest_min, t.rest_max), taskId);
       else db.prepare('UPDATE auto_tasks SET since_rest=? WHERE id=?').run(n, taskId);
@@ -1292,8 +1507,115 @@ function finishAutoRun(job) {
     stmt.autoTaskEnd.run('stopped', Date.now(), `Tự dừng: ${AUTO_BREAKER} cặp liên tiếp lỗi (có thể Google chặn IP). Kiểm tra proxy rồi bấm Tiếp tục.`, taskId);
     return;
   }
-  if (stmt.autoLeft.get(taskId).n === 0) stmt.autoTaskEnd.run('done', Date.now(), '', taskId);
+  if (stmt.autoLeft.get(taskId).n === 0) { stmt.autoTaskEnd.run('done', Date.now(), '', taskId); setImmediate(planTick); }
 }
+
+// ---- Lịch xoay vòng theo dữ liệu xuất khẩu (GSO) ----
+// Mỗi vòng, mỗi mặt hàng được cào ĐÚNG MỘT nước nhập khẩu (vòng 1 = nước kim ngạch cao nhất, vòng 2 = nước thứ hai…);
+// mỗi nước chỉ cào vài từ khóa × vài thành phố lớn. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong/dừng.
+const PLAN_SKIP_HS = new Set(['2709', '2710', '2701', '26', '2523']); // dầu thô, xăng dầu, than, quặng, xi măng: không phải ngành tìm người mua trên Google Maps
+const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, note: '' };
+let planRestUntil = 0, planSince = 0, planBusy = false;
+function loadPlan() {
+  try { const r = db.prepare("SELECT value FROM app_settings WHERE key='autoplan'").get(); if (r) return { ...PLAN_DEFAULT, ...JSON.parse(r.value) }; } catch { /* dùng mặc định */ }
+  return { ...PLAN_DEFAULT };
+}
+const savePlan = (cfg) => db.prepare("INSERT INTO app_settings (key, value) VALUES ('autoplan', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(cfg));
+// Danh sách mặt hàng + nước (đã sắp theo kim ngạch giảm dần) từ snapshot theo mặt hàng mới nhất
+function planProducts() {
+  const snap = db.prepare("SELECT snapshot_id AS id FROM trade_flows WHERE hs_code != 'TOTAL' ORDER BY period DESC, snapshot_id DESC LIMIT 1").get();
+  if (!snap) return [];
+  const rows = db.prepare("SELECT hs_code, product_group, partner_name, SUM(export_value_usd) AS v FROM trade_flows WHERE snapshot_id=? AND hs_code != 'TOTAL' GROUP BY hs_code, product_group, partner_name ORDER BY v DESC").all(snap.id);
+  const by = new Map();
+  for (const r of rows) {
+    if (PLAN_SKIP_HS.has(r.hs_code) || !citiesOfCountry(r.partner_name)) continue;
+    const key = `${r.hs_code}|${r.product_group}`;
+    if (!by.has(key)) by.set(key, { key, product: r.product_group, total: 0, markets: [] });
+    const p = by.get(key); p.total += Number(r.v) || 0; p.markets.push(citiesOfCountry(r.partner_name).name);
+  }
+  return [...by.values()].sort((a, b) => b.total - a.total);
+}
+async function createPlanTask(p, country, cfg) {
+  const known = citiesOfCountry(country);
+  const cities = known.cities.slice(0, cfg.cities);
+  const t0 = Date.now();
+  const ai = await suggestCountries({ offer: `${p.product} (xuất khẩu từ Việt Nam)`, area: `Bắt buộc có "${known.name}" trong danh sách quốc gia trả về.` });
+  stmt.aiLogAdd.run(Date.now(), 0, 'lịch xoay vòng', 1, ai.usage.input, ai.usage.output, ai.countries.length, `lịch xoay vòng ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const hit = ai.countries.find((c) => c.country.toLowerCase() === known.name.toLowerCase());
+  const keywords = [...new Set([...(hit?.keywords || []), ...ai.buyerTypes.map((x) => x.keyword)].map((k) => k.trim()).filter(Boolean))].slice(0, cfg.keywords);
+  if (!keywords.length) throw new Error(`AI không trả từ khóa cho ${p.product} → ${known.name}`);
+  const tz = CITY_DATA.tz?.[known.name] || '';
+  const re = new RegExp(`(^|,\\s*)${known.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+  inTx(() => {
+    const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min, rest_max, win_on, win_start, win_end, tz, plan_round, plan_group) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), '[]', 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
+    const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
+    for (const city of cities) for (const kw of keywords) {
+      const qtext = `${kw} ${city}${re.test(city) ? '' : `, ${known.name}`}`;
+      ins.run(Number(r.lastInsertRowid), kw, city, qtext, makeKey(qtext, 'vi', ''), 'pending');
+    }
+  });
+}
+async function planTick() {
+  if (planBusy) return;
+  planBusy = true;
+  try {
+    const cfg = loadPlan();
+    if (!cfg.enabled) return;
+    if (!aiEnabled()) { if (cfg.note !== 'AI chưa được cấu hình') savePlan({ ...cfg, note: 'AI chưa được cấu hình' }); return; }
+    const products = planProducts();
+    if (!products.length) { savePlan({ ...cfg, enabled: false, note: 'Chưa có dữ liệu xuất khẩu theo mặt hàng' }); return; }
+    for (let guard = 0; guard < 10; guard++) {
+      if (cfg.filled) {
+        if (db.prepare("SELECT 1 FROM auto_tasks WHERE plan_round=? AND status='running'").get(cfg.round + 1)) return; // vòng hiện tại chưa xong
+        cfg.round++; cfg.filled = false;
+      }
+      const items = products.filter((p) => p.markets[cfg.round]).map((p) => ({ p, country: p.markets[cfg.round] }));
+      if (!items.length) { savePlan({ ...cfg, enabled: false, round: 0, filled: false, cycles: cfg.cycles + 1, note: `Đã xong một chu kỳ (${cfg.round} vòng). Bật lại để chạy chu kỳ mới (cặp đã có trong kho sẽ hoàn tất ngay).` }); return; }
+      let created = 0;
+      for (const { p, country } of items) {
+        if (db.prepare('SELECT 1 FROM auto_tasks WHERE plan_group=? AND country=?').get(p.key, country)) continue;
+        try { await createPlanTask(p, country, cfg); created++; } catch (e) {
+          savePlan({ ...cfg, note: `Vòng ${cfg.round + 1}: lỗi tạo ${p.product} → ${country}: ${String(e?.message || e).slice(0, 160)} (sẽ thử lại)` });
+          return;
+        }
+      }
+      cfg.filled = true; cfg.note = `Vòng ${cfg.round + 1}: đã tạo ${created} tác vụ`;
+      savePlan(cfg);
+      if (created) { next(); return; }
+    }
+  } finally { planBusy = false; }
+}
+setInterval(() => { planTick().catch((e) => console.error('planTick', e)); }, 10 * 60 * 1000).unref();
+setTimeout(() => { planTick().catch((e) => console.error('planTick', e)); }, 8000).unref();
+
+app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
+  const cfg = loadPlan(); const products = planProducts();
+  const cur = db.prepare("SELECT COUNT(*) AS n, SUM(status='running') AS run FROM auto_tasks WHERE plan_round=?").get(cfg.round + 1);
+  const rounds = Math.max(0, ...products.map((p) => p.markets.length));
+  const pairsPer = cfg.keywords * cfg.cities;
+  res.json({
+    ...cfg, products: products.length, rounds, items: products.reduce((n, p) => n + p.markets.length, 0),
+    totalPairs: products.reduce((n, p) => n + p.markets.length, 0) * pairsPer,
+    current: { round: cfg.round + 1, tasks: cur.n, running: cur.run || 0 },
+    restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
+  });
+});
+app.put('/api/admin/auto-plan', requireAdmin, (req, res) => {
+  const b = req.body || {}; const cfg = loadPlan();
+  const int = (v, lo, hi, d) => (v === undefined || v === '' ? d : Number.isInteger(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Number(v) : null);
+  const keywords = int(b.keywords, 1, 6, cfg.keywords), cities = int(b.cities, 1, 10, cfg.cities), burstN = int(b.burstN, 0, 100, cfg.burstN), restMin = int(b.restMin, 0, 240, cfg.restMin), restMax = int(b.restMax, 0, 240, cfg.restMax);
+  if ([keywords, cities, burstN, restMin, restMax].includes(null)) return res.status(400).json({ error: 'Từ khóa 1–6, thành phố 1–10, số cặp nghỉ 0–100, phút nghỉ 0–240.' });
+  if (restMax < restMin) return res.status(400).json({ error: 'Nghỉ tối đa phải ≥ nghỉ tối thiểu.' });
+  const next_ = { ...cfg, keywords, cities, burstN, restMin, restMax };
+  if (b.enabled !== undefined) {
+    next_.enabled = Boolean(b.enabled);
+    if (next_.enabled && !cfg.enabled) { next_.note = 'Đã bật'; if (cfg.note.startsWith('Đã xong một chu kỳ')) { next_.round = 0; next_.filled = false; } }
+  }
+  savePlan(next_);
+  if (next_.enabled) planTick().catch((e) => console.error('planTick', e));
+  res.json({ ok: true });
+});
 
 // Tách một cặp chạm trần Google thành các khu nhỏ (AI liệt kê quận/phường, lưu cache theo địa điểm), tạo cặp con cho cùng từ khóa
 async function splitRun(r) {
@@ -1436,7 +1758,8 @@ app.post('/api/admin/auto', requireAdmin, async (req, res) => {
 app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   stmt.autoTaskEnd.run('stopped', Date.now(), 'Admin dừng', id);
-  if (running?.spec.auto?.taskId === id) { running.stopRequested = true; running.abort(); } // dừng luôn cặp đang cào
+  const activeAuto = [running, ...backgroundRuns].find((job) => job?.spec.auto?.taskId === id);
+  if (activeAuto) { activeAuto.stopRequested = true; activeAuto.abort(); } // dừng luôn cặp đang cào
   res.json({ ok: true });
 });
 // Sửa thông số nghỉ của tác vụ đang có (áp dụng từ cặp kế tiếp)
@@ -1495,8 +1818,9 @@ for (const t of db.prepare("SELECT id, country FROM auto_tasks WHERE tz=''").all
 execFile('sh', ['-c', 'docker ps -aq --filter name=maps-job- | xargs -r docker rm -f'], () => {}); // container mồ côi của lần chạy trước bị ngắt
 try { for (const d of readdirSync(WORK_DIR)) rmSync(path.join(WORK_DIR, d), { recursive: true, force: true }); } catch { /* chưa có thư mục */ } // thư mục tạm của job bị ngắt lần trước
 setTimeout(next, 5000).unref(); // sau khi khởi động, tiếp tục các tác vụ đang dở
+if (bgScanEnabled) setTimeout(() => { scanBackgroundCache(); scheduleBackgroundScan(); }, 5000).unref();
 
 // (health không cần đăng nhập)
-app.get('/api/health', (_req, res) => res.json({ ok: true, running: Boolean(running), queued: queue.length }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, running: Boolean(running) || backgroundRuns.size > 0, backgroundRunning: backgroundRuns.size, queued: queue.length }));
 
 app.listen(PORT, HOST, () => console.log(`maps-api listening on ${HOST}:${PORT}`));
