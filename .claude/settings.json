@@ -10,5 +10,25 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(./deploy.sh)",
+      "Bash(/opt/maps/deploy.sh)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git pull --ff-only*)",
+      "Bash(git push origin main)",
+      "Bash(git status*)",
+      "Bash(npx tsc --noEmit)"
+    ],
+    "deny": [
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)"
+    ]
   }
 }
