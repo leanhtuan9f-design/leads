@@ -305,8 +305,8 @@ purgeOld();
 setInterval(purgeOld, 24 * 3600 * 1000).unref();
 
 // Khóa tra cứu: bỏ dấu, chữ thường, bỏ ký tự thừa → "Nha Khoa" và "nha khoa" là một
-const normalize = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd')
-  .toLowerCase().replace(/[^a-z0-9., -]/g, ' ').replace(/\s+/g, ' ').trim();
+const normalize = (s) => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').normalize('NFC').replace(/đ/gi, 'd')
+  .toLowerCase().replace(/[^\p{L}\p{M}\p{N}., -]/gu, ' ').replace(/\s+/g, ' ').trim(); // giữ chữ Hán/Nhật/Hàn/Kirin...: trước đây bị xóa nên mọi từ khóa không phải Latin trùng một khóa kho
 const makeKey = (query, lang, geo) => `${lang}|${geo || ''}|${normalize(query)}`;
 const neededDepth = (maxResults, nQueries) => {
   const raw = Math.ceil((maxResults * 1.5) / nQueries / 7);
@@ -854,6 +854,12 @@ function scheduleBackgroundScan(delay = bgScanIntervalMinutes * 60 * 1000) {
   bgScanTimer.unref();
 }
 
+// gosom từ chối proxy không có tài khoản ("failed to start auth proxy ... username and password are required"):
+// proxy dùng whitelist IP bỏ qua thông tin đăng nhập nên thêm tài khoản giả là vô hại.
+function withProxyCreds(raw) {
+  return /^[a-z0-9]+:\/\/[^/@]*@/i.test(raw) ? raw : String(raw).replace(/^([a-z0-9]+:\/\/)/i, '$1proxy:proxy@');
+}
+
 // Chạy gosom cho đúng 1 truy vấn → lưu vào kho; trả về số địa điểm
 function scrapeQuery(job, q, idx) {
   return new Promise((resolve) => {
@@ -861,7 +867,7 @@ function scrapeQuery(job, q, idx) {
     const dir = path.join(job.dir, String(idx));
     mkdirSync(dir, { recursive: true, mode: 0o777 });
     writeFileSync(path.join(dir, 'q.txt'), q.text + '\n');
-    if (proxies.length) writeFileSync(path.join(dir, 'proxies.txt'), proxies.join('\n') + '\n', { mode: 0o644 });
+    if (proxies.length) writeFileSync(path.join(dir, 'proxies.txt'), proxies.map(withProxyCreds).join('\n') + '\n', { mode: 0o644 });
     job.container = `maps-job-${job.id.slice(0, 8)}-${idx}`;
 
     const args = [
@@ -1424,7 +1430,7 @@ function launchAuto(r, extra) {
     try { proxies = JSON.parse(r.proxies || '[]'); } catch { proxies = []; }
     stmt.autoRunStart.run(Date.now(), r.id);
     const job = new Job({
-      queries: [{ text: r.qtext, key: r.qkey }], geo: '', radius: 10000, depth: neededDepth(MAX_RESULTS, 1), maxResults: MAX_RESULTS,
+      queries: [{ text: r.qtext, key: makeKey(r.qtext, 'vi', '') }], geo: '', radius: 10000, depth: neededDepth(MAX_RESULTS, 1), maxResults: MAX_RESULTS, // khóa tính lại từ qtext: khóa cũ lưu trong DB của từ khóa không phải Latin đã bị trùng
       extractEmails: true, lang: 'vi', proxies, force: false, background: true, auto: { runId: r.id, taskId: r.task_id },
     });
     jobs.set(job.id, job);
@@ -1487,8 +1493,13 @@ function pickAutoExtra() {
 }
 
 // Khung giờ làm việc theo múi giờ của nước đích: chỉ cào khi giờ địa phương nằm trong [win_start, win_end)
+const hourFmt = new Map(); // tạo Intl.DateTimeFormat rất tốn: dùng lại theo múi giờ (trước đây tạo mới hàng chục nghìn lần mỗi lượt chọn tác vụ → tràn RAM)
 const localHour = (tz, t) => {
-  try { return Number(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }).format(new Date(t))); } catch { return null; }
+  try {
+    let f = hourFmt.get(tz);
+    if (!f) { f = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', hourCycle: 'h23' }); hourFmt.set(tz, f); }
+    return Number(f.format(new Date(t)));
+  } catch { return null; }
 };
 const inWindow = (task, t = Date.now()) => {
   if (!task.win_on || !task.tz) return true;
