@@ -103,7 +103,7 @@ export const AutoPlan: React.FC = () => {
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
             <span>Proxy xoay IP</span>
             <input value={proxy} onChange={e => setProxy(e.target.value)} type="password" autoComplete="off" spellCheck={false}
-              placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'http://user:pass@host:port'}
+              placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'host:port  |  host:port:user:pass  |  http://user:pass@host:port'}
               className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
             <button onClick={testProxy} disabled={testing || (!proxy.trim() && !plan.hasProxy)}
               className="py-1 px-3 bg-blue-700 hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">

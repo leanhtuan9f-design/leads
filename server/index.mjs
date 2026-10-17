@@ -87,10 +87,15 @@ const tradeTimerInfo = async () => {
 
 // Kiểm tra proxy do người dùng nhập: chỉ http/https/socks5, không cho trỏ vào mạng nội bộ của máy chủ
 async function validateProxy(raw) {
-  const line = String(raw).trim();
+  let line = String(raw).trim();
   if (!line || line.length > 300 || /\s/.test(line)) throw new Error('Proxy sai định dạng');
+  if (!/^[a-z0-9]+:\/\//i.test(line)) { // nhà cung cấp hay gửi dạng ngắn: host:port, host:port:user:pass, user:pass@host:port → mặc định http://
+    const p = line.split(':');
+    if (!line.includes('@') && p.length === 4 && /^\d{2,5}$/.test(p[1])) line = `http://${encodeURIComponent(p[2])}:${encodeURIComponent(p[3])}@${p[0]}:${p[1]}`;
+    else line = `http://${line}`;
+  }
   let u;
-  try { u = new URL(line); } catch { throw new Error('Proxy sai định dạng (cần dạng http://user:pass@host:port)'); }
+  try { u = new URL(line); } catch { throw new Error('Proxy sai định dạng (dùng host:port, host:port:user:pass hoặc http://user:pass@host:port)'); }
   if (!['http:', 'https:', 'socks5:', 'socks5h:'].includes(u.protocol)) throw new Error('Proxy chỉ hỗ trợ http, https, socks5');
   if (!u.hostname || !u.port) throw new Error('Proxy cần có host và port');
   const host = u.hostname.replace(/^\[|\]$/g, '');
