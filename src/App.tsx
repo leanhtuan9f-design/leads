@@ -1,4 +1,6 @@
-import React, { lazy, Suspense, useState, useEffect, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useRef } from 'react';
+import { lazyReload } from './utils/lazyReload';
+import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
 import { Header } from './components/Header';
 import { DataTable } from './components/DataTable';
 import { MapView } from './components/MapView';
@@ -17,17 +19,17 @@ import { playCompletionSound } from './utils/sound';
 import { DirectScrapeBar } from './components/DirectScrapeBar';
 import { CompletionSummaryData } from './components/JobProgressBanner';
 
-const ApiDocsModal = lazy(() => import('./components/ApiDocsModal').then(m => ({ default: m.ApiDocsModal })));
-const OutreachModal = lazy(() => import('./components/OutreachModal').then(m => ({ default: m.OutreachModal })));
-const ModuleHelpModal = lazy(() => import('./components/ModuleHelpModal').then(m => ({ default: m.ModuleHelpModal })));
-const TrashModal = lazy(() => import('./components/TrashModal').then(m => ({ default: m.TrashModal })));
-const AdminUsersView = lazy(() => import('./components/AdminUsersView').then(m => ({ default: m.AdminUsersView })));
-const AiSettings = lazy(() => import('./components/AiSettings').then(m => ({ default: m.AiSettings })));
-const BillingSettings = lazy(() => import('./components/BillingSettings').then(m => ({ default: m.BillingSettings })));
-const AdminBackgroundView = lazy(() => import('./components/AdminBackgroundView').then(m => ({ default: m.AdminBackgroundView })));
-const MarketConfig = lazy(() => import('./components/MarketConfig').then(m => ({ default: m.MarketConfig })));
-const ProfileModal = lazy(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
-const BillingModal = lazy(() => import('./components/BillingModal').then(m => ({ default: m.BillingModal })));
+const ApiDocsModal = lazyReload(() => import('./components/ApiDocsModal').then(m => ({ default: m.ApiDocsModal })));
+const OutreachModal = lazyReload(() => import('./components/OutreachModal').then(m => ({ default: m.OutreachModal })));
+const ModuleHelpModal = lazyReload(() => import('./components/ModuleHelpModal').then(m => ({ default: m.ModuleHelpModal })));
+const TrashModal = lazyReload(() => import('./components/TrashModal').then(m => ({ default: m.TrashModal })));
+const AdminUsersView = lazyReload(() => import('./components/AdminUsersView').then(m => ({ default: m.AdminUsersView })));
+const AiSettings = lazyReload(() => import('./components/AiSettings').then(m => ({ default: m.AiSettings })));
+const BillingSettings = lazyReload(() => import('./components/BillingSettings').then(m => ({ default: m.BillingSettings })));
+const AdminBackgroundView = lazyReload(() => import('./components/AdminBackgroundView').then(m => ({ default: m.AdminBackgroundView })));
+const MarketConfig = lazyReload(() => import('./components/MarketConfig').then(m => ({ default: m.MarketConfig })));
+const ProfileModal = lazyReload(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
+const BillingModal = lazyReload(() => import('./components/BillingModal').then(m => ({ default: m.BillingModal })));
 
 const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v3';
 const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v3';
@@ -339,7 +341,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const infoNote = notice ? `⚠️ ${notice}` : dataNote ? `📦 ${dataNote}` : null;
   const showProgress = Boolean(activeJobId) || Boolean(completionSummary);
 
-  return <Suspense fallback={<div className="min-h-[16rem] flex items-center justify-center text-sm text-slate-500">Đang tải…</div>}>
+  return <ChunkErrorBoundary><Suspense fallback={<div className="min-h-[16rem] flex items-center justify-center text-sm text-slate-500">Đang tải…</div>}>
     <>
     <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       <Header
@@ -499,5 +501,5 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       )}
     </div>
     </>
-  </Suspense>;
+  </Suspense></ChunkErrorBoundary>;
 }
