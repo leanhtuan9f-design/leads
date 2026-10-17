@@ -1673,16 +1673,26 @@ app.post('/api/admin/auto-plan/test-proxy', requireAdmin, async (req, res) => {
     if (r.ok && r.status === 200 && /^[0-9a-f.:]{7,45}$/i.test(r.body.trim())) ips.push({ ip: r.body.trim(), ms: r.ms });
     else if (!firstError) firstError = r.error || `HTTP ${r.status}`;
   }
-  const g = await curlViaProxy(proxy, 'https://www.google.com/maps?hl=en', 20);
+  const connected = ips.length > 0;
+  let serverIp = '', hint = '';
+  if (!connected) { // chẩn đoán: IP máy chủ (để whitelist) + gợi ý theo kiểu lỗi
+    const d = await new Promise((resolve) => execFile('curl', ['-sS', '--max-time', '8', 'https://api.ipify.org'], { timeout: 12000 }, (e, out) => resolve(e ? '' : String(out).trim())));
+    serverIp = /^[0-9a-f.:]{7,45}$/i.test(d) ? d : '';
+    if (/reset by peer|Empty reply|\(56\)|\(52\)|\(97\)/i.test(firstError)) hint = `Proxy từ chối kết nối ngay khi vừa mở: thường do chưa cho phép IP máy chủ${serverIp ? ` (${serverIp})` : ''} trong trang quản lý của nhà cung cấp (whitelist IP), hoặc proxy cần user:pass (nhập dạng host:port:user:pass).`;
+    else if (/407|Proxy Authentication|\(22\)/i.test(firstError)) hint = 'Proxy yêu cầu đăng nhập: nhập dạng host:port:user:pass hoặc http://user:pass@host:port, kiểm tra lại user/mật khẩu.';
+    else if (/timed out|\(28\)/i.test(firstError)) hint = 'Hết thời gian chờ: proxy chậm, sai cổng, hoặc bị tường lửa chặn từ IP máy chủ.';
+    else if (/\(7\)|refused/i.test(firstError)) hint = 'Không mở được cổng proxy: kiểm tra lại host và port, hoặc proxy đã tắt.';
+    else if (/\(5\)|\(6\)|resolve/i.test(firstError)) hint = 'Không phân giải được tên miền proxy: kiểm tra lại host.';
+  }
+  const g = connected ? await curlViaProxy(proxy, 'https://www.google.com/maps?hl=en', 20) : { ok: false, status: 0, ms: 0, body: '', error: 'bỏ qua vì chưa kết nối được proxy' };
   const blocked = g.ok && (g.status === 429 || /unusual traffic|\/sorry\//i.test(g.body));
   const distinct = new Set(ips.map((x) => x.ip)).size;
-  const connected = ips.length > 0;
   const mapsOk = g.ok && g.status === 200 && !blocked;
   res.json({
     connected, mapsOk, ips, distinct, rotating: ips.length >= 2 && distinct > 1,
     avgMs: ips.length ? Math.round(ips.reduce((n, x) => n + x.ms, 0) / ips.length) : null,
     maps: { status: g.status, ms: g.ms, blocked, error: g.ok ? '' : g.error },
-    error: connected ? '' : firstError || 'Không kết nối được qua proxy',
+    error: connected ? '' : firstError || 'Không kết nối được qua proxy', serverIp, hint,
   });
 });
 

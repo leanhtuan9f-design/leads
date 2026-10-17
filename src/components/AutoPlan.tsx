@@ -11,7 +11,7 @@ interface Plan {
 
 interface ProxyTest {
   connected: boolean; mapsOk: boolean; ips: { ip: string; ms: number }[]; distinct: number; rotating: boolean; avgMs: number | null;
-  maps: { status: number; ms: number; blocked: boolean; error: string }; error: string;
+  maps: { status: number; ms: number; blocked: boolean; error: string }; error: string; serverIp: string; hint: string;
 }
 
 export const AutoPlan: React.FC = () => {
@@ -121,6 +121,12 @@ export const AutoPlan: React.FC = () => {
           {test && (
             <div className={`mt-2 text-[11px] rounded border p-2 ${test.connected && test.mapsOk ? 'border-emerald-700 text-emerald-300' : 'border-amber-700 text-amber-300'}`}>
               <div>{test.connected ? `✅ Kết nối thành công (${test.ips.length}/3 lần, trung bình ${test.avgMs} ms)` : `❌ Không kết nối được: ${test.error}`}</div>
+              {!test.connected && test.hint && <div className="mt-1">💡 {test.hint}</div>}
+              {!test.connected && test.serverIp && (
+                <div className="mt-1 flex items-center gap-2">IP máy chủ cần whitelist: <code className="font-mono text-white">{test.serverIp}</code>
+                  <button onClick={() => { try { void navigator.clipboard.writeText(test.serverIp); } catch { /* bỏ qua */ } }} className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded">Sao chép</button>
+                </div>
+              )}
               {test.connected && <div>IP nhận được: {test.ips.map(x => x.ip).join(', ')} — {test.rotating ? `✅ IP đổi giữa các lần (${test.distinct} IP khác nhau)` : '⚠️ IP không đổi giữa 3 lần thử (có thể không phải proxy xoay, hoặc xoay theo thời gian)'}</div>}
               {test.connected && <div>Google Maps: {test.mapsOk ? `✅ truy cập được (HTTP ${test.maps.status}, ${test.maps.ms} ms)` : test.maps.blocked ? '❌ Google đang chặn/yêu cầu CAPTCHA với IP này' : `❌ lỗi ${test.maps.error || `HTTP ${test.maps.status}`}`}</div>}
             </div>
