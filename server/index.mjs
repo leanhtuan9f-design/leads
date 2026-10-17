@@ -1641,7 +1641,10 @@ const keyProxies = () => [...keyState.values()].filter((st) => st.proxy && st.ex
 // Proxy "khỏe" = còn hạn quá cửa sổ gia hạn và đã qua thời gian chờ sau khi lấy: chỉ khi có proxy khỏe mới mở cặp mới (đang đổi proxy thì dừng mở cặp mới)
 const keyHealthy = () => { const now = Date.now(); return [...keyState.values()].filter((st) => st.proxy && st.expiresAt - now >= KEY_REFRESH_BEFORE_MS && now >= (st.readyAt || 0)).map((st) => st.proxy); };
 const ownProxyExpired = (c) => c.proxyExpiresAt > 0 && c.proxyExpiresAt <= Date.now();
-const keysExpired = (c) => c.keys.length > 0 && c.keys.every((k) => (keyState.get(k)?.tokenExpires || 0) > 0 && keyState.get(k).tokenExpires <= Date.now()); // mọi Key đã quá hạn dùng
+// Key coi là hết hạn/không dùng được khi MỌI Key liên tục không lấy được proxy suốt KEY_FAIL_FALLBACK_MS
+// (không dựa vào 'Token expiration date' của nhà cung cấp: giá trị này không phải hạn của Key, từng trả về mốc đã qua ngay lúc vừa lấy được proxy)
+const KEY_FAIL_FALLBACK_MS = 30 * 60 * 1000;
+const keysExpired = (c) => c.keys.length > 0 && c.keys.every((k) => { const st = keyState.get(k); return st && st.failingSince > 0 && Date.now() - st.failingSince >= KEY_FAIL_FALLBACK_MS && !(st.proxy && st.expiresAt > Date.now()); });
 // Proxy đã hết hạn mà không gia hạn → lịch chạy như tab Thủ công không proxy: IP máy chủ, 1 luồng, nghỉ chống chặn
 const planFallback = (c) => (c.keys.length > 0 ? keysExpired(c) : c.proxies.length > 0 && ownProxyExpired(c));
 // Proxy dùng cho tác vụ của lịch: chế độ Key → proxy khỏe từ Key; không thì proxy tự nhập; hết hạn → không proxy
@@ -1658,6 +1661,7 @@ function syncPlanProxies() {
   db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running' AND proxies != ?").run(json, json);
 }
 setInterval(() => { try { syncPlanProxies(); next(); } catch (e) { console.error('syncPlanProxies', e?.message); } }, 30000).unref();
+setTimeout(() => { try { syncPlanProxies(); next(); } catch (e) { console.error('syncPlanProxies', e?.message); } }, 3000).unref(); // ngay sau khi khởi động: đồng bộ lại cột proxy của tác vụ lịch
 let keyRefreshing = false;
 async function refreshKeyProxies(force = false) {
   if (keyRefreshing) return;
@@ -1677,7 +1681,7 @@ async function refreshKeyProxies(force = false) {
         keyState.set(key, { ...r, error: '', retryAt: 0, readyAt: Date.now() + KEY_SETTLE_MS });
         console.log(`[key …${key.slice(-4)}] lấy proxy OK ${r.proxy.replace(/^http:\/\/([^@]*@)?/, '')} ${r.carrier} ${r.location}, sống ${Math.round((r.expiresAt - Date.now()) / 1000)}s, chạy tiếp sau ${KEY_SETTLE_MS / 1000}s`);
       } catch (e) {
-        keyState.set(key, { ...st, error: String(e?.message || e).slice(0, 200), retryAt: Date.now() + (e?.retryAfterMs || 60000) });
+        keyState.set(key, { ...st, error: String(e?.message || e).slice(0, 200), retryAt: Date.now() + (e?.retryAfterMs || 60000), failingSince: st.failingSince || Date.now() });
         console.log(`[key …${key.slice(-4)}] lỗi: ${String(e?.message || e).slice(0, 200)} — thử lại sau ${Math.round((e?.retryAfterMs || 60000) / 1000)}s`);
       }
     }
@@ -1759,7 +1763,7 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     hasProxy: cfg.proxies.length > 0 || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
     proxyList: cfg.proxies.map((x) => x.replace(/^[a-z0-9]+:\/\/([^@]*@)?/i, '')), proxyExpiresAt: cfg.proxyExpiresAt, proxyExpired: ownProxyExpired(cfg), blocked: planBlocked(cfg), fallback: planFallback(cfg),
     mode: cfg.keys.length > 0 ? (planFallback(cfg) ? 'fallback' : planBlocked(cfg) ? 'switching' : 'key') : cfg.proxies.length > 0 ? (ownProxyExpired(cfg) ? 'fallback' : 'own') : 'none',
-    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0, tokenExpires: st.tokenExpires || 0, readyAt: st.readyAt > Date.now() ? st.readyAt : 0, changing: Boolean(st.proxy && st.expiresAt - Date.now() < KEY_REFRESH_BEFORE_MS) }; }),
+    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0, readyAt: st.readyAt > Date.now() ? st.readyAt : 0, changing: Boolean(st.proxy && st.expiresAt - Date.now() < KEY_REFRESH_BEFORE_MS) }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });

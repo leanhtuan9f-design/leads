@@ -7,7 +7,7 @@ interface Plan {
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
   hasProxy: boolean; keyCount: number; proxyList: string[]; proxyExpiresAt: number; proxyExpired: boolean; blocked: boolean; fallback: boolean; mode: 'key' | 'own' | 'fallback' | 'switching' | 'none';
-  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean; tokenExpires: number }[];
+  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean }[];
   threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
@@ -148,7 +148,6 @@ export const AutoPlan: React.FC = () => {
                 Key {k.id}: {!k.ok && k.error && k.retryAt > Date.now() ? `⏳ ${k.error} — tự thử lại sau ${Math.max(1, Math.round((k.retryAt - Date.now()) / 1000))} giây` : k.ok
                   ? `${k.readyAt > Date.now() ? '⏳ Đã lấy proxy mới, chạy tiếp sau ' + Math.max(1, Math.round((k.readyAt - Date.now()) / 1000)) + ' giây — ' : k.changing ? '⏸ Sắp hết hạn, tạm dừng mở cặp mới để đổi proxy — ' : '✅ '}${k.hostPort}${k.carrier ? ` · ${k.carrier}` : ''}${k.location ? ` · ${k.location}` : ''} · còn ${Math.max(0, Math.round((k.expiresAt - Date.now()) / 60000))} phút (tự lấy proxy mới trước khi hết hạn)`
                   : `❌ ${k.error || 'đang lấy proxy…'}`}
-                {k.tokenExpires > 0 && <span className={k.tokenExpires - Date.now() < 3 * 86400000 ? ' text-amber-300' : ' text-slate-500'}> · Key hết hạn {fmtDT(k.tokenExpires)} (còn {leftText(k.tokenExpires)})</span>}
               </div>
             ))}
             <div className="text-slate-500">Máy chủ tự gọi API của nhà cung cấp và tự cho phép IP máy chủ (whitelist). Có Key thì dùng proxy từ Key, bỏ qua ô proxy cố định bên dưới. Mỗi Key chỉ có một IP tại một thời điểm (đổi khoảng 30 phút/lần): muốn nhiều IP cho nhiều luồng thì dùng nhiều Key.</div>
