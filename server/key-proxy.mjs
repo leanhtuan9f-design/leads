@@ -33,5 +33,8 @@ export async function fetchKeyProxy(key, { whitelist = '', api = API, fetchImpl 
   const proxy = parseProxy(j.proxyhttp);
   if (!proxy) throw new Error('API proxy xoay không trả về proxy hợp lệ');
   const life = Number(/sau\s*(\d+)\s*s/i.exec(msg)?.[1]);
-  return { proxy, expiresAt: Date.now() + (life > 0 ? life * 1000 : 25 * 60 * 1000), location: String(j['Vi Tri'] || ''), carrier: String(j['Nha Mang'] || '') };
+  // "Token expiration date": "22:52 19-02-2025" (giờ Việt Nam) = hạn của Key
+  const te = /^(\d{1,2}):(\d{2})\s+(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(String(j['Token expiration date'] || '').trim());
+  const tokenExpires = te ? Date.UTC(+te[5], +te[4] - 1, +te[3], +te[1] - 7, +te[2]) : 0;
+  return { tokenExpires, proxy, expiresAt: Date.now() + (life > 0 ? life * 1000 : 25 * 60 * 1000), location: String(j['Vi Tri'] || ''), carrier: String(j['Nha Mang'] || '') };
 }

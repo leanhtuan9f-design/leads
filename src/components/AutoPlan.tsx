@@ -6,8 +6,8 @@ interface Plan {
   burstN: number; restMin: number; restMax: number; note: string;
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
-  hasProxy: boolean; keyCount: number;
-  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean }[];
+  hasProxy: boolean; keyCount: number; proxyList: string[]; proxyExpiresAt: number; proxyExpired: boolean; blocked: boolean; fallback: boolean;
+  keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean; tokenExpires: number }[];
   threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
 
@@ -20,6 +20,7 @@ export const AutoPlan: React.FC = () => {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [form, setForm] = useState<{ keywords: string; cities: string; burstN: string; restMin: string; restMax: string } | null>(null);
   const [proxy, setProxy] = useState('');
+  const [expiry, setExpiry] = useState<string | null>(null); // null = chưa chỉnh (hiện giá trị đã lưu)
   const [test, setTest] = useState<ProxyTest | null>(null);
   const [testing, setTesting] = useState(false);
   const [saved, setSaved] = useState('');
@@ -58,8 +59,7 @@ export const AutoPlan: React.FC = () => {
     if (!form) return;
     setBusy(true); setError('');
     try {
-      await apiJson('/admin/auto-plan', 'PUT', { ...form, ...(proxy.trim() ? { proxy: proxy.trim() } : {}), ...(enabled === undefined ? {} : { enabled }) });
-      setProxy('');
+      await apiJson('/admin/auto-plan', 'PUT', { ...form, ...(enabled === undefined ? {} : { enabled }) });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được');
@@ -70,6 +70,26 @@ export const AutoPlan: React.FC = () => {
 
   const inputCls = 'w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white';
   const set = (k: keyof NonNullable<typeof form>) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(f => (f ? { ...f, [k]: e.target.value } : f));
+
+  const toInput = (ms: number) => { if (!ms) return ''; const d = new Date(ms - new Date().getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
+  const fromInput = (v: string) => (v ? new Date(v).getTime() : 0);
+  const fmtDT = (ms: number) => new Date(ms).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const leftText = (ms: number) => { const m = Math.round((ms - Date.now()) / 60000); return m >= 2880 ? `${Math.floor(m / 1440)} ngày` : m >= 120 ? `${Math.floor(m / 60)} giờ` : `${Math.max(0, m)} phút`; };
+  const saveProxies = async () => {
+    setBusy(true); setError('');
+    try {
+      const body: Record<string, unknown> = {};
+      if (proxy.trim()) body.proxies = proxy;
+      if (expiry !== null) body.proxyExpiresAt = fromInput(expiry);
+      await apiJson('/admin/auto-plan', 'PUT', body);
+      setProxy(''); setExpiry(null); setTest(null); setSaved('Đã lưu proxy'); setTimeout(() => setSaved(''), 4000);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không lưu được proxy');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <section className="bg-slate-950 border border-slate-800 rounded-lg p-4">
@@ -128,25 +148,45 @@ export const AutoPlan: React.FC = () => {
                 Key {k.id}: {!k.ok && k.error && k.retryAt > Date.now() ? `⏳ ${k.error} — tự thử lại sau ${Math.max(1, Math.round((k.retryAt - Date.now()) / 1000))} giây` : k.ok
                   ? `${k.readyAt > Date.now() ? '⏳ Đã lấy proxy mới, chạy tiếp sau ' + Math.max(1, Math.round((k.readyAt - Date.now()) / 1000)) + ' giây — ' : k.changing ? '⏸ Sắp hết hạn, tạm dừng mở cặp mới để đổi proxy — ' : '✅ '}${k.hostPort}${k.carrier ? ` · ${k.carrier}` : ''}${k.location ? ` · ${k.location}` : ''} · còn ${Math.max(0, Math.round((k.expiresAt - Date.now()) / 60000))} phút (tự lấy proxy mới trước khi hết hạn)`
                   : `❌ ${k.error || 'đang lấy proxy…'}`}
+                {k.tokenExpires > 0 && <span className={k.tokenExpires - Date.now() < 3 * 86400000 ? ' text-amber-300' : ' text-slate-500'}> · Key hết hạn {fmtDT(k.tokenExpires)} (còn {leftText(k.tokenExpires)})</span>}
               </div>
             ))}
             <div className="text-slate-500">Máy chủ tự gọi API của nhà cung cấp và tự cho phép IP máy chủ (whitelist). Có Key thì dùng proxy từ Key, bỏ qua ô proxy cố định bên dưới. Mỗi Key chỉ có một IP tại một thời điểm (đổi khoảng 30 phút/lần): muốn nhiều IP cho nhiều luồng thì dùng nhiều Key.</div>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
-            <span>Proxy xoay IP</span>
-            <input value={proxy} onChange={e => setProxy(e.target.value)} type="password" autoComplete="off" spellCheck={false}
-              placeholder={plan.hasProxy ? 'Đã cài proxy — nhập mới để thay' : 'host:port  |  host:port:user:pass  |  http://user:pass@host:port'}
-              className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
-            <button onClick={async () => { setBusy(true); setError(''); try { await apiJson('/admin/auto-plan', 'PUT', { proxy: proxy.trim() }); setProxy(''); setTest(null); setSaved('Đã lưu proxy'); setTimeout(() => setSaved(''), 4000); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không lưu được proxy'); } finally { setBusy(false); } }}
-              disabled={busy || !proxy.trim()} className="py-1 px-3 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">Lưu proxy</button>
-            <button onClick={testProxy} disabled={testing || (!proxy.trim() && !plan.hasProxy)}
-              className="py-1 px-3 bg-blue-700 hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">
-              {testing ? 'Đang thử…' : proxy.trim() ? 'Thử proxy trong ô' : 'Thử proxy đã lưu'}
-            </button>
-            {plan.hasProxy && (
-              <button onClick={async () => { setBusy(true); try { await apiJson('/admin/auto-plan', 'PUT', { proxy: '' }); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không xóa được'); } finally { setBusy(false); } }}
-                disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa proxy</button>
+          <div className="mt-2 space-y-1 text-[11px] text-slate-300">
+            <div className="flex flex-wrap items-start gap-2">
+              <span className="pt-1">Proxy tự nhập</span>
+              <textarea value={proxy} onChange={e => setProxy(e.target.value)} rows={2} spellCheck={false} autoComplete="off"
+                placeholder={plan.proxyList.length ? `Đã lưu ${plan.proxyList.length} proxy — nhập danh sách mới (mỗi dòng một proxy) để thay` : 'Mỗi dòng một proxy (tối đa 10): host:port | host:port:user:pass | http://user:pass@host:port'}
+                className="flex-1 min-w-[16rem] bg-slate-900 border border-slate-700 rounded px-2 py-1 font-mono text-white placeholder-slate-500" />
+              <div className="flex flex-col gap-1">
+                <label className="text-slate-400">Ngày hết hạn proxy
+                  <input type="datetime-local" value={expiry ?? toInput(plan.proxyExpiresAt)} onChange={e => setExpiry(e.target.value)}
+                    className="ml-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white" />
+                </label>
+                <div className="flex flex-wrap gap-1">
+                  <button onClick={saveProxies} disabled={busy || (!proxy.trim() && expiry === null)}
+                    className="py-1 px-3 bg-emerald-700 hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">Lưu proxy</button>
+                  <button onClick={testProxy} disabled={testing || (!proxy.trim() && !plan.hasProxy)}
+                    className="py-1 px-3 bg-blue-700 hover:bg-blue-600 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-lg">
+                    {testing ? 'Đang thử…' : proxy.trim() ? 'Thử proxy trong ô' : 'Thử proxy đã lưu'}
+                  </button>
+                  {plan.proxyList.length > 0 && (
+                    <button onClick={async () => { setBusy(true); try { await apiJson('/admin/auto-plan', 'PUT', { proxies: '', proxyExpiresAt: '' }); setExpiry(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : 'Không xóa được'); } finally { setBusy(false); } }}
+                      disabled={busy} className="py-1 px-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg">Xóa proxy</button>
+                  )}
+                </div>
+              </div>
+            </div>
+            {plan.proxyList.length > 0 && <div className="text-slate-400">Đang dùng: {plan.proxyList.join(' · ')}</div>}
+            {plan.proxyList.length > 0 && plan.keyCount === 0 && plan.proxyExpiresAt > 0 && (
+              plan.proxyExpired
+                ? <div className="p-2 rounded border border-red-700 text-red-300">⛔ Proxy đã hết hạn từ {fmtDT(plan.proxyExpiresAt)} và chưa gia hạn: lịch đang chạy như tab Thủ công — không proxy (IP máy chủ), 1 luồng xếp hàng chung với tab Thủ công, nghỉ chống chặn {plan.burstN} cặp/{plan.restMin}–{plan.restMax} phút. Nhập proxy mới hoặc đổi ngày hết hạn rồi bấm “Lưu proxy” để quay lại chạy đa luồng ngay.</div>
+                : plan.proxyExpiresAt - Date.now() < 86400000
+                ? <div className="text-amber-300">⚠️ Proxy hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}). Hết hạn lịch sẽ tự dừng mở cặp mới.</div>
+                : <div className="text-slate-400">Proxy hết hạn lúc {fmtDT(plan.proxyExpiresAt)} (còn {leftText(plan.proxyExpiresAt)}).</div>
             )}
+            {plan.keyCount > 0 && plan.proxyList.length > 0 && <div className="text-slate-500">Đang có Key nên lịch dùng proxy từ Key; proxy tự nhập chỉ dùng khi xóa hết Key.</div>}
           </div>
           {saved && <div className="mt-1 text-[11px] text-emerald-300">✅ {saved}</div>}
           {test && (
@@ -164,7 +204,7 @@ export const AutoPlan: React.FC = () => {
           )}
           <div className="mt-1 text-[11px] text-slate-400">
             Luồng: {plan.threads.running} đang chạy (tự điều chỉnh {plan.threads.min}–{plan.threads.max} theo RAM/CPU; RAM trống {plan.threads.mem} MB, tải CPU {Math.round(plan.threads.load * 100)}%).
-            {plan.hasProxy ? ' Có proxy: chạy đa luồng, không nghỉ chung.' : ' Chưa có proxy: chỉ chạy 1 luồng và nghỉ chung để tránh bị chặn.'}
+            {plan.hasProxy && !plan.fallback ? ' Có proxy: chạy đa luồng, không nghỉ chung.' : plan.fallback ? ' Proxy/Key đã hết hạn: chạy như tab Thủ công (1 luồng, IP máy chủ, nghỉ chung, xếp hàng chung với tab Thủ công).' : ' Chưa có proxy: chỉ chạy 1 luồng và nghỉ chung để tránh bị chặn.'}
           </div>
           {!plan.aiEnabled && <div className="text-amber-300 text-[11px] mt-2">AI chưa được cấu hình (menu tài khoản → Cấu hình AI) nên không thể bật lịch.</div>}
         </>
