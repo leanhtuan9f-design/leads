@@ -1697,7 +1697,7 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     current: { round: cfg.round + 1, tasks: cur.n, running: cur.run || 0 },
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
     hasProxy: Boolean(cfg.proxy) || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
-    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '' }; }),
+    keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0 }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
 });
