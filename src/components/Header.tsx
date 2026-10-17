@@ -5,6 +5,11 @@ import { ActiveTab } from '../types/scraper';
 import { AccountMenu } from './AccountMenu';
 import { AuthUser, Quota } from '../auth/types';
 
+// Nút ? mở hướng dẫn đúng với tab đang xem
+const GUIDE_BY_TAB: Partial<Record<ActiveTab, string>> = {
+  leads: 'data_table', map: 'map_view', jobs: 'jobs_runner', analytics: 'analytics', api: 'api_cli', background: 'admin_background'
+};
+
 interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
@@ -70,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="flex items-center gap-2 shrink-0">
         <button
-          onClick={() => onOpenGuide('data_table')}
+          onClick={() => onOpenGuide(GUIDE_BY_TAB[activeTab] || 'data_table')}
           className="p-1.5 text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-md transition-colors"
           title="Hướng dẫn sử dụng"
           aria-label="Hướng dẫn sử dụng"
