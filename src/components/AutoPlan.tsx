@@ -6,7 +6,7 @@ interface Plan {
   burstN: number; restMin: number; restMax: number; note: string;
   products: number; rounds: number; items: number; totalPairs: number;
   current: { round: number; tasks: number; running: number }; restUntil: number; aiEnabled: boolean;
-  hasProxy: boolean; keyCount: number; proxyList: string[]; proxyExpiresAt: number; proxyExpired: boolean; blocked: boolean; fallback: boolean;
+  hasProxy: boolean; keyCount: number; proxyList: string[]; proxyExpiresAt: number; proxyExpired: boolean; blocked: boolean; fallback: boolean; mode: 'key' | 'own' | 'fallback' | 'switching' | 'none';
   keyStatus: { id: string; ok: boolean; hostPort: string; expiresAt: number; carrier: string; location: string; error: string; retryAt: number; readyAt: number; changing: boolean; tokenExpires: number }[];
   threads: { running: number; min: number; max: number; allowed: boolean; mem: number; load: number };
 }
@@ -82,7 +82,7 @@ export const AutoPlan: React.FC = () => {
       if (proxy.trim()) body.proxies = proxy;
       if (expiry !== null) body.proxyExpiresAt = fromInput(expiry);
       await apiJson('/admin/auto-plan', 'PUT', body);
-      setProxy(''); setExpiry(null); setTest(null); setSaved('Đã lưu proxy'); setTimeout(() => setSaved(''), 4000);
+      setProxy(''); setExpiry(null); setTest(null); setSaved('Đã lưu proxy — hệ thống cập nhật và chạy theo cấu hình mới trong vài giây'); setTimeout(() => setSaved(''), 6000);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không lưu được proxy');
@@ -203,6 +203,9 @@ export const AutoPlan: React.FC = () => {
             </div>
           )}
           <div className="mt-1 text-[11px] text-slate-400">
+            <b className={plan.mode === 'fallback' ? 'text-red-300' : plan.mode === 'none' ? 'text-amber-300' : 'text-emerald-300'}>
+              Chế độ hiện tại: {({ key: 'Proxy từ Key', own: 'Proxy tự nhập', fallback: 'Dự phòng (không proxy, như luồng thủ công)', switching: 'Đang đổi proxy Key (tạm dừng mở cặp mới)', none: 'Không proxy (IP máy chủ)' } as Record<string, string>)[plan.mode]}.
+            </b>{' '}
             Luồng: {plan.threads.running} đang chạy (tự điều chỉnh {plan.threads.min}–{plan.threads.max} theo RAM/CPU; RAM trống {plan.threads.mem} MB, tải CPU {Math.round(plan.threads.load * 100)}%).
             {plan.hasProxy && !plan.fallback ? ' Có proxy: chạy đa luồng, không nghỉ chung.' : plan.fallback ? ' Proxy/Key đã hết hạn: chạy như tab Thủ công (1 luồng, IP máy chủ, nghỉ chung, xếp hàng chung với tab Thủ công).' : ' Chưa có proxy: chỉ chạy 1 luồng và nghỉ chung để tránh bị chặn.'}
           </div>

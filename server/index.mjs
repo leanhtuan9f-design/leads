@@ -1525,7 +1525,7 @@ const nextWindowOpen = (task, t = Date.now()) => { // thời điểm gần nhấ
 };
 // Thời điểm tác vụ được phép cào tiếp: sau nghỉ định kỳ và trong khung giờ làm việc
 const taskWait = (task, now = Date.now()) => {
-  const restAt = Math.max(task.rest_until, task.plan_round > 0 ? planRestUntil : 0); // tác vụ của lịch xoay vòng dùng chung một bộ đếm nghỉ
+  const restAt = Math.max(task.rest_until, task.plan_round > 0 && planRestUntil > now && planProxies().length === 0 ? planRestUntil : 0); // tác vụ của lịch xoay vòng dùng chung một bộ đếm nghỉ — chỉ khi chạy không proxy (có proxy thì nghỉ chung không còn hiệu lực)
   const rest = restAt > now ? restAt : 0;
   const win = nextWindowOpen(task, Math.max(now, rest));
   return win ? { until: win, reason: 'window' } : rest ? { until: rest, reason: 'rest' } : null;
@@ -1652,7 +1652,9 @@ const planBlocked = (c) => !planFallback(c) && c.keys.length > 0 && keyHealthy()
 function syncPlanProxies() {
   const c = loadPlan();
   if (planBlocked(c)) return;
-  const json = JSON.stringify(planProxies());
+  const list = planProxies();
+  if (list.length > 0 && (planRestUntil > 0 || planSince > 0)) { planRestUntil = 0; planSince = 0; } // quay lại chế độ có proxy: bỏ nghỉ chung còn dư từ chế độ dự phòng
+  const json = JSON.stringify(list);
   db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running' AND proxies != ?").run(json, json);
 }
 setInterval(() => { try { syncPlanProxies(); next(); } catch (e) { console.error('syncPlanProxies', e?.message); } }, 30000).unref();
@@ -1756,6 +1758,7 @@ app.get('/api/admin/auto-plan', requireAdmin, (_req, res) => {
     restUntil: planRestUntil > Date.now() ? planRestUntil : 0, aiEnabled: aiEnabled(),
     hasProxy: cfg.proxies.length > 0 || cfg.keys.length > 0, proxy: undefined, keys: undefined, keyCount: cfg.keys.length,
     proxyList: cfg.proxies.map((x) => x.replace(/^[a-z0-9]+:\/\/([^@]*@)?/i, '')), proxyExpiresAt: cfg.proxyExpiresAt, proxyExpired: ownProxyExpired(cfg), blocked: planBlocked(cfg), fallback: planFallback(cfg),
+    mode: cfg.keys.length > 0 ? (planFallback(cfg) ? 'fallback' : planBlocked(cfg) ? 'switching' : 'key') : cfg.proxies.length > 0 ? (ownProxyExpired(cfg) ? 'fallback' : 'own') : 'none',
     keyStatus: cfg.keys.map((k) => { const st = keyState.get(k) || {}; return { id: `…${k.slice(-4)}`, ok: Boolean(st.proxy && st.expiresAt > Date.now()), hostPort: st.proxy ? st.proxy.replace(/^http:\/\/([^@]*@)?/, '') : '', expiresAt: st.expiresAt || 0, carrier: st.carrier || '', location: st.location || '', error: st.error || '', retryAt: st.retryAt > Date.now() ? st.retryAt : 0, tokenExpires: st.tokenExpires || 0, readyAt: st.readyAt > Date.now() ? st.readyAt : 0, changing: Boolean(st.proxy && st.expiresAt - Date.now() < KEY_REFRESH_BEFORE_MS) }; }),
     threads: { running: (running?.spec.auto ? 1 : 0) + autoExtra.size, min: AUTO_MIN_THREADS, max: AUTO_MAX_THREADS, ...autoThreadBudget() },
   });
@@ -1842,8 +1845,10 @@ app.put('/api/admin/auto-plan', requireAdmin, async (req, res) => {
     if (next_.keys.length) await refreshKeyProxies(true);
     else keyState.clear();
   }
-  if (!next_.keys.length && (proxiesChanged || keysChanged)) { // cập nhật proxy cho các tác vụ của lịch đang chạy (cặp mới dùng ngay)
-    db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(planProxies()));
+  if (proxiesChanged || keysChanged) { // cập nhật ngay proxy của các tác vụ lịch đang chạy (cặp mới dùng ngay), bỏ nghỉ chung dư nếu đã có proxy
+    const list = planProxies();
+    if (list.length > 0) { planRestUntil = 0; planSince = 0; }
+    if (!planBlocked(next_)) db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running'").run(JSON.stringify(list));
   }
   if (next_.enabled) planTick().catch((e) => console.error('planTick', e));
   next();
