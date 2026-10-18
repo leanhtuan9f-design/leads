@@ -232,7 +232,12 @@ async function callOpenAI(c, text, o = {}) {
     console.error('AI error', e?.message);
     throw new AiError('Không gọi được máy chủ AI, hãy thử lại sau.', 'ai_error', true, `Không kết nối được: ${e?.message || 'lỗi mạng'}`);
   }
-  const httpDetail = async () => `HTTP ${r.status} ${(await r.clone().text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}`.trim();
+  const httpDetail = async () => {
+    const raw = (await r.clone().text().catch(() => '')).trim();
+    let msg = raw;
+    try { const j = JSON.parse(raw); const m = typeof j.error === 'string' ? j.error : j.error?.message ?? j.message; if (typeof m === 'string' && m.trim()) msg = m; } catch { /* nội dung thường */ }
+    return `HTTP ${r.status} ${msg.replace(/\s+/g, ' ').slice(0, 200)}`.trim();
+  };
   if (r.status === 401 || r.status === 403) throw new AiError('API key của máy chủ AI không hợp lệ. Hãy báo quản trị viên.', 'auth', true, await httpDetail());
   if (r.status === 429) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy', true, await httpDetail());
   if (r.status === 404) throw new AiError(`Máy chủ AI không có model “${c.model}” hoặc sai Base URL. Hãy báo quản trị viên.`, 'config');
