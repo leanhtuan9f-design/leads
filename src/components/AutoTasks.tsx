@@ -37,7 +37,9 @@ const RUN_STATUS: Record<string, [string, string]> = {
   error: ['Lỗi', 'text-red-300']
 };
 
-export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
+type PairTab = 'pending' | 'running' | 'completed';
+
+export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> = ({ kind, pairTab }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [maxPairs, setMaxPairs] = useState(80);
@@ -135,7 +137,13 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
 
   const inputCls = 'w-full bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none';
   const card = 'bg-slate-950 border border-slate-800 rounded-lg p-4';
-  const open = tasks.find(t => t.id === openId);
+  const pairCount = (t: Task, tab: PairTab) => {
+    if (tab === 'pending') return t.stats.pending;
+    if (tab === 'running') return t.stats.running;
+    return t.stats.done + t.stats.empty + t.stats.error;
+  };
+  const visibleTasks = tasks.filter(t => pairCount(t, pairTab) > 0);
+  const open = visibleTasks.find(t => t.id === openId);
 
   return (
     <section className={card}>
@@ -218,7 +226,8 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
 
       <div className="mt-4 space-y-2">
         {tasks.length === 0 && <div className="text-slate-500">{kind === 'plan' ? 'Chưa có tác vụ nào. Bật lịch xoay vòng ở trên để lịch tự tạo tác vụ.' : 'Chưa có tác vụ nào.'}</div>}
-        {tasks.map(t => {
+        {tasks.length > 0 && visibleTasks.length === 0 && <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-6 text-center text-slate-500">Chưa có cặp nào ở trạng thái này.</div>}
+        {visibleTasks.map(t => {
           const s = t.stats;
           const finished = s.done + s.empty + s.error;
           const pct = s.total ? Math.round((finished / s.total) * 100) : 0;
@@ -233,7 +242,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
                 <span><span className="text-slate-500">Quốc gia: </span><span className="text-white">{t.country}</span></span>
                 <span className="text-slate-500">· {fmt(t.createdAt)}{t.proxies ? ` · ${t.proxies} proxy` : ' · IP máy chủ'}{t.win.on ? ` · giờ làm việc ${t.win.start}–${t.win.end}h (${t.win.tz})` : ''}{t.burstN > 0 && t.restMax > 0 ? ` · nghỉ ${t.restMin === t.restMax ? t.restMin : `${t.restMin}–${t.restMax}`}p/${t.burstN} cặp` : ''}</span>
                 <span className="ml-auto flex items-center gap-2">
-                  <span className="font-mono text-slate-300">{finished}/{s.total} cặp ({pct}%)</span>
+                  <span className="font-mono text-slate-300">{pairCount(t, pairTab)} cặp {pairTab === 'pending' ? 'chờ' : pairTab === 'running' ? 'đang chạy' : 'hoàn thành'} · {finished}/{s.total} ({pct}%)</span>
                   {t.status === 'running' && <button type="button" onClick={() => act(t.id, 'stop')} className="px-2 py-0.5 border border-amber-500/50 text-amber-300 hover:bg-amber-500/20 rounded">Dừng</button>}
                   {t.status === 'stopped' && s.pending > 0 && <button type="button" onClick={() => act(t.id, 'resume')} className="px-2 py-0.5 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500/20 rounded">Tiếp tục</button>}
                   {t.status !== 'done' && <button type="button" onClick={() => setEditRest(editRest?.id === t.id ? null : { id: t.id, n: String(t.burstN), a: String(t.restMin), b: String(t.restMax), wOn: t.win.on, ws: String(t.win.start), we: String(t.win.end) })} className="px-2 py-0.5 border border-slate-700 text-slate-300 hover:text-white rounded">Chỉnh nghỉ / giờ chạy</button>}
@@ -335,7 +344,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan' }> = ({ kind }) => {
                 <tr><th className="py-1 pr-3">Thành phố</th><th className="pr-3">Từ khóa</th><th className="pr-3">Trạng thái</th><th className="pr-3 text-right">Lead</th><th className="pr-3 text-right">Mới</th><th className="pr-3 text-right">Kho</th><th className="pr-3">Xong lúc</th><th>Ghi chú</th></tr>
               </thead>
               <tbody>
-                {runs.map(r => {
+                {runs.filter(r => pairTab === 'pending' ? r.status === 'pending' : pairTab === 'running' ? r.status === 'running' : ['done', 'empty', 'error'].includes(r.status)).map(r => {
                   const [label, cls] = RUN_STATUS[r.status] || [r.status, ''];
                   return (
                     <tr key={r.id} className="border-b border-slate-900">

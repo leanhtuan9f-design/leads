@@ -33,7 +33,7 @@ interface BackgroundInfo {
   scanEnabled?: boolean;
   scanIntervalMinutes?: number;
   queue: JobRow[];
-  autoQueues: Record<'manual' | 'plan', { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] }>;
+  autoQueues: Record<'manual' | 'plan', { total: number; running: number; completed: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] }>;
   autoQueue: { total: number; next: { keyword: string; city: string; level: number; attempts: number; product: string; country: string; restUntil: number; waitReason: string }[] };
   pending: { query: string; depth: number; withEmail: boolean; lang: string; proxies: number }[];
   bgDoneThisHour: number;
@@ -100,6 +100,16 @@ const QueueSection: React.FC<{ title: string; q: BackgroundInfo['autoQueues']['m
 export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => void }> = ({ onOpenGuide }) => {
   const [bgTab, setBgTabRaw] = useState<'manual' | 'auto'>(() => { try { return localStorage.getItem('gmaps_bg_tab') === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; } });
   const setBgTab = (v: 'manual' | 'auto') => { setBgTabRaw(v); try { localStorage.setItem('gmaps_bg_tab', v); } catch { /* bỏ qua */ } };
+  const [pairTab, setPairTabRaw] = useState<'pending' | 'running' | 'completed'>(() => {
+    try {
+      const saved = localStorage.getItem('gmaps_bg_pair_tab');
+      return saved === 'running' || saved === 'completed' ? saved : 'pending';
+    } catch { return 'pending'; }
+  });
+  const setPairTab = (v: 'pending' | 'running' | 'completed') => {
+    setPairTabRaw(v);
+    try { localStorage.setItem('gmaps_bg_pair_tab', v); } catch { /* bỏ qua */ }
+  };
   const [info, setInfo] = useState<BackgroundInfo | null>(null);
   const [error, setError] = useState('');
   const [workerDraft, setWorkerDraft] = useState('');
@@ -158,6 +168,8 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
   // Tương thích với backend cũ trong lúc service chưa restart/deploy đồng bộ.
   const backgroundRunning = info.backgroundRunning || [];
   const workerCount = info.workerCount || 1;
+  const queueKind = bgTab === 'manual' ? 'manual' : 'plan';
+  const activeQueue = info.autoQueues[queueKind];
 
   const card = 'bg-slate-950 border border-slate-800 rounded-lg p-4';
   const stat = (label: string, value: React.ReactNode) => (
@@ -257,16 +269,29 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-1 rounded-lg border border-slate-800 bg-slate-950 p-1" role="tablist" aria-label="Trạng thái cặp">
+        {([
+          ['pending', 'Cặp Chờ', activeQueue.total],
+          ['running', 'Đang Chạy', activeQueue.running],
+          ['completed', 'Hoàn thành', activeQueue.completed],
+        ] as const).map(([id, label, n]) => (
+          <button key={id} type="button" role="tab" aria-selected={pairTab === id} onClick={() => setPairTab(id)}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${pairTab === id ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}>
+            {label} <span className="ml-1 text-[10px] opacity-80">({n})</span>
+          </button>
+        ))}
+      </div>
+
       {bgTab === 'manual' ? (
         <>
-          <AutoTasks kind="manual" />
-          <QueueSection title="Hàng chờ tác vụ thủ công" q={info.autoQueues.manual} />
+          <AutoTasks kind="manual" pairTab={pairTab} />
+          {pairTab === 'pending' && <QueueSection title="Hàng chờ tác vụ thủ công" q={info.autoQueues.manual} />}
         </>
       ) : (
         <>
           <AutoPlan />
-          <AutoTasks kind="plan" />
-          <QueueSection title="Hàng chờ lịch xoay vòng" q={info.autoQueues.plan} />
+          <AutoTasks kind="plan" pairTab={pairTab} />
+          {pairTab === 'pending' && <QueueSection title="Hàng chờ lịch xoay vòng" q={info.autoQueues.plan} />}
         </>
       )}
 

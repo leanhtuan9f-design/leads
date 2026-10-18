@@ -1370,6 +1370,8 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
     },
     autoQueues: Object.fromEntries([['manual', '=0'], ['plan', '>0']].map(([k, cond]) => [k, {
       total: db.prepare(`SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.plan_round${cond}`).get().n,
+      running: db.prepare(`SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.status='running' AND t.plan_round${cond}`).get().n,
+      completed: db.prepare(`SELECT COUNT(*) AS n FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.status IN ('done','empty','error') AND t.plan_round${cond}`).get().n,
       next: db.prepare(`SELECT r.keyword, r.city, r.level, r.attempts, t.* FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE t.status='running' AND r.status='pending' AND t.plan_round${cond} ORDER BY r.task_id, r.id LIMIT 15`).all()
         .map((x) => { const w = taskWait(x); return { keyword: x.keyword, city: x.city, level: x.level, attempts: x.attempts, product: x.product, country: x.country, restUntil: w ? w.until : 0, waitReason: w ? w.reason : '' }; }),
     }])),
