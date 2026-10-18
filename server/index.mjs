@@ -8,7 +8,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiGuard, setQuotaConfig, getQuotaConfig, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiGuard, usingRouter9, setQuotaConfig, getQuotaConfig, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
@@ -1316,7 +1316,7 @@ app.post('/api/suggest', async (req, res) => {
 // Cầu chì AI: trạng thái dừng / quota tuần 9router (chỉ admin). Mật khẩu dashboard chỉ ghi vào.
 const aiGuardView = () => {
   const q = getQuotaConfig() || {};
-  return { ...aiGuard.status(), settings: { enabled: Boolean(q.enabled), url: q.url || '', threshold: q.threshold || 95, hasPassword: Boolean(q.password) } };
+  return { ...aiGuard.status(), router9: usingRouter9(), settings: { enabled: Boolean(q.enabled), url: q.url || '', threshold: q.threshold || 95, hasPassword: Boolean(q.password) } };
 };
 app.get('/api/admin/ai-guard', requireAdmin, (_req, res) => res.json(aiGuardView()));
 app.post('/api/admin/ai-guard/check', requireAdmin, async (_req, res) => { await aiGuard.checkNow(); res.json(aiGuardView()); });

@@ -1,6 +1,6 @@
 // Gợi ý từ khóa tìm kiếm (ngành × khu vực) từ hồ sơ người dùng, bằng Claude (chỉ chạy ở server).
 import Anthropic from '@anthropic-ai/sdk';
-import { createAiGuard } from './ai-guard.mjs';
+import { createAiGuard, isRouter9Url } from './ai-guard.mjs';
 
 export const AI_MODEL = 'claude-haiku-5-5'; // model mặc định khi dùng API Anthropic chính thức
 export const AI_DAILY_LIMIT = 10; // số lần gọi AI mỗi người mỗi ngày (giờ VN)
@@ -285,7 +285,10 @@ export async function pingAi() {
   } catch (e) { return { ok: false, error: e?.detail || e?.message || 'Lỗi không xác định.' }; }
 }
 export const aiGuard = createAiGuard({ probe: pingAi, getModel: () => getAiConfig().model, getQuotaConfig });
+export const usingRouter9 = () => isRouter9Url(getAiConfig().baseUrl, quotaConfig?.url);
 async function guarded(fn) {
+  // Cầu chì chỉ áp dụng khi gọi AI qua 9router; provider khác chạy như thường.
+  if (!usingRouter9()) { aiGuard.resume(); return fn(); }
   if (await aiGuard.blocked()) throw new AiError(aiGuard.pausedMessage(), 'paused');
   try { return await fn(); } catch (e) { if (e instanceof AiError && e.outage) aiGuard.trip(e.detail || e.message); throw e; }
 }

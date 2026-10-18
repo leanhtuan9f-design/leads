@@ -15,6 +15,20 @@ export class QuotaError extends Error {
 }
 export const quotaRetryMs = (e) => (e instanceof QuotaError && e.kind === 'auth' ? DAY_MS : HOUR_MS);
 
+/** Nhận diện 9router theo Base URL: cổng mặc định 20128 hoặc trùng host:port với dashboard đã cấu hình. */
+export function isRouter9Url(baseUrl, dashboardUrl = '') {
+  const parse = (v) => {
+    const t = String(v || '').trim();
+    if (!t) return null;
+    try { const u = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`); return { host: u.hostname.toLowerCase(), port: u.port || (u.protocol === 'http:' ? '80' : '443') }; } catch { return null; }
+  };
+  const b = parse(baseUrl);
+  if (!b) return false;
+  if (b.port === '20128') return true;
+  const d = parse(dashboardUrl);
+  return Boolean(d && d.host === b.host && d.port === b.port);
+}
+
 export function modelFamily(model) {
   const m = String(model || '');
   if (/gemini/i.test(m)) return 'gemini';

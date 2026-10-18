@@ -1,7 +1,7 @@
 // node --test server/ai-guard.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAiGuard, modelFamily, pickRows, summarize, walkQuota, QuotaError, quotaRetryMs, RECHECK_MS, DAY_MS } from './ai-guard.mjs';
+import { createAiGuard, isRouter9Url, modelFamily, pickRows, summarize, walkQuota, QuotaError, quotaRetryMs, RECHECK_MS, DAY_MS } from './ai-guard.mjs';
 
 const mk = (over = {}) => {
   let t = 1_000_000;
@@ -55,4 +55,12 @@ test('họ model: Gemini đọc "Gemini (Weekly)", Claude/GPT đọc "Claude & G
   walkQuota({ a: { label: 'Gemini (Weekly)', used: 99, total: 100 }, b: { label: 'Claude & GPT (Weekly)', used: 10, total: 100 }, c: { label: 'Gemini (Daily)', used: 100, total: 100 } }, 'c1', rows, 'x@y');
   assert.deepEqual(pickRows(rows, 'ag/gemini-flash').map((r) => r.pct), [99]);
   assert.deepEqual(pickRows(rows, 'ag/claude-sonnet-4-6').map((r) => r.pct), [10]);
+});
+
+test('chỉ nhận diện 9router theo Base URL: cổng 20128 hoặc trùng host:port dashboard', () => {
+  assert.equal(isRouter9Url('http://147.93.137.147:20128/v1'), true);
+  assert.equal(isRouter9Url('https://openrouter.ai/api/v1'), false);
+  assert.equal(isRouter9Url('', ''), false);
+  assert.equal(isRouter9Url('http://10.0.0.5:8080/v1', 'http://10.0.0.5:8080'), true);
+  assert.equal(isRouter9Url('https://api.anthropic.com', 'http://10.0.0.5:8080'), false);
 });

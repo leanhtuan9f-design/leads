@@ -8,6 +8,7 @@ interface GuardView {
     reading: { pct: number; reset: number; accounts: AccountQuota[]; at: number } | null };
   settings: { enabled: boolean; url: string; threshold: number; hasPassword: boolean };
   model: string | null;
+  router9: boolean;
 }
 
 const inputCls = 'w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white focus:outline-none focus:border-blue-500';
@@ -48,6 +49,11 @@ export const AiGuardPanel: React.FC = () => {
   return (
     <div className="space-y-2.5 mt-3 pt-3 border-t border-slate-800">
       <div className="font-semibold text-white">Trạng thái AI (9router)</div>
+      {!v.router9 ? (
+        <div className="rounded border border-slate-600 bg-slate-800/60 text-slate-300 p-2.5">
+          Kết nối AI hiện tại{v.model ? ` (${v.model})` : ''} không gọi qua 9router, nên cơ chế tự dừng khi AI lỗi và kiểm tra quota <b>không áp dụng</b>. Lỗi AI được xử lý như thường.
+        </div>
+      ) : null}
       {outage ? (
         <div className="rounded border border-amber-500/60 bg-amber-500/10 text-amber-200 p-2.5 space-y-1">
           <div><b>AI đang tạm dừng</b> — không gọi AI cho đến khi hoạt động lại.</div>
