@@ -490,6 +490,7 @@ app.post('/api/items/:kind', (req, res) => {
   if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
   const upsert = Array.isArray(req.body?.upsert) ? req.body.upsert : [];
   const remove = Array.isArray(req.body?.remove) ? req.body.remove : [];
+  if (kind === 'lead' && remove.length > 0 && req.user.role !== 'admin') return res.status(403).json({ error: 'Tài khoản người dùng không được xóa lead.' });
   if (upsert.length + remove.length > MAX_SYNC_ITEMS) return res.status(400).json({ error: 'Gửi quá nhiều dòng một lần' });
   const validId = (id) => typeof id === 'string' && id && id.length <= 200;
   if (!upsert.every((x) => x && typeof x === 'object' && validId(x.id)) || !remove.every(validId)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });

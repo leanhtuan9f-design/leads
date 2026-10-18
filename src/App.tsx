@@ -114,7 +114,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   // Đồng bộ: localStorage làm bộ đệm nhanh, server (SQLite theo tài khoản) là nơi lưu chính.
   // Lead/job đồng bộ từng dòng (useSyncedList); proxy là chuỗi nhỏ nên ghi nguyên khối.
   const jobSort = React.useCallback((a: ScraperJob, b: ScraperJob) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0), []);
-  const leadsSync = useSyncedList<ScrapedBusiness>('leads', businesses, setBusinesses);
+  const leadsSync = useSyncedList<ScrapedBusiness>('leads', businesses, setBusinesses, undefined, { canRemove: user.role === 'admin' });
   const jobsSync = useSyncedList<ScraperJob>('jobs', jobs, setJobs, jobSort);
   const [proxiesReady, setProxiesReady] = useState(false);
   const [proxySyncError, setProxySyncError] = useState<string | null>(null);
@@ -410,7 +410,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
                 </button>
               ))}
             </div>
-            {!viewJob && (
+            {!viewJob && user.role === 'admin' && (
               <button type="button" onClick={() => setTrashKind('leads')} className="text-[11px] text-slate-400 hover:text-white underline">Khôi phục lead đã xóa</button>
             )}
           </div>

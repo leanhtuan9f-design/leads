@@ -17,7 +17,8 @@ export function useSyncedList<T extends Item>(
   kind: 'leads' | 'jobs',
   items: T[],
   setItems: Dispatch<SetStateAction<T[]>>,
-  sort?: (a: T, b: T) => number
+  sort?: (a: T, b: T) => number,
+  options?: { canRemove?: boolean }
 ) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +27,7 @@ export function useSyncedList<T extends Item>(
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const canRemove = options?.canRemove ?? true;
 
   const pull = useCallback(async () => {
     const fetched: PullResponse<T>['items'] = [];
@@ -94,7 +96,7 @@ export function useSyncedList<T extends Item>(
           const json = JSON.stringify(it);
           if (synced.current.get(it.id) !== json) upsert.push({ id: it.id, json, item: it });
         }
-        const remove = Array.from(synced.current.keys()).filter(id => !ids.has(id));
+        const remove = canRemove ? Array.from(synced.current.keys()).filter(id => !ids.has(id)) : [];
         if (upsert.length === 0 && remove.length === 0) return;
         try {
           for (let i = 0; i < upsert.length; i += CHUNK) {
