@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Mail, MailX, Phone, Search, X } from 'lucide-react';
 import { apiJson } from '../auth/types';
 import { AutoTasks } from './AutoTasks';
 import { AutoPlan } from './AutoPlan';
@@ -52,8 +53,15 @@ interface BackgroundInfo {
   };
   logTotal: number;
   logKeepDays: number;
-  cache: { places: number; queries: number; hits: number };
+  cache: { places: number; withEmail: number; withoutEmail: number; withPhone: number; queries: number; hits: number };
 }
+
+type CacheFilter = 'withEmail' | 'withoutEmail' | 'withPhone';
+interface CacheRow {
+  id: string; title: string; category: string; address: string; city: string; country: string;
+  phone: string; website: string; email: string; rating: number; reviewsCount: number; googleMapsUrl: string; lastSeen: number;
+}
+interface CacheReportResponse { contact: CacheFilter; search: string; page: number; pageSize: number; total: number; rows: CacheRow[]; }
 
 const fmtTime = (t: number | null | undefined) => (t ? new Date(t).toLocaleTimeString('vi-VN') : '—');
 const fmtDateTime = (t: number | null | undefined) => (t ? new Date(t).toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
@@ -119,6 +127,13 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
   const [scanEnabled, setScanEnabled] = useState(false);
   const [intervalDraft, setIntervalDraft] = useState('60');
   const configDirty = useRef(false);
+  const [cacheFilter, setCacheFilter] = useState<CacheFilter | null>(null);
+  const [cacheSearchInput, setCacheSearchInput] = useState('');
+  const [cacheSearch, setCacheSearch] = useState('');
+  const [cachePage, setCachePage] = useState(0);
+  const [cacheReport, setCacheReport] = useState<CacheReportResponse | null>(null);
+  const [cacheReportLoading, setCacheReportLoading] = useState(false);
+  const [cacheReportError, setCacheReportError] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -163,6 +178,22 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
     return () => clearInterval(t);
   }, [load]);
 
+  const loadCacheReport = useCallback(async () => {
+    if (!cacheFilter) return;
+    setCacheReportLoading(true);
+    setCacheReportError('');
+    try {
+      const qs = new URLSearchParams({ contact: cacheFilter, search: cacheSearch, page: String(cachePage), limit: '25' });
+      setCacheReport(await apiJson<CacheReportResponse>(`/admin/cache/places?${qs.toString()}`));
+    } catch (e) {
+      setCacheReportError(e instanceof Error ? e.message : 'Không tải được báo cáo kho');
+    } finally {
+      setCacheReportLoading(false);
+    }
+  }, [cacheFilter, cachePage, cacheSearch]);
+
+  useEffect(() => { loadCacheReport(); }, [loadCacheReport]);
+
   if (!info) return <div className="text-xs text-slate-400">{error ? `⚠️ ${error}` : 'Đang tải…'}</div>;
 
   // Tương thích với backend cũ trong lúc service chưa restart/deploy đồng bộ.
@@ -178,6 +209,15 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
       <div className="text-lg font-bold text-white font-mono tabular-nums">{value}</div>
     </div>
   );
+  const openCacheReport = (filter: CacheFilter) => {
+    setCacheFilter(filter);
+    setCachePage(0);
+    setCacheSearchInput('');
+    setCacheSearch('');
+  };
+  const closeCacheReport = () => { setCacheFilter(null); setCacheReport(null); setCacheReportError(''); };
+  const cacheReportTitle = cacheFilter === 'withEmail' ? 'Doanh nghiệp có Email' : cacheFilter === 'withPhone' ? 'Doanh nghiệp có SĐT' : 'Doanh nghiệp không có Email';
+  const cacheTotalPages = cacheReport ? Math.max(1, Math.ceil(cacheReport.total / cacheReport.pageSize)) : 1;
 
   return (
     <div className="space-y-4 text-xs">
@@ -193,12 +233,79 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
         {stat('Cặp tự động đang chờ', info.autoQueue.total)}
         {stat('Chờ cập nhật kho cũ', info.pending.length)}
         {stat('Cập nhật kho giờ này', `${info.bgDoneThisHour}/${info.bgPerHour}`)}
-        {stat('Kho', `${info.cache.places} điểm`)}
+        <div className="p-3 bg-slate-900/70 border border-slate-800 rounded-lg">
+          <div className="text-[11px] text-slate-400">Kho</div>
+          <div className="text-lg font-bold text-white font-mono tabular-nums">{info.cache.places} điểm</div>
+          <div className="mt-2 grid grid-cols-3 gap-1">
+            <button type="button" onClick={() => openCacheReport('withEmail')} className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-1 text-left text-[10px] text-emerald-200 hover:border-emerald-400/70 hover:bg-emerald-500/20">
+              <span className="flex items-center gap-1"><Mail className="h-3 w-3" />Email</span>
+              <span className="font-mono text-white">{info.cache.withEmail}</span>
+            </button>
+            <button type="button" onClick={() => openCacheReport('withPhone')} className="rounded border border-sky-500/30 bg-sky-500/10 px-1.5 py-1 text-left text-[10px] text-sky-200 hover:border-sky-400/70 hover:bg-sky-500/20">
+              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />SĐT</span>
+              <span className="font-mono text-white">{info.cache.withPhone}</span>
+            </button>
+            <button type="button" onClick={() => openCacheReport('withoutEmail')} className="rounded border border-slate-700 bg-slate-950/60 px-1.5 py-1 text-left text-[10px] text-slate-300 hover:border-slate-500 hover:bg-slate-800">
+              <span className="flex items-center gap-1"><MailX className="h-3 w-3" />Không email</span>
+              <span className="font-mono text-white">{info.cache.withoutEmail}</span>
+            </button>
+          </div>
+        </div>
       </div>
       <p className="text-[11px] text-slate-500">
         Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại bằng tối đa {workerCount} luồng nền (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
+
+      {cacheFilter && (
+        <section className={card}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold text-white">{cacheReportTitle}</h3>
+              <p className="text-[11px] text-slate-500">Bấm các nhóm trong thẻ Kho để đổi báo cáo.</p>
+            </div>
+            <button type="button" onClick={closeCacheReport} className="flex items-center gap-1 rounded px-2 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-3.5 w-3.5" />Đóng</button>
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); setCachePage(0); setCacheSearch(cacheSearchInput.trim()); }} className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[17rem] flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500" />
+              <input value={cacheSearchInput} onChange={(e) => setCacheSearchInput(e.target.value)} placeholder="Lọc theo tên, ngành, địa chỉ, email…" className="w-full rounded border border-slate-700 bg-slate-900 py-1.5 pl-8 pr-3 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none" />
+            </div>
+            <button type="submit" className="rounded bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500">Lọc</button>
+            {cacheReport && <span className="text-[11px] text-slate-400">{cacheReport.total.toLocaleString('vi-VN')} doanh nghiệp</span>}
+          </form>
+          {cacheReportError && <div className="mt-2 rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">{cacheReportError}</div>}
+          {cacheReportLoading ? <div className="py-8 text-center text-slate-500">Đang tải báo cáo…</div> : cacheReport && (
+            <>
+              <div className="mt-3 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-left text-[11px]">
+                  <thead className="border-b border-slate-800 text-slate-400"><tr><th className="py-2 pr-3">Doanh nghiệp</th><th className="pr-3">Ngành</th><th className="pr-3">Địa chỉ</th><th className="pr-3">Liên hệ</th><th className="pr-3 text-right">Đánh giá</th><th>Cập nhật</th></tr></thead>
+                  <tbody className="divide-y divide-slate-900">
+                    {cacheReport.rows.map((row) => (
+                      <tr key={row.id} className="align-top hover:bg-slate-900/60">
+                        <td className="py-2 pr-3 font-medium text-white">{row.googleMapsUrl ? <a href={row.googleMapsUrl} target="_blank" rel="noreferrer" className="hover:text-cyan-300 hover:underline">{row.title || row.id}</a> : row.title || row.id}</td>
+                        <td className="pr-3 text-slate-300">{row.category || '—'}</td>
+                        <td className="max-w-[280px] pr-3 text-slate-400">{[row.address, row.city, row.country].filter(Boolean).join(', ') || '—'}</td>
+                        <td className="pr-3 text-slate-300">{row.email || row.phone || '—'}{row.website && <div className="max-w-[180px] truncate text-slate-500">{row.website}</div>}</td>
+                        <td className="pr-3 text-right font-mono text-slate-300">{row.rating ? `${row.rating} (${row.reviewsCount})` : '—'}</td>
+                        <td className="whitespace-nowrap text-slate-500">{new Date(row.lastSeen).toLocaleDateString('vi-VN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {cacheReport.rows.length === 0 && <div className="py-8 text-center text-slate-500">Không có doanh nghiệp phù hợp.</div>}
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                <span>Trang {cacheReport.page + 1}/{cacheTotalPages}</span>
+                <div className="flex gap-1">
+                  <button type="button" disabled={cacheReport.page <= 0} onClick={() => setCachePage(p => Math.max(0, p - 1))} className="rounded border border-slate-700 p-1.5 hover:bg-slate-800 disabled:opacity-40"><ChevronLeft className="h-3.5 w-3.5" /></button>
+                  <button type="button" disabled={cacheReport.page + 1 >= cacheTotalPages} onClick={() => setCachePage(p => p + 1)} className="rounded border border-slate-700 p-1.5 hover:bg-slate-800 disabled:opacity-40"><ChevronRight className="h-3.5 w-3.5" /></button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       <section className={card}>
         <h3 className="font-semibold text-white mb-2">Cấu hình chạy đa luồng</h3>

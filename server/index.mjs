@@ -269,7 +269,13 @@ const stmt = {
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(qkey) DO UPDATE SET query_text = excluded.query_text, last_run_at = excluded.last_run_at, last_used_at = excluded.last_used_at,
       depth = excluded.depth, with_email = excluded.with_email, result_count = excluded.result_count`),
-  stats: db.prepare('SELECT (SELECT COUNT(*) FROM places) AS places, (SELECT COUNT(*) FROM query_runs) AS queries, (SELECT COALESCE(SUM(hits),0) FROM query_runs) AS hits'),
+  stats: db.prepare(`SELECT
+    (SELECT COUNT(*) FROM places) AS places,
+    (SELECT COUNT(*) FROM places WHERE COALESCE(json_extract(data, '$.email'), '') <> '') AS withEmail,
+    (SELECT COUNT(*) FROM places WHERE COALESCE(json_extract(data, '$.email'), '') = '') AS withoutEmail,
+    (SELECT COUNT(*) FROM places WHERE COALESCE(json_extract(data, '$.phone'), '') <> '') AS withPhone,
+    (SELECT COUNT(*) FROM query_runs) AS queries,
+    (SELECT COALESCE(SUM(hits),0) FROM query_runs) AS hits`),
   logJob: db.prepare('INSERT OR REPLACE INTO job_log (id, started_at, finished_at, user_id, user_email, kind, queries, count, cache_n, live_n, proxies, status, message) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'),
   recentLog: db.prepare('SELECT * FROM job_log ORDER BY finished_at DESC LIMIT 100'),
   countLog: db.prepare('SELECT COUNT(*) AS n FROM job_log'),
@@ -1133,7 +1139,39 @@ app.delete('/api/jobs/:id', (req, res) => {
 
 app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
-  res.json({ places: s.places, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
+  res.json({ places: s.places, withEmail: s.withEmail, withoutEmail: s.withoutEmail, withPhone: s.withPhone, queries: s.queries, hits: s.hits, bgPending: bgPending.size, ttlDays: TTL_MS / 86400000 });
+});
+
+// Báo cáo chi tiết kho theo trạng thái liên hệ (chỉ admin, phân trang để không tải cả kho lên trình duyệt).
+app.get('/api/admin/cache/places', requireAdmin, (req, res) => {
+  const contactMode = ['withEmail', 'withoutEmail', 'withPhone'].includes(String(req.query.contact)) ? String(req.query.contact) : '';
+  if (!contactMode) return res.status(400).json({ error: 'Bộ lọc liên hệ không hợp lệ.' });
+  const search = clean(req.query.search, 120).toLowerCase();
+  const page = Math.max(0, Number.parseInt(String(req.query.page || '0'), 10) || 0);
+  const limit = Math.min(100, Math.max(10, Number.parseInt(String(req.query.limit || '25'), 10) || 25));
+  const contactWhere = contactMode === 'withEmail'
+    ? "COALESCE(json_extract(data, '$.email'), '') <> ''"
+    : contactMode === 'withPhone'
+      ? "COALESCE(json_extract(data, '$.phone'), '') <> ''"
+      : "COALESCE(json_extract(data, '$.email'), '') = ''";
+  const where = [contactWhere];
+  const params = [];
+  if (search) { where.push('lower(data) LIKE ?'); params.push(`%${search}%`); }
+  const whereSql = where.join(' AND ');
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM places WHERE ${whereSql}`).get(...params).n;
+  const rows = db.prepare(`SELECT place_id, data, last_seen FROM places WHERE ${whereSql} ORDER BY last_seen DESC, place_id LIMIT ? OFFSET ?`)
+    .all(...params, limit, page * limit)
+    .map((row) => {
+      let p = {};
+      try { p = JSON.parse(row.data); } catch { /* dữ liệu lỗi sẽ bị bỏ qua ở phần hiển thị */ }
+      return {
+        id: row.place_id,
+        title: p.title || '', category: p.category || '', address: p.address || '', city: p.city || '', country: p.country || '',
+        phone: p.phone || '', website: p.website || '', email: p.email || '', rating: Number(p.rating) || 0,
+        reviewsCount: Number(p.reviewsCount) || 0, googleMapsUrl: p.googleMapsUrl || '', lastSeen: row.last_seen,
+      };
+    });
+  res.json({ contact: contactMode, search, page, pageSize: limit, total, rows });
 });
 
 // Cấu hình thị trường/logistics do admin quản lý; đọc nhanh từ SQLite, dùng chung cho mọi user.
@@ -1390,7 +1428,7 @@ app.get('/api/admin/background', requireAdmin, (_req, res) => {
       };
     })(),
     logTotal: stmt.countLog.get().n, logKeepDays: JOB_LOG_KEEP_MS / 86400000,
-    cache: { places: s.places, queries: s.queries, hits: s.hits },
+    cache: { places: s.places, withEmail: s.withEmail, withoutEmail: s.withoutEmail, withPhone: s.withPhone, queries: s.queries, hits: s.hits },
   });
 });
 
