@@ -1,5 +1,6 @@
 // Gợi ý từ khóa tìm kiếm (ngành × khu vực) từ hồ sơ người dùng, bằng Claude (chỉ chạy ở server).
 import Anthropic from '@anthropic-ai/sdk';
+import { createAiGuard } from './ai-guard.mjs';
 
 export const AI_MODEL = 'claude-haiku-5-5'; // model mặc định khi dùng API Anthropic chính thức
 export const AI_DAILY_LIMIT = 10; // số lần gọi AI mỗi người mỗi ngày (giờ VN)
@@ -180,7 +181,8 @@ function sanitizeBuyerTypes(list) {
 }
 
 export class AiError extends Error {
-  constructor(message, code = 'ai_error') { super(message); this.code = code; }
+  // outage = lỗi dịch vụ AI (5xx, 402, 408, 429, 401/403, timeout, không kết nối được): cầu chì sẽ dừng việc gọi AI.
+  constructor(message, code = 'ai_error', outage = false, detail = '') { super(message); this.code = code; this.outage = outage; this.detail = detail; }
 }
 
 // Lấy đối tượng JSON đầu tiên trong văn bản (model ngoài Claude hay bọc ```json ... ```)
@@ -204,10 +206,11 @@ async function callAnthropic(c, text, o = {}) {
     });
   } catch (e) {
     console.error('AI error', e?.status, e?.message);
-    if (e instanceof Anthropic.RateLimitError) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy');
-    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw new AiError('API key của máy chủ AI không hợp lệ. Hãy báo quản trị viên.', 'auth');
+    const detail = `HTTP ${e?.status ?? '—'} ${String(e?.message || '').replace(/\s+/g, ' ').slice(0, 200)}`.trim();
+    if (e instanceof Anthropic.RateLimitError) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy', true, detail);
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw new AiError('API key của máy chủ AI không hợp lệ. Hãy báo quản trị viên.', 'auth', true, detail);
     if (e instanceof Anthropic.NotFoundError) throw new AiError(`Máy chủ AI không có model “${c.model}” hoặc sai Base URL. Hãy báo quản trị viên.`, 'config');
-    throw new AiError('Không gọi được AI, hãy thử lại sau.');
+    throw new AiError('Không gọi được AI, hãy thử lại sau.', 'ai_error', !e?.status || e.status >= 500 || e.status === 402 || e.status === 408, detail);
   }
   if (resp.stop_reason === 'refusal') throw new AiError('AI từ chối xử lý nội dung hồ sơ. Hãy chỉnh lại mô tả rồi thử lại.', 'refusal');
   if (resp.stop_reason === 'max_tokens' && !o.plain) throw new AiError('AI trả lời chưa xong, hãy thử lại.');
@@ -227,12 +230,13 @@ async function callOpenAI(c, text, o = {}) {
     });
   } catch (e) {
     console.error('AI error', e?.message);
-    throw new AiError('Không gọi được máy chủ AI, hãy thử lại sau.');
+    throw new AiError('Không gọi được máy chủ AI, hãy thử lại sau.', 'ai_error', true, `Không kết nối được: ${e?.message || 'lỗi mạng'}`);
   }
-  if (r.status === 401 || r.status === 403) throw new AiError('API key của máy chủ AI không hợp lệ. Hãy báo quản trị viên.', 'auth');
-  if (r.status === 429) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy');
+  const httpDetail = async () => `HTTP ${r.status} ${(await r.clone().text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}`.trim();
+  if (r.status === 401 || r.status === 403) throw new AiError('API key của máy chủ AI không hợp lệ. Hãy báo quản trị viên.', 'auth', true, await httpDetail());
+  if (r.status === 429) throw new AiError('AI đang quá tải, hãy thử lại sau ít phút.', 'busy', true, await httpDetail());
   if (r.status === 404) throw new AiError(`Máy chủ AI không có model “${c.model}” hoặc sai Base URL. Hãy báo quản trị viên.`, 'config');
-  if (!r.ok) { console.error('AI error', r.status); throw new AiError('Không gọi được AI, hãy thử lại sau.'); }
+  if (!r.ok) { console.error('AI error', r.status); throw new AiError('Không gọi được AI, hãy thử lại sau.', 'ai_error', r.status >= 500 || r.status === 402 || r.status === 408, await httpDetail()); }
   let raw = await r.text().catch(() => '');
   if (/^\s*data:/.test(raw)) { // một số proxy luôn trả dạng stream (SSE): ghép các đoạn lại
     let text = '', usage;
@@ -262,8 +266,28 @@ const profileText = (profile) =>
   `<profile>\nSản phẩm xuất khẩu: ${profile.offer || '(chưa nêu)'}\nĐối tác/người mua mong muốn: ${profile.customers || '(chưa nêu — hãy tự suy luận từ sản phẩm)'}\n` +
   `Thị trường/khu vực mục tiêu người dùng nêu: ${profile.area || '(chưa nêu)'}\nGhi chú: ${profile.notes || '(không)'}\n</profile>`;
 
+// Cầu chì: lỗi dịch vụ / hết quota tuần thì dừng gọi AI, tự thử lại khi AI hoạt động trở lại (xem ai-guard.mjs).
+let quotaConfig = null; // { enabled, url, password, threshold } — lưu ở app_settings key 'ai_quota'
+export const setQuotaConfig = (c) => { quotaConfig = c; };
+export const getQuotaConfig = () => quotaConfig;
+export async function pingAi() {
+  const c = getAiConfig();
+  if (!c.apiKey || !c.model) return { ok: false, error: 'Chưa cấu hình AI.' };
+  try {
+    const o = { system: 'Reply with JSON.', maxTokens: 200, plain: true };
+    const out = c.format === 'openai' ? await callOpenAI(c, '{"ok":true}', o) : await callAnthropic(c, '{"ok":true}', o);
+    return out.text.trim() ? { ok: true } : { ok: false, error: 'AI trả về nội dung rỗng.' };
+  } catch (e) { return { ok: false, error: e?.detail || e?.message || 'Lỗi không xác định.' }; }
+}
+export const aiGuard = createAiGuard({ probe: pingAi, getModel: () => getAiConfig().model, getQuotaConfig });
+async function guarded(fn) {
+  if (await aiGuard.blocked()) throw new AiError(aiGuard.pausedMessage(), 'paused');
+  try { return await fn(); } catch (e) { if (e instanceof AiError && e.outage) aiGuard.trip(e.detail || e.message); throw e; }
+}
+
 // Một lần gọi AI: trả { countries:[{country, keywords, reason}], usage }
-export async function suggestCountries(profile) {
+export const suggestCountries = (profile) => guarded(() => suggestCountriesRaw(profile));
+async function suggestCountriesRaw(profile) {
   const c = getAiConfig();
   if (!c.apiKey || !c.model) throw new AiError('Chưa cấu hình AI.', 'config');
   const o = { system: c.systemPrompt + FIXED_SUFFIX, schema: COUNTRY_SCHEMA, maxTokens: 3000 };
@@ -277,7 +301,8 @@ export async function suggestCountries(profile) {
 
 // Chia một khu vực lớn thành các quận/phường/khu nhỏ để cào không sót (Google chỉ trả ~120 kết quả mỗi truy vấn)
 const AREA_SCHEMA = { type: 'object', properties: { areas: { type: 'array', items: { type: 'string' } } }, required: ['areas'], additionalProperties: false };
-export async function suggestAreas(place) {
+export const suggestAreas = (place) => guarded(() => suggestAreasRaw(place));
+async function suggestAreasRaw(place) {
   const c = getAiConfig();
   if (!c.apiKey || !c.model) throw new AiError('Chưa cấu hình AI.', 'config');
   const system = `Bạn là chuyên gia địa lý. Người dùng đưa một địa điểm (thành phố/quận) trong thẻ <place>. Liệt kê 8-14 quận, huyện, phường hoặc khu vực nhỏ bên trong địa điểm đó sao cho gộp lại phủ gần hết địa điểm, không trùng nhau, KHÔNG gồm chính địa điểm đó. Viết đúng tên người bản địa gõ trên Google Maps (tên ngắn, không kèm tên thành phố/quốc gia).

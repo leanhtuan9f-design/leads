@@ -8,7 +8,7 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
-import { AI_DAILY_LIMIT, AiError, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
+import { AI_DAILY_LIMIT, AiError, aiGuard, setQuotaConfig, getQuotaConfig, aiEnabled, cleanProfile, profileIsEmpty, suggestCountries, suggestAreas, getAiConfig, setAiConfig, listModels, normalizeBaseUrl, testConnection, DEFAULT_SYSTEM_PROMPT, FIXED_SUFFIX } from './ai-suggest.mjs';
 import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, randomPassword, vnDay } from './auth-lib.mjs';
 import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
@@ -216,6 +216,10 @@ try { // cấu hình AI do admin đặt trong giao diện (khóa API nằm trong
   const r = db.prepare("SELECT value FROM app_settings WHERE key = 'ai'").get();
   if (r) setAiConfig(JSON.parse(r.value));
 } catch (e) { console.error('Không đọc được cấu hình AI', e?.message); }
+try { // cấu hình kiểm tra quota 9router (mật khẩu dashboard chỉ ghi vào, không trả về trình duyệt)
+  const r = db.prepare("SELECT value FROM app_settings WHERE key = 'ai_quota'").get();
+  if (r) setQuotaConfig(JSON.parse(r.value));
+} catch (e) { console.error('Không đọc được cấu hình quota AI', e?.message); }
 db.exec(`CREATE TABLE IF NOT EXISTS user_items (
   user_id INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -1268,6 +1272,30 @@ app.post('/api/suggest', async (req, res) => {
   } finally {
     aiInFlight.delete(user.id);
   }
+});
+
+// Cầu chì AI: trạng thái dừng / quota tuần 9router (chỉ admin). Mật khẩu dashboard chỉ ghi vào.
+const aiGuardView = () => {
+  const q = getQuotaConfig() || {};
+  return { ...aiGuard.status(), settings: { enabled: Boolean(q.enabled), url: q.url || '', threshold: q.threshold || 95, hasPassword: Boolean(q.password) } };
+};
+app.get('/api/admin/ai-guard', requireAdmin, (_req, res) => res.json(aiGuardView()));
+app.post('/api/admin/ai-guard/check', requireAdmin, async (_req, res) => { await aiGuard.checkNow(); res.json(aiGuardView()); });
+app.post('/api/admin/ai-guard/resume', requireAdmin, (_req, res) => { aiGuard.resume(); res.json(aiGuardView()); });
+app.put('/api/admin/ai-guard/settings', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const cur = getQuotaConfig() || {};
+  const url = String(b.url || '').trim().replace(/\/+$/, '').slice(0, 500);
+  if (url && !/^https?:\/\/\S+$/.test(url)) return res.status(400).json({ error: 'Dashboard URL phải bắt đầu bằng http:// hoặc https://.' });
+  const threshold = Math.round(Number(b.threshold));
+  if (!(threshold >= 50 && threshold <= 100)) return res.status(400).json({ error: 'Ngưỡng dừng phải từ 50 đến 100.' });
+  const password = typeof b.password === 'string' && b.password.trim() ? b.password.trim().slice(0, 500) : cur.password || '';
+  if (url && !password) return res.status(400).json({ error: 'Cần nhập mật khẩu dashboard.' });
+  const next = { enabled: Boolean(url && password), url, password, threshold };
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('ai_quota', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(next));
+  setQuotaConfig(next);
+  await aiGuard.checkNow();
+  res.json(aiGuardView());
 });
 
 // Cấu hình kết nối AI (chỉ admin). Khóa API chỉ ghi vào, không bao giờ đọc ra.

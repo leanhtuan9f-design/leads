@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
+import { AiGuardPanel } from './AiGuardPanel';
 
 interface AiConfigView {
   format: 'anthropic' | 'openai';
@@ -76,6 +77,8 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
     : 'Dán API key';
 
   return (
+    <>
+    <AiGuardPanel />
     <div className="space-y-2.5 mt-3 pt-3 border-t border-slate-800">
       <div className="font-semibold text-white">Kết nối AI (tùy chỉnh)</div>
       <label className="block">
@@ -147,5 +150,6 @@ export const AiSettings: React.FC<{ onSaved: () => void }> = ({ onSaved }) => {
       </div>
       <p className="text-[11px] text-slate-500">API key lưu trong cơ sở dữ liệu của máy chủ, không hiển thị lại và không gửi về trình duyệt. Tin nhắn gửi tới máy chủ AI chứa hồ sơ người dùng đã nhập.</p>
     </div>
+    </>
   );
 };
