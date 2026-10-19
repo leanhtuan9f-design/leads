@@ -103,7 +103,7 @@ export const AutoPlan: React.FC = () => {
         )}
       </div>
       <p className="text-[11px] text-slate-500 mb-3">
-        Mỗi vòng, mỗi mặt hàng (số liệu GSO mới nhất) chỉ được tìm lead ở MỘT nước nhập khẩu: vòng 1 là nước kim ngạch cao nhất, vòng 2 là nước thứ hai… Mỗi nước chỉ cào vài từ khóa × vài thành phố lớn.
+        Mỗi vòng, mỗi mặt hàng (số liệu GSO mới nhất) chỉ được tìm lead ở MỘT nước nhập khẩu: vòng 1 là nước kim ngạch cao nhất, vòng 2 là nước thứ hai… Mỗi nước bắt đầu với số từ khóa × thành phố đã đặt, sau đó tự mở rộng sang các thành phố còn lại trong danh sách và tách khu vực chạm trần đến 3 cấp.
         Vòng sau chỉ bắt đầu khi vòng trước xong. Nguồn GSO chỉ công bố tối đa 5 nước/mặt hàng. Bỏ qua dầu thô, xăng dầu, than, quặng, xi măng. Các tác vụ thủ công bên dưới vẫn chạy bình thường.
       </p>
       {plan && form && (

@@ -1,5 +1,6 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
+import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -47,7 +48,7 @@ const AUTO_GAP_MS = Number(process.env.AUTO_GAP_MS ?? 20000); // nghỉ giữa h
 const AUTO_MAX_PAIRS = 80;
 const AUTO_MAX_RUNS = 600; // trần tổng số cặp (kể cả cặp tách nhỏ) mỗi tác vụ
 const AUTO_SAT = 100; // một truy vấn trả ≥ ngần này lead = chạm trần ~120 của Google → tách thành khu nhỏ để không sót
-const AUTO_MAX_LEVEL = 2; // thành phố → quận → phường
+const AUTO_MAX_LEVEL = 3; // thành phố → quận → phường → khu nhỏ
 const AUTO_RETRY_ERROR = 3; // số lần thử tối đa cho cặp lỗi
 const AUTO_RETRY_EMPTY = 2;
 const AUTO_BREAKER = 5; // 5 cặp liên tiếp lỗi hẳn → tự dừng tác vụ
@@ -1546,7 +1547,11 @@ async function pickAuto() {
   const sp = stmt.autoNextSplit.get();
   if (sp) {
     autoPicking = true;
-    try { await splitRun(sp); } catch (e) { console.error('splitRun error', e); stmt.autoSetSplit.run('failed', sp.id); } finally { autoPicking = false; }
+    try { await splitRun(sp); } catch (e) { console.error('splitRun error', e); stmt.autoSetSplit.run('failed', sp.id); } finally {
+      settleAutoTasks(db);
+      autoPicking = false;
+      setImmediate(planTick);
+    }
     setImmediate(next);
     return;
   }
@@ -1794,6 +1799,18 @@ async function planTick() {
   try {
     const cfg = loadPlan();
     if (!cfg.enabled) return;
+    settleAutoTasks(db);
+    // Recover completed old plans once, then expand subsequent markets at cycle end.
+    if (!cfg.expansionVersion) {
+      let expanded;
+      inTx(() => { expanded = expandAutoPlan(db, { citiesOfCountry, makeKey, maxRuns: AUTO_MAX_RUNS, maxLevel: AUTO_MAX_LEVEL, retryFailed: true }); });
+      cfg.expansionVersion = 1;
+      cfg.note = `Mở rộng: ${expanded.tasks} tác vụ, +${expanded.pairs} cặp thành phố, ${expanded.splits} khu vực tách sâu`;
+      savePlan(cfg);
+      next();
+    }
+    // Expansion from an older round must finish before advancing the cycle.
+    if (db.prepare("SELECT 1 FROM auto_tasks WHERE plan_round>0 AND status='running' AND plan_round!=?").get(cfg.round + 1)) return;
     if (!aiEnabled()) { if (cfg.note !== 'AI chưa được cấu hình') savePlan({ ...cfg, note: 'AI chưa được cấu hình' }); return; }
     const products = planProducts();
     if (!products.length) { savePlan({ ...cfg, enabled: false, note: 'Chưa có dữ liệu xuất khẩu theo mặt hàng' }); return; }
@@ -1803,7 +1820,17 @@ async function planTick() {
         cfg.round++; cfg.filled = false;
       }
       const items = products.filter((p) => p.markets[cfg.round]).map((p) => ({ p, country: p.markets[cfg.round] }));
-      if (!items.length) { savePlan({ ...cfg, enabled: false, round: 0, filled: false, cycles: cfg.cycles + 1, note: `Đã xong một chu kỳ (${cfg.round} vòng). Bật lại để chạy chu kỳ mới (cặp đã có trong kho sẽ hoàn tất ngay).` }); return; }
+      if (!items.length) {
+        let expanded;
+        inTx(() => { expanded = expandAutoPlan(db, { citiesOfCountry, makeKey, maxRuns: AUTO_MAX_RUNS, maxLevel: AUTO_MAX_LEVEL }); });
+        if (expanded.tasks) {
+          cfg.note = `Đang mở rộng: +${expanded.pairs} cặp thành phố, ${expanded.splits} khu vực tách sâu`;
+          savePlan(cfg); next(); return;
+        }
+        savePlan({ ...cfg, enabled: false, round: 0, filled: false, cycles: cfg.cycles + 1,
+          note: `Đã xong một chu kỳ (${cfg.round} vòng), gồm các thành phố có sẵn và tách khu vực đến cấp ${AUTO_MAX_LEVEL}. Các khu vực lỗi hoặc chạm giới hạn xem trong báo cáo độ phủ.` });
+        return;
+      }
       let created = 0;
       for (const { p, country } of items) {
         if (db.prepare('SELECT 1 FROM auto_tasks WHERE plan_group=? AND country=?').get(p.key, country)) continue;
