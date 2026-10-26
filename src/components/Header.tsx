@@ -1,6 +1,6 @@
 import { APP_NAME } from '../config/brand';
 import React from 'react';
-import { Database, History, HelpCircle, Activity } from 'lucide-react';
+import { Database, History, HelpCircle, Activity, Globe } from 'lucide-react';
 import { ActiveTab } from '../types/scraper';
 import { AccountMenu } from './AccountMenu';
 import { AuthUser, Quota } from '../auth/types';
@@ -55,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
         <span className="hidden sm:inline">{APP_NAME}</span>
       </a>
 
-      <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium text-slate-300 flex-1">
+      <nav className="flex items-center gap-4 sm:gap-6 text-sm font-medium text-slate-300 flex-1 min-w-0 overflow-x-auto">
         <button onClick={() => setActiveTab('leads')} className={navCls(inLeads)}>
           <Database className="w-3.5 h-3.5" />
           <span>Lead</span>
@@ -70,6 +70,12 @@ export const Header: React.FC<HeaderProps> = ({
             <Activity className="w-3.5 h-3.5" />
             <span>Chạy ngầm</span>
           </button>
+        )}
+        {user.role === 'admin' && (
+          <a href="/lead/" className={navCls(false)} title="Module Lead xuất khẩu độc lập (dữ liệu mẫu)">
+            <Globe className="w-3.5 h-3.5" />
+            <span>Lead xuất khẩu</span>
+          </a>
         )}
       </nav>
 
