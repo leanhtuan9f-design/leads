@@ -36,7 +36,7 @@ export default function AuthGate() {
   };
 
   if (state === 'loading') {
-    return <div className="min-h-screen bg-[#070b12] flex items-center justify-center text-slate-500 text-sm">Đang tải...</div>;
+    return <div className="min-h-screen bg-[#0a1417] flex items-center justify-center text-slate-500 text-sm">Đang tải...</div>;
   }
   if (state === 'out' || !user) {
     return <LoginForm onLoggedIn={(u, q) => { setUser(u); setQuota(q); setState('in'); }} />;

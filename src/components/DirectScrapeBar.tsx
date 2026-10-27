@@ -15,6 +15,7 @@ interface DirectScrapeBarProps {
   quota?: Quota | null;
   profileVersion?: number;
   onOpenProfile: () => void;
+  isAdmin?: boolean;
 }
 
 interface AiCountry { country: string; keywords: string[]; reason: string }
@@ -46,19 +47,6 @@ const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
 const FULL_BATCH = 0;
 
-const QUICK_SEARCH_EXAMPLES = [
-  { category: 'Phòng khám nha khoa', location: 'Hà Nội' },
-  { category: 'Quán cà phê', location: 'Quận 1, TP.HCM' },
-  { category: 'Công ty cơ khí', location: 'Bình Dương' },
-  { category: 'Spa làm đẹp', location: 'Hải Phòng' },
-  { category: 'Thầu xây dựng', location: 'Cần Thơ' },
-  { category: 'Công ty luật', location: 'Đà Nẵng' },
-  { category: 'Khách sạn', location: 'Đà Lạt' },
-  { category: 'Kho vận Logistics', location: '21.0285, 105.8542' },
-  { category: 'Trung tâm Ngoại ngữ', location: 'Quận Cầu Giấy, Hà Nội' },
-  { category: 'Đại lý nông sản', location: 'Đắk Lắk' }
-];
-
 export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   existingBusinesses = [],
   onStartScrape,
@@ -68,7 +56,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   proxyCount = 0,
   quota = null,
   profileVersion = 0,
-  onOpenProfile
+  onOpenProfile,
+  isAdmin = false
 }) => {
   const [product, setProduct] = useState(() => (new URLSearchParams(window.location.search).get('product') || '').slice(0, 600)); // sản phẩm xuất khẩu — AI dựa vào đây để gợi ý
   const [aiProduct, setAiProduct] = useState(''); // sản phẩm mà danh sách gợi ý hiện tại được tạo cho
@@ -85,7 +74,6 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [ai, setAi] = useState<AiState | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState('');
-  const [showSamples, setShowSamples] = useState(false);
 
   const loadAi = useCallback(() => {
     apiJson<AiState>('/suggest')
@@ -365,11 +353,6 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
               </>
             )}
             <span className="text-slate-500">({ai.used}/{ai.limit} lượt hôm nay)</span>
-            {ai.countries.length > 0 && !country.trim() && (
-              <button type="button" onClick={() => setShowSamples(v => !v)} className="text-slate-500 hover:text-slate-300 underline ml-auto">
-                {showSamples ? 'Ẩn gợi ý mẫu' : 'Gợi ý mẫu'}
-              </button>
-            )}
           </div>
           {(ai.buyerTypes?.length ?? 0) > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -393,24 +376,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         </div>
       )}
 
-      {(!ai?.enabled || ai.countries.length === 0 || showSamples) && (
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-        <span className="text-slate-400 font-medium">Gợi ý mẫu nhanh:</span>
-        {QUICK_SEARCH_EXAMPLES.map((ex) => (
-          <button
-            key={ex.category}
-            type="button"
-            onClick={() => { setCategory(ex.category); setCountry(''); setCity(ex.location); }}
-            className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 rounded transition-colors"
-          >
-            <span className="text-blue-400">{ex.category}</span>
-            <span className="text-slate-500 mx-1">@</span>
-            <span className="font-mono text-emerald-400">{ex.location}</span>
-          </button>
-        ))}
-      </div>
-      )}
-
+      {isAdmin && (
       <div>
         <button
           type="button"
@@ -459,6 +425,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           </div>
         )}
       </div>
+      )}
     </form>
   );
 };

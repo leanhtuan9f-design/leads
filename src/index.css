@@ -1,5 +1,31 @@
 @import "tailwindcss";
 
+/* Bảng màu đồng bộ với homepage (src/landing/landing.css): nền ink #102026, nhấn cam #f04a20 / #c73510 */
+@theme {
+  --color-slate-50: #f8f5ef;
+  --color-slate-100: #eef1f2;
+  --color-slate-200: #d9e0e2;
+  --color-slate-300: #b9c4c7;
+  --color-slate-400: #94a3a8;
+  --color-slate-500: #6b7f86;
+  --color-slate-600: #455c64;
+  --color-slate-700: #2c424a;
+  --color-slate-800: #1b2e35;
+  --color-slate-900: #102026;
+  --color-slate-950: #0a1417;
+  --color-blue-50: #fff0e3;
+  --color-blue-100: #ffe0cc;
+  --color-blue-200: #fcc5a8;
+  --color-blue-300: #fba98a;
+  --color-blue-400: #f77a52;
+  --color-blue-500: #f04a20;
+  --color-blue-600: #c73510;
+  --color-blue-700: #bb3010;
+  --color-blue-800: #922609;
+  --color-blue-900: #6e1c07;
+  --color-blue-950: #3d0f04;
+}
+
 @font-face {
   font-family: 'Plus Jakarta Sans';
   font-style: normal;
@@ -22,7 +48,7 @@
   }
 
   body {
-    background-color: #0b0f19;
+    background-color: #0a1417;
     color: #f1f5f9;
   }
 }
@@ -39,14 +65,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: #102026;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #2c424a;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #455c64;
 }

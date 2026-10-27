@@ -132,14 +132,14 @@ export const MapView: React.FC<MapViewProps> = ({
 
       {/* Main Interactive Map Viewport */}
       <div 
-        className="flex-1 bg-[#090d16] relative overflow-hidden cursor-crosshair select-none"
+        className="flex-1 bg-[#0a1417] relative overflow-hidden cursor-crosshair select-none"
         onClick={() => setSelectedPlace(null)}
       >
         {/* Subtle Map Grid Background */}
         <div 
           className="absolute inset-0 opacity-20 pointer-events-none"
           style={{
-            backgroundImage: `radial-gradient(#3b82f6 1px, transparent 1px), radial-gradient(#1e293b 1px, #090d16 1px)`,
+            backgroundImage: `radial-gradient(#f04a20 1px, transparent 1px), radial-gradient(#1b2e35 1px, #0a1417 1px)`,
             backgroundSize: '40px 40px',
             backgroundPosition: '0 0, 20px 20px',
             transform: `scale(${zoomLevel})`,
@@ -153,10 +153,10 @@ export const MapView: React.FC<MapViewProps> = ({
           className="absolute inset-0 w-full h-full opacity-15 pointer-events-none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <path d="M 0,200 Q 300,150 600,250 T 1200,200" fill="none" stroke="#60a5fa" strokeWidth="1" strokeDasharray="4 4" />
-          <path d="M 100,500 Q 400,420 800,520 T 1400,480" fill="none" stroke="#3b82f6" strokeWidth="1" strokeDasharray="3 3" />
-          <circle cx="35%" cy="45%" r="180" fill="none" stroke="#1d4ed8" strokeWidth="0.8" />
-          <circle cx="70%" cy="60%" r="220" fill="none" stroke="#1d4ed8" strokeWidth="0.8" />
+          <path d="M 0,200 Q 300,150 600,250 T 1200,200" fill="none" stroke="#f77a52" strokeWidth="1" strokeDasharray="4 4" />
+          <path d="M 100,500 Q 400,420 800,520 T 1400,480" fill="none" stroke="#f04a20" strokeWidth="1" strokeDasharray="3 3" />
+          <circle cx="35%" cy="45%" r="180" fill="none" stroke="#c73510" strokeWidth="0.8" />
+          <circle cx="70%" cy="60%" r="220" fill="none" stroke="#c73510" strokeWidth="0.8" />
         </svg>
 
         {/* Scaled Pins Canvas */}

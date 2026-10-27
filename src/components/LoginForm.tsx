@@ -27,7 +27,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onLoggedIn }) => {
   };
 
   return (
-    <div className="min-h-screen bg-[#070b12] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#0a1417] flex items-center justify-center p-4">
       <form onSubmit={submit} className="w-full max-w-sm bg-slate-950 border border-slate-800 rounded-xl p-6 space-y-4 shadow-2xl">
         <div className="text-center space-y-1">
           <h1 className="text-lg font-bold text-white">{APP_NAME}</h1>

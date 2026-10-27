@@ -34,7 +34,7 @@ export function TrashModal({ kind, onRestore, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-[#0d1420] border border-slate-700 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-[#102026] border border-slate-700 rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="p-4 border-b border-slate-700 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-100">{kind === 'leads' ? 'Lead' : 'Job'} đã xóa{items ? ` (${items.length})` : ''}</h2>
           <div className="flex items-center gap-3">

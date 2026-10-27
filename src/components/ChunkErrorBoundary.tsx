@@ -13,7 +13,7 @@ export class ChunkErrorBoundary extends React.Component<{ children: React.ReactN
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="min-h-screen bg-[#070b12] text-slate-100 flex items-center justify-center p-6">
+      <div className="min-h-screen bg-[#0a1417] text-slate-100 flex items-center justify-center p-6">
         <div className="max-w-md text-center space-y-3">
           <div className="text-base font-semibold">Không tải được giao diện</div>
           <p className="text-sm text-slate-400">Có thể đã có bản cập nhật mới trong lúc bạn đang mở trang. Hãy tải lại trang để dùng bản mới nhất.</p>

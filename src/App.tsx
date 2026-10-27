@@ -343,7 +343,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
   return <ChunkErrorBoundary><Suspense fallback={<div className="min-h-[16rem] flex items-center justify-center text-sm text-slate-500">Đang tải…</div>}>
     <>
-    <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-[#0a1417] text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -368,6 +368,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
             quota={quota}
             profileVersion={profileVersion}
             onOpenProfile={() => setProfileOpen(true)}
+            isAdmin={user.role === 'admin'}
           />
         )}
 

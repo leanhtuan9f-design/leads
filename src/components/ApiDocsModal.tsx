@@ -161,7 +161,7 @@ with s.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
           </button>
         </div>
 
-        <div className="p-4 bg-[#070b12] overflow-x-auto">
+        <div className="p-4 bg-[#0a1417] overflow-x-auto">
           <pre className="font-mono text-[11px] text-slate-200 leading-relaxed">{codeMap[activeLang]}</pre>
         </div>
       </div>
