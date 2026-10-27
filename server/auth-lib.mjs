@@ -28,6 +28,7 @@ export function ensureAuthSchema(db) {
     );
   `);
   if (!db.prepare('PRAGMA table_info(usage)').all().some((c) => c.name === 'searches')) db.exec('ALTER TABLE usage ADD COLUMN searches INTEGER NOT NULL DEFAULT 0');
+  if (!db.prepare('PRAGMA table_info(usage)').all().some((c) => c.name === 'cached')) db.exec('ALTER TABLE usage ADD COLUMN cached INTEGER NOT NULL DEFAULT 0');
 }
 
 export function hashPassword(pw) {

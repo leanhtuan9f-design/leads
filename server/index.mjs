@@ -6,7 +6,7 @@ import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats
 import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
 import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, chmodSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import dns from 'node:dns/promises';
@@ -35,6 +35,7 @@ const JOB_TIMEOUT_MS = 20 * 60 * 1000;
 const AUTO_TIMEOUT_MS = Number(process.env.AUTO_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_QUEUE = 3;
 const TRIAL_DAILY_SEARCHES = 10; // dùng thử: tối đa ngần này lượt tìm kiếm mỗi ngày (giờ Việt Nam)
+const CACHE_DAILY_LIMIT = Number(process.env.CACHE_DAILY_LIMIT) || 2000; // gói trả phí: tối đa ngần này lead lấy từ kho đã lưu mỗi ngày (chống kéo cả kho bằng nhiều từ khóa); admin không bị
 const TRIAL_LEAD_LIMIT = 10; // dùng thử: vẫn tìm đủ nhưng chỉ hiển thị ngần này lead, ưu tiên lead đầy đủ thông tin
 const MAX_PROXIES = 10;
 const DB_PATH = process.env.DB_PATH || '/var/lib/maps-data/cache.db';
@@ -69,7 +70,7 @@ const citiesOfCountry = (country) => {
 const isPrivateIp = (ip) => {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 192 && b === 0 && ip.startsWith('192.0.0.')) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   const v = ip.toLowerCase();
   return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80') || v.startsWith('::ffff:');
@@ -115,6 +116,7 @@ async function validateProxy(raw) {
 }
 
 mkdirSync(WORK_DIR, { recursive: true, mode: 0o777 });
+try { chmodSync(WORK_DIR, 0o711); } catch { /* thư mục job con vẫn 0777 cho container; thư mục cha không cho liệt kê */ }
 mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 // ===== Kho dữ liệu SQLite =====
@@ -262,7 +264,8 @@ const stmt = {
   delUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
   delOtherSessions: db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?'),
   purgeSessions: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
-  getUsage: db.prepare('SELECT new_places, refreshes, searches FROM usage WHERE user_id = ? AND day = ?'),
+  getUsage: db.prepare('SELECT new_places, refreshes, searches, cached FROM usage WHERE user_id = ? AND day = ?'),
+  addCached: db.prepare(`INSERT INTO usage (user_id, day, cached) VALUES (?, ?, ?) ON CONFLICT(user_id, day) DO UPDATE SET cached = cached + excluded.cached`),
   addSearch: db.prepare(`INSERT INTO usage (user_id, day, searches) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET searches = searches + 1`),
   addNew: db.prepare(`INSERT INTO usage (user_id, day, new_places) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET new_places = new_places + 1`),
   addRefresh: db.prepare(`INSERT INTO usage (user_id, day, refreshes) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET refreshes = refreshes + 1`),
@@ -340,10 +343,12 @@ const smallJson = express.json({ limit: '32kb' });
 app.use((req, res, next) => (/^\/api\/(state|items)(\/|$)/.test(req.path) ? next() : smallJson(req, res, next)));
 
 // ===== Xác thực =====
-const COOKIE = 'mapsid';
+const COOKIE = '__Host-mapsid'; // tiền tố __Host-: chỉ gửi qua HTTPS, không cho subdomain ghi đè
+const LEGACY_COOKIE = 'mapsid'; // phiên cũ vẫn dùng được đến khi hết hạn
 const SESSION_MS = 30 * 24 * 3600 * 1000;
 const parseCookies = (req) => Object.fromEntries(String(req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]).map(([k, ...v]) => [k, v.join('=')]));
-const setCookie = (res, token, maxAgeSec) => res.setHeader('Set-Cookie', `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}`);
+const setCookie = (res, token, maxAgeSec) => res.setHeader('Set-Cookie', [`${COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSec}`, `${LEGACY_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`]);
+const sessionToken = (req) => { const c = parseCookies(req); return c[COOKIE] || c[LEGACY_COOKIE]; };
 
 // Chặn CSRF: yêu cầu ghi từ trình duyệt phải cùng nguồn gốc (cookie còn có SameSite=Lax)
 app.use((req, res, next) => {
@@ -355,7 +360,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, _res, next) => {
-  const tok = parseCookies(req)[COOKIE];
+  const tok = sessionToken(req);
   if (tok) {
     const sess = stmt.getSession.get(sha256(tok));
     if (sess && sess.expires_at > Date.now()) {
@@ -581,7 +586,8 @@ function quotaOf(u) {
   };
 }
 
-const loginFails = new Map(); // key -> { n, until }
+const loginFails = new Map(); // key -> { n, until, at }
+setInterval(() => { const t = Date.now() - 3600 * 1000; for (const [k, v] of loginFails) if (v.until < Date.now() && (v.at || 0) < t) loginFails.delete(k); }, 600 * 1000).unref();
 const failKey = (req, email) => `${req.headers['x-real-ip'] || req.ip}|${email}`;
 // Chặn tạo hàng loạt tài khoản dùng thử để lách hạn mức: tối đa TRIAL_MAX_PER_IP_DAY trial mới/IP/ngày (giờ VN)
 const TRIAL_MAX_PER_IP_DAY = 5;
@@ -628,7 +634,7 @@ app.post('/api/auth/login', (req, res) => {
   const ok = verifyPassword(password, u?.pass) && u && !u.disabled; // luôn băm để thời gian phản hồi như nhau
   if (!ok) {
     const n = (f?.n || 0) + 1;
-    loginFails.set(key, { n, until: n >= 8 ? Date.now() + 15 * 60 * 1000 : 0 });
+    loginFails.set(key, { n, until: n >= 8 ? Date.now() + 15 * 60 * 1000 : 0, at: Date.now() });
     return res.status(401).json({ error: 'Email hoặc mật khẩu không đúng' });
   }
   loginFails.delete(key);
@@ -639,7 +645,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 app.post('/api/auth/logout', (req, res) => {
-  const tok = parseCookies(req)[COOKIE];
+  const tok = sessionToken(req);
   if (tok) stmt.delSession.run(sha256(tok));
   setCookie(res, '', 0);
   res.json({ ok: true });
@@ -853,6 +859,7 @@ class Job {
   }
   endClients(status, message = '') {
     if (this.ended) return;
+    if (!message && this.cacheCapped) message = `Đã đạt giới hạn lead lấy từ kho đã lưu (${CACHE_DAILY_LIMIT}/ngày, tối đa ${MAX_RESULTS}/lượt tìm). Hạn mức đặt lại vào 0h (giờ Việt Nam).`;
     if (this.trialBuf && status !== 'failed' && status !== 'cancelled') {
       const found = this.flushTrial();
       if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead điểm cao nhất, số điện thoại và email được ẩn một phần. Nâng cấp để xem toàn bộ.`;
@@ -1041,7 +1048,7 @@ function scrapeQuery(job, q, idx) {
     job.container = `maps-job-${job.id.slice(0, 8)}-${idx}`;
 
     const args = [
-      'run', '--rm', '--name', job.container, '--memory', '1800m', '--cpus', '2',
+      'run', '--rm', '--name', job.container, '--memory', '1800m', '--cpus', '2', '--pids-limit', '1024', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '-v', `${dir}:/d`, IMAGE,
       '-input', '/d/q.txt', '-results', '/d/out.json', '-json',
       '-depth', String(depth), '-lang', lang, '-c', '1', '-exit-on-inactivity', '90s',
@@ -1129,6 +1136,10 @@ function prepareCached(job) {
     cachedQueries++;
     stmt.touchRun.run(Date.now(), q.key);
     for (const r of stmt.runPlaces.all(q.key)) {
+      if (job.cacheLeft !== undefined) {
+        if (job.cacheLeft <= 0) { job.cacheCapped = true; break; }
+        job.cacheLeft--; stmt.addCached.run(job.userId, vnDay(), 1);
+      }
       const place = JSON.parse(r.data);
       if (r.closed_suspect) place.possiblyClosed = true;
       place.fromCache = true;
@@ -1252,6 +1263,7 @@ app.post('/api/jobs', async (req, res) => {
   stmt.addSearch.run(user.id, vnDay());
   if (verdict.lockCountry) billing.setCountries(user.id, [...limits.countries, verdict.lockCountry]); // tài khoản cũ chưa chọn đủ nước: nước đầu tiên được dùng sẽ được khoá
   job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
+  if (limits) job.cacheLeft = Math.max(0, Math.min(MAX_RESULTS, CACHE_DAILY_LIMIT - (usage.cached || 0))); // gói trả phí: trần lead từ kho mỗi job và mỗi ngày
   if (free) job.trialBuf = [];
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
