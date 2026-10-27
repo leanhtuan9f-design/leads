@@ -15,6 +15,7 @@ export interface Quota {
   maxConcurrentSearches?: number;
   maxCountries?: number;
   countries?: string[];
+  hasPlan?: boolean; // true khi tài khoản có gói: không hiển thị hạn mức địa điểm mới/lượt quét mới
 }
 
 export interface AdminUserRow {

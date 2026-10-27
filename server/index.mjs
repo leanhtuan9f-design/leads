@@ -537,7 +537,7 @@ function quotaOf(u) {
   return {
     newUsed: use.new_places, newLimit: u.daily_new, refreshUsed: use.refreshes, refreshLimit: u.daily_refresh,
     searchUsed: use.searches || 0, searchLimit: limits?.dailySearches || 0, maxConcurrentSearches: limits?.maxConcurrentSearches || 0,
-    maxCountries: limits?.maxCountries || 0, countries: limits?.countries || [],
+    maxCountries: limits?.maxCountries || 0, countries: limits?.countries || [], hasPlan: !!limits,
   };
 }
 
