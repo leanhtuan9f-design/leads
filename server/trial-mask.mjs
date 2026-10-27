@@ -22,11 +22,22 @@ export function maskPhone(phone) {
   return value.replace(/\d/g, (d) => (++seen <= head || seen > digits - tail ? d : '•'));
 }
 
+// Chỉ giữ chữ cái đầu của tên miền và đuôi: https://www.acme-coffee.com/shop → a***.com (bỏ đường dẫn, không còn là link dùng được).
+export function maskWebsite(website) {
+  const value = String(website || '').trim();
+  if (!value) return '';
+  const host = value.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/^www\./i, '').split(/[/?#]/)[0];
+  const dot = host.lastIndexOf('.');
+  if (dot < 1) return '***';
+  return `${host.slice(0, 1)}***${host.slice(dot)}`;
+}
+
 export function maskTrialPlace(place) {
   return {
     ...place,
     email: maskEmail(place.email),
     additionalEmails: (place.additionalEmails || []).map(maskEmail),
     phone: maskPhone(place.phone),
+    website: maskWebsite(place.website),
   };
 }
