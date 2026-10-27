@@ -1,4 +1,4 @@
-import { planFeatures } from '../data/planFeatures';
+import { planBenefits } from '../data/planFeatures';
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, X, Crown, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { apiJson } from '../auth/types';
@@ -8,14 +8,10 @@ type Props = { userEmail: string; trialId?: string; onClose: () => void; onActiv
 type Checkout = { orderId: string; session: { paymentSessionId: string; status: string; expiresAt?: string | null; instructions?: Record<string, unknown>; amount?: { value?: string; currency?: string } } };
 type PlanKey = 'BASIC' | 'ADVANCED';
 type Plan = { dailyNew: number; dailyRefresh: number; maxCountries?: number; maxConcurrentSearches?: number; dailySearches?: number };
-type BillingConfig = { plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }>; features?: Record<PlanKey, string[]> };
-type AccountPlan = { plan: { plan: PlanKey | 'TRIAL'; billingCycle: string | null; orderId?: string | null }; quota: { newLimit: number; refreshLimit: number; countries?: string[] }; plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }>; features?: Record<PlanKey, string[]> };
+type BillingConfig = { plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> };
+type AccountPlan = { plan: { plan: PlanKey | 'TRIAL'; billingCycle: string | null; orderId?: string | null }; quota: { newLimit: number; refreshLimit: number; countries?: string[] }; plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> };
 
 const str = (value: unknown) => typeof value === 'string' ? value.trim() : '';
-const fallbackPrices: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> = {
-  BASIC: { MONTHLY: 2000, ANNUAL: 4000 },
-  ADVANCED: { MONTHLY: 4000, ANNUAL: 8000 },
-};
 
 export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props) {
   const isExistingUser = !trialId;
@@ -32,11 +28,11 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
 
   useEffect(() => {
     apiJson<AccountPlan>('/account/plan').then((current) => {
-      setCatalog({ plans: current.plans, prices: current.prices, features: current.features });
+      setCatalog({ plans: current.plans, prices: current.prices });
       setAccountPlan(current);
       if (current.quota.countries?.length) setCountries(current.quota.countries); // đang dùng gói giới hạn nước: gợi ý sẵn các nước hiện có
       if (current.plan.plan === 'ADVANCED' && !new URLSearchParams(window.location.search).has('plan')) setForm(previous => ({ ...previous, plan: 'ADVANCED' }));
-    }).catch(() => setCatalogError('Không tải được bảng gói dịch vụ. Bạn vẫn có thể chọn gói mặc định.'));
+    }).catch(() => setCatalogError('Không tải được bảng gói dịch vụ. Giá và giới hạn sẽ hiển thị khi tải xong; vui lòng thử lại.'));
   }, []);
 
   useEffect(() => {
@@ -90,7 +86,8 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
   const qr = str(instructions.qrImageUrl);
   // A non-trial session must never be presented as a trial while the plan
   // request is stale or an older API response still says TRIAL.
-  const inferredPlan = (accountPlan?.quota?.newLimit || 0) >= 2000 ? 'ADVANCED' : (accountPlan?.quota?.newLimit || 0) >= 500 ? 'BASIC' : 'TRIAL';
+  // Tài khoản chưa có dòng gói: nhận diện theo đúng hạn mức địa điểm mới admin đã cấu hình cho từng gói (không dùng ngưỡng cố định)
+  const inferredPlan: PlanKey | 'TRIAL' = (['ADVANCED', 'BASIC'] as PlanKey[]).find(key => catalog?.plans?.[key]?.dailyNew === accountPlan?.quota?.newLimit) ?? 'TRIAL';
   const currentPlan = accountPlan?.plan?.plan && accountPlan.plan.plan !== 'TRIAL'
     ? accountPlan.plan.plan
     : (isExistingUser ? inferredPlan : 'TRIAL');
@@ -98,8 +95,8 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
   const needsCountry = (plan: PlanKey) => (catalog?.plans?.[plan]?.maxCountries ?? (plan === 'BASIC' ? 1 : 0)) > 0;
   const selectPlan = (plan: PlanKey, billingCycle: 'MONTHLY' | 'ANNUAL') => setForm(previous => ({ ...previous, plan, billingCycle }));
   const planLabel = (plan: string) => plan === 'ADVANCED' ? 'Advanced' : plan === 'BASIC' ? 'Basic' : 'Dùng thử';
-  const priceFor = (plan: PlanKey, cycle: 'MONTHLY' | 'ANNUAL') => (catalog?.prices?.[plan]?.[cycle] ?? fallbackPrices[plan][cycle]) * (needsCountry(plan) ? Math.max(1, countries.length) : 1);
-  const unitPriceFor = (plan: PlanKey, cycle: 'MONTHLY' | 'ANNUAL') => catalog?.prices?.[plan]?.[cycle] ?? fallbackPrices[plan][cycle];
+  const unitPriceFor = (plan: PlanKey, cycle: 'MONTHLY' | 'ANNUAL') => catalog?.prices?.[plan]?.[cycle];
+  const priceFor = (plan: PlanKey, cycle: 'MONTHLY' | 'ANNUAL') => { const unit = unitPriceFor(plan, cycle); return typeof unit === 'number' ? unit * (needsCountry(plan) ? Math.max(1, countries.length) : 1) : undefined; };
   const toggleCountry = (name: string) => setCountries(previous => previous.includes(name) ? previous.filter(item => item !== name) : [...previous, name]);
   const formatPrice = (value?: number) => typeof value === 'number' ? `${value.toLocaleString('vi-VN')} ₫` : '—';
 
@@ -122,8 +119,7 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
               {plan === 'ADVANCED' && <span className="absolute -top-3 left-5 rounded-full bg-blue-500 px-3 py-1 text-[11px] font-bold text-white">ĐƯỢC CHỌN NHIỀU NHẤT</span>}
               <div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-bold text-white">{planLabel(plan)}</h3><p className="mt-1 text-xs text-slate-400">{plan === 'ADVANCED' ? 'Cho nhu cầu tìm kiếm ở nhiều thị trường' : 'Xây dựng danh sách khách hàng để tiếp cận'}</p></div>{isCurrent && <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-300">GÓI HIỆN TẠI</span>}</div>
               <div className="mt-4 flex items-end gap-2"><strong className="text-3xl font-black tracking-tight text-white">{formatPrice(price)}</strong><span className="pb-1 text-xs text-slate-400">/{form.billingCycle === 'ANNUAL' ? 'năm' : 'tháng'}</span></div>
-              <div className="mt-4 rounded-lg bg-slate-950/60 p-2.5"><div className="text-[10px] uppercase text-slate-500">Cập nhật dữ liệu</div><div className="mt-1 font-mono text-sm font-bold text-white">{details ? details.dailyRefresh.toLocaleString('vi-VN') : '—'} <span className="text-[10px] font-normal text-slate-400">lượt/ngày</span></div></div>
-              <ul className="mt-4 flex-1 space-y-2 border-t border-white/10 pt-4">{planFeatures[plan].map((feature, index) => <li key={`${plan}-${index}`} className="flex gap-2 text-sm text-slate-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}</ul>
+              <ul className="mt-4 flex-1 space-y-2 border-t border-white/10 pt-4">{planBenefits(plan, details).map((feature, index) => <li key={`${plan}-${index}`} className="flex gap-2 text-sm text-slate-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}</ul>
               {needsCountry(plan) && <fieldset className="mt-4 text-xs text-slate-400"><legend>Chọn quốc gia sử dụng <span className="text-slate-500">(giá tính theo từng quốc gia, khoá sau khi thanh toán)</span></legend>
                 <div className="mt-2 grid max-h-40 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">{COUNTRIES.map(name => <label key={name} className="flex cursor-pointer items-center gap-1.5 text-slate-300"><input type="checkbox" checked={countries.includes(name)} onChange={() => toggleCountry(name)} />{name}</label>)}</div>
                 <p className="mt-1.5 text-slate-300">{countries.length ? <>{countries.length} quốc gia × {formatPrice(unitPriceFor(plan, form.billingCycle as 'MONTHLY' | 'ANNUAL'))} = <strong className="text-white">{formatPrice(price)}</strong></> : 'Chọn ít nhất 1 quốc gia'}</p></fieldset>}

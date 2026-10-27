@@ -365,18 +365,17 @@ const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.u
 app.get('/api/billing/config', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const config = billing.getConfig();
-  res.json({ sourceKey: config.sourceKey, plans: config.plans, prices: config.prices, features: config.features, skus: config.skus });
+  res.json({ sourceKey: config.sourceKey, plans: config.plans, prices: config.prices, skus: config.skus });
 });
 app.get('/api/admin/billing-config', requireAdmin, (_req, res) => {
   const config = billing.getConfig();
-  res.json({ sourceKey: config.sourceKey, skus: config.skus, plans: config.plans, prices: config.prices, features: config.features, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
+  res.json({ sourceKey: config.sourceKey, skus: config.skus, plans: config.plans, prices: config.prices, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
 });
 app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
   const sourceKey = String(req.body?.sourceKey || '').trim().slice(0, 120);
   const rawSkus = req.body?.skus || {};
   const rawPlans = req.body?.plans || {};
   const rawPrices = req.body?.prices || {};
-  const rawFeatures = req.body?.features || {};
   const skus = Object.fromEntries(['BASIC_MONTHLY', 'BASIC_ANNUAL', 'ADVANCED_MONTHLY', 'ADVANCED_ANNUAL'].map((key) => [key, String(rawSkus[key] || '').trim().slice(0, 160)]));
   const clampInt = (value, max) => Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
   // maxCountries / maxConcurrentSearches / dailySearches: 0 = không giới hạn
@@ -385,10 +384,9 @@ app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
     maxCountries: clampInt(rawPlans[key]?.maxCountries, 300), maxConcurrentSearches: clampInt(rawPlans[key]?.maxConcurrentSearches, 100), dailySearches: clampInt(rawPlans[key]?.dailySearches, 1000000),
   }]));
   const prices = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, { MONTHLY: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.MONTHLY) || 0)), ANNUAL: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.ANNUAL) || 0)) }]));
-  const features = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, Array.isArray(rawFeatures[key]) ? rawFeatures[key].map((item) => String(item).trim().slice(0, 200)).filter(Boolean).slice(0, 12) : []]));
   if (!sourceKey || Object.values(skus).some((sku) => !sku)) return res.status(422).json({ error: 'Cần nhập Source key và đủ 4 SKU hiện có trong CRM' });
-  db.prepare("INSERT INTO app_settings (key, value) VALUES ('billing', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ sourceKey, skus, plans, prices, features }));
-  res.json({ sourceKey, skus, plans, prices, features, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('billing', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ sourceKey, skus, plans, prices }));
+  res.json({ sourceKey, skus, plans, prices, hasCheckoutApiKey: Boolean(process.env.CRM_CHECKOUT_API_KEY), hasWebsiteKey: Boolean(process.env.CRM_WEBSITE_KEY), hasCallbackKey: Boolean(process.env.CRM_CALLBACK_API_KEY) });
 });
 app.post('/api/billing/checkout', async (req, res) => {
   try {
@@ -445,7 +443,7 @@ app.get('/api/account/plan', requireAuth, (req, res) => {
   const plan = db.prepare('SELECT plan, billing_cycle AS billingCycle, order_id AS orderId, effective_from AS effectiveFrom, effective_until AS effectiveUntil FROM user_plans WHERE user_id = ?').get(accountUser.id);
   const config = billing.getConfig();
   res.setHeader('Cache-Control', 'private, no-store');
-  res.json({ plan: plan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices, features: config.features });
+  res.json({ plan: plan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices });
 });
 app.use('/api/jobs', requireAuth);
 app.use(['/api/state', '/api/items'], requireAuth);

@@ -56,6 +56,9 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ user, quota, onLogout,
             <div className="space-y-1 text-slate-300">
               <div>Địa điểm mới hôm nay: <strong className="text-white font-mono">{quota.newUsed}/{quota.newLimit}</strong></div>
               <div>Lượt cào mới hoàn toàn: <strong className="text-white font-mono">{quota.refreshUsed}/{quota.refreshLimit}</strong></div>
+              {quota.searchLimit ? <div>Lượt tìm kiếm hôm nay: <strong className="text-white font-mono">{quota.searchUsed ?? 0}/{quota.searchLimit}</strong></div> : null}
+              {quota.maxConcurrentSearches ? <div>Tìm kiếm chạy cùng lúc: <strong className="text-white font-mono">tối đa {quota.maxConcurrentSearches}</strong></div> : null}
+              {quota.maxCountries ? <div>Quốc gia: <strong className="text-white">{quota.countries?.length ? quota.countries.join(', ') : 'chưa chọn'}</strong> <span className="text-slate-500">(tối đa {quota.maxCountries})</span></div> : null}
               <div className="text-[10px] text-slate-500">Dữ liệu lấy từ kho đã lưu không bị tính. Đặt lại lúc 0h (giờ Việt Nam).</div>
             </div>
           )}

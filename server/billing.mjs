@@ -106,17 +106,12 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     BASIC: { MONTHLY: 2000, ANNUAL: 4000 },
     ADVANCED: { MONTHLY: 4000, ANNUAL: 8000 },
   };
-  const defaultFeatures = {
-    BASIC: ['Tìm kiếm dữ liệu Google Maps', 'Lưu và xuất dữ liệu lead', 'Chọn 1 quốc gia', '1 tìm kiếm chạy cùng lúc', 'Không giới hạn lượt tìm kiếm'],
-    ADVANCED: ['Tất cả tính năng Basic', 'Không giới hạn quốc gia', 'Không giới hạn lượt tìm kiếm', 'Tự động hóa và phân tích nâng cao'],
-  };
   const readConfig = () => {
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'billing'").get();
     let saved = {};
     try { saved = row?.value ? JSON.parse(row.value) : {}; } catch { /* dùng env */ }
     const prices = { BASIC: { ...defaultPrices.BASIC, ...(saved.prices?.BASIC || {}) }, ADVANCED: { ...defaultPrices.ADVANCED, ...(saved.prices?.ADVANCED || {}) } };
-    const features = { BASIC: Array.isArray(saved.features?.BASIC) && saved.features.BASIC.length ? saved.features.BASIC : defaultFeatures.BASIC, ADVANCED: Array.isArray(saved.features?.ADVANCED) && saved.features.ADVANCED.length ? saved.features.ADVANCED : defaultFeatures.ADVANCED };
-    return { sourceKey: text(saved.sourceKey || initialSourceKey, 120), skus: { ...envSkus, ...(saved.skus || {}) }, plans: { BASIC: { ...defaultQuotas.BASIC, ...(saved.plans?.BASIC || {}) }, ADVANCED: { ...defaultQuotas.ADVANCED, ...(saved.plans?.ADVANCED || {}) } }, prices, features };
+    return { sourceKey: text(saved.sourceKey || initialSourceKey, 120), skus: { ...envSkus, ...(saved.skus || {}) }, plans: { BASIC: { ...defaultQuotas.BASIC, ...(saved.plans?.BASIC || {}) }, ADVANCED: { ...defaultQuotas.ADVANCED, ...(saved.plans?.ADVANCED || {}) } }, prices };
   };
 
   const callCrm = async (path, init = {}, auth = true) => {
