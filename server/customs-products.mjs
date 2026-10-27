@@ -5,26 +5,26 @@ const strip = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').repl
 
 // Thứ tự quan trọng: nhóm cụ thể đặt trước nhóm chung (măng cụt trước xoài, sả trước chanh, chanh dây trước chanh).
 export const PRODUCT_GROUPS = [
-  { key: 'thanh-long', label: 'Thanh long', words: ['dragon', 'pitaya', 'pitahaya', 'thanh long'] },
-  { key: 'chanh-day', label: 'Chanh dây', words: ['passion', 'chanh day', 'maracuja'] },
-  { key: 'mang-cut', label: 'Măng cụt', words: ['mangosteen', 'mang cut'] },
-  { key: 'xoai', label: 'Xoài', words: ['mango', 'mangoes', 'xoai'] },
-  { key: 'dua', label: 'Dừa & sản phẩm từ dừa', words: ['coconut', 'coco', 'copra', 'coir', 'cocos', 'dua', 'cam dua'] },
-  { key: 'chuoi', label: 'Chuối', words: ['banana', 'bananas', 'chuoi'] },
-  { key: 'mit', label: 'Mít', words: ['jackfruit', 'jack fruit', 'mit'] },
-  { key: 'sau-rieng', label: 'Sầu riêng', words: ['durian', 'sau rieng'] },
-  { key: 'sa', label: 'Sả', words: ['lemongrass', 'lemon grass', 'citronella'] },
-  { key: 'chanh', label: 'Chanh', words: ['lime', 'limes', 'lemon', 'lemons', 'chanh'] },
-  { key: 'nhan-vai', label: 'Nhãn, vải, chôm chôm', words: ['longan', 'lychee', 'litchi', 'rambutan', 'nhan', 'vai thieu'] },
-  { key: 'oi-buoi', label: 'Ổi, bưởi', words: ['guava', 'pomelo', 'grapefruit', 'oi', 'buoi'] },
-  { key: 'trai-cay-khac', label: 'Trái cây khác', words: ['avocado', 'pineapple', 'custard apple', 'star apple', 'papaya', 'jujube', 'tamarind', 'sapodilla', 'thom', 'vu sua'] },
-  { key: 'gung', label: 'Gừng', words: ['ginger', 'gung'] },
-  { key: 'ot-tieu', label: 'Ớt & tiêu', words: ['chili', 'chilli', 'chilies', 'pepper', 'capsicum', 'ot'] },
-  { key: 'rau-cu', label: 'Rau củ', words: ['sweet potato', 'potato', 'cabbage', 'carrot', 'broccoli', 'cauliflower', 'eggplant', 'pumpkin', 'cucumber', 'onion', 'garlic', 'tomato', 'vegetable', 'khoai lang', 'bap cai', 'ca rot', 'rau'] },
-  { key: 'dieu-hat', label: 'Hạt điều & hạt', words: ['cashew', 'hat dieu', 'peanut', 'nut', 'macadamia', 'pistachio', 'almond', 'walnut'] },
-  { key: 'ca-phe-tra', label: 'Cà phê, trà', words: ['coffee', 'ca phe', 'tea', 'tra den'] },
-  { key: 'go-tre', label: 'Gỗ, tre, mây', words: ['plywood', 'veneer', 'timber', 'wood', 'wooden', 'bamboo', 'rattan', 'go van', 'go ep', 'tre '] },
-  { key: 'may-mac', label: 'May mặc', words: ['garment', 'apparel', 'clothing', 'may mac', 'quan ao', 'furniture', 'noi that'] },
+  { key: 'thanh-long', label: 'Dragon fruit', words: ['dragon', 'pitaya', 'pitahaya', 'thanh long'] },
+  { key: 'chanh-day', label: 'Passion fruit', words: ['passion', 'chanh day', 'maracuja'] },
+  { key: 'mang-cut', label: 'Mangosteen', words: ['mangosteen', 'mang cut'] },
+  { key: 'xoai', label: 'Mango', words: ['mango', 'mangoes', 'xoai'] },
+  { key: 'dua', label: 'Coconut & coconut products', words: ['coconut', 'coco', 'copra', 'coir', 'cocos', 'dua', 'cam dua'] },
+  { key: 'chuoi', label: 'Banana', words: ['banana', 'bananas', 'chuoi'] },
+  { key: 'mit', label: 'Jackfruit', words: ['jackfruit', 'jack fruit', 'mit'] },
+  { key: 'sau-rieng', label: 'Durian', words: ['durian', 'sau rieng'] },
+  { key: 'sa', label: 'Lemongrass', words: ['lemongrass', 'lemon grass', 'citronella'] },
+  { key: 'chanh', label: 'Lime & lemon', words: ['lime', 'limes', 'lemon', 'lemons', 'chanh'] },
+  { key: 'nhan-vai', label: 'Longan, lychee, rambutan', words: ['longan', 'lychee', 'litchi', 'rambutan', 'nhan', 'vai thieu'] },
+  { key: 'oi-buoi', label: 'Guava & pomelo', words: ['guava', 'pomelo', 'grapefruit', 'oi', 'buoi'] },
+  { key: 'trai-cay-khac', label: 'Other fruits', words: ['avocado', 'pineapple', 'custard apple', 'star apple', 'papaya', 'jujube', 'tamarind', 'sapodilla', 'thom', 'vu sua'] },
+  { key: 'gung', label: 'Ginger', words: ['ginger', 'gung'] },
+  { key: 'ot-tieu', label: 'Chili & pepper', words: ['chili', 'chilli', 'chilies', 'pepper', 'capsicum', 'ot'] },
+  { key: 'rau-cu', label: 'Vegetables', words: ['sweet potato', 'potato', 'cabbage', 'carrot', 'broccoli', 'cauliflower', 'eggplant', 'pumpkin', 'cucumber', 'onion', 'garlic', 'tomato', 'vegetable', 'khoai lang', 'bap cai', 'ca rot', 'rau'] },
+  { key: 'dieu-hat', label: 'Cashew & nuts', words: ['cashew', 'hat dieu', 'peanut', 'nut', 'macadamia', 'pistachio', 'almond', 'walnut'] },
+  { key: 'ca-phe-tra', label: 'Coffee & tea', words: ['coffee', 'ca phe', 'tea', 'tra den'] },
+  { key: 'go-tre', label: 'Wood, bamboo, rattan', words: ['plywood', 'veneer', 'timber', 'wood', 'wooden', 'bamboo', 'rattan', 'go van', 'go ep', 'tre '] },
+  { key: 'may-mac', label: 'Garments & furniture', words: ['garment', 'apparel', 'clothing', 'may mac', 'quan ao', 'furniture', 'noi that'] },
 ];
 
 const boundary = w => `(?<![a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ +$/, '(?![a-z])')}(?:s|es)?(?![a-z0-9])`;
@@ -61,7 +61,7 @@ export function productGroup({ description = '', source = '', hs = '' } = {}) {
   return hit ? hit[1] : 'khac';
 }
 
-export const PRODUCT_LABELS = Object.fromEntries([...PRODUCT_GROUPS.map(g => [g.key, g.label]), ['khac', 'Khác / chưa phân loại']]);
+export const PRODUCT_LABELS = Object.fromEntries([...PRODUCT_GROUPS.map(g => [g.key, g.label]), ['khac', 'Other / unclassified']]);
 
 // Điền product_group cho các dòng còn NULL (hoặc tất cả khi all=true).
 export function backfillProductGroups(db, { all = false } = {}) {
