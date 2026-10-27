@@ -39,3 +39,16 @@ test('free plan: best 10 leads stay visible; the rest are only partly hidden', a
   assert.deepEqual([p.address, p.street, p.placeId, p.googleMapsUrl, p.latitude, p.longitude, p.category, p.hidden], ['Hamburg, DE', '', '', '', 53.5, 10, 'Cà phê', true]);
   assert.ok(!p.email.includes('hacofco') && !p.website.includes('hacofco') && p.phone.includes('•'));
 });
+
+test('visible leads are the highest scores (same scale as the client), ties broken by completeness', async () => {
+  const { leadScoreOf, pickVisibleIds } = await import('./trial-mask.mjs');
+  assert.equal(leadScoreOf({ phone: '1', website: 'w', email: 'e', isClaimed: false, reviewsCount: 60, rating: 4.6, socials: { facebook: 'f' } }), 100);
+  assert.equal(leadScoreOf({ isClaimed: true }), 50);
+  const results = [
+    { id: 'a', phone: '1', isClaimed: true },                       // 65
+    { id: 'b', phone: '1', website: 'w', email: 'e', isClaimed: true }, // 95
+    { id: 'c', isClaimed: false },                                  // 60
+    { id: 'd', phone: '1', website: 'w', isClaimed: true },         // 80
+  ];
+  assert.deepEqual(pickVisibleIds(results, 3), ['b', 'd', 'a']);
+});

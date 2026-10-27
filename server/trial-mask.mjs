@@ -50,13 +50,29 @@ export function opaqueLeadId(id) {
   return `lead_h_${createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
 }
 
-// Xếp hạng lead đầy đủ thông tin (ưu tiên email) để chọn lead được xem ở gói miễn phí.
+// Điểm lead theo đúng thang của client (calculateLeadScore trong scraperEngine.ts): server chưa có điểm khi lead mới về nên tính lại cùng công thức.
+export function leadScoreOf(p) {
+  let score = 50;
+  if (p.phone) score += 15;
+  if (p.website) score += 15;
+  if (p.email) score += 15;
+  if (p.socials && Object.keys(p.socials).length > 0) score += 5;
+  if ((p.reviewsCount || 0) > 50) score += 5;
+  if ((p.rating || 0) >= 4.5) score += 5;
+  if (!p.isClaimed) score += 10;
+  return Math.min(100, Math.max(10, score));
+}
+
+// Thứ tự chọn lead được xem ở gói miễn phí: điểm lead cao nhất trước; hòa điểm thì lead đầy đủ thông tin hơn, nhiều review hơn.
+export const compareLeads = (a, b) => leadScoreOf(b) - leadScoreOf(a) || leadRank(b) - leadRank(a) || (b.reviewsCount || 0) - (a.reviewsCount || 0);
+
+// Xếp hạng phụ khi hòa điểm
 export const leadRank = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
 
 // id của tối đa `limit` lead tốt nhất trong một danh sách kết quả.
 export function pickVisibleIds(results, limit) {
   const list = (Array.isArray(results) ? results : []).filter((p) => p && typeof p === 'object' && typeof p.id === 'string');
-  return list.map((p, i) => ({ p, i })).sort((a, b) => leadRank(b.p) - leadRank(a.p) || (b.p.reviewsCount || 0) - (a.p.reviewsCount || 0) || a.i - b.i).slice(0, limit).map(({ p }) => p.id);
+  return list.map((p, i) => ({ p, i })).sort((a, b) => compareLeads(a.p, b.p) || a.i - b.i).slice(0, limit).map(({ p }) => p.id);
 }
 
 // Mỗi từ của tên công ty chỉ giữ 3 chữ cái đầu: "Hamburg Coffee Company" → "Ham*** Cof*** Com***".

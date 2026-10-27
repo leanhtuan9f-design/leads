@@ -1,5 +1,5 @@
 // Backend quét Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
-import { maskTrialPlace, pickVisibleIds, redactPlace, opaqueLeadId } from './trial-mask.mjs';
+import { maskTrialPlace, pickVisibleIds, redactPlace, opaqueLeadId, compareLeads } from './trial-mask.mjs';
 import { migrateLeadIds } from './lead-id-migration.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
@@ -808,7 +808,7 @@ class Job {
     if (type === 'place' && data && typeof data.id === 'string') data = { ...data, id: opaqueLeadId(data.id) }; // client không bao giờ thấy placeId Google trong mã lead
     if (type === 'place' && this.trialBuf) { // dùng thử: giữ lại, chỉ gửi 10 lead tốt nhất khi kết thúc
       this.trialBuf.push(data);
-      if (this.trialBuf.length % 5 === 0) this.emit('status', { status: 'running', message: `Đã tìm thấy ${this.trialBuf.length} địa điểm, đang chọn lead đầy đủ thông tin nhất...` });
+      if (this.trialBuf.length % 5 === 0) this.emit('status', { status: 'running', message: `Đã tìm thấy ${this.trialBuf.length} địa điểm, đang chọn lead điểm cao nhất...` });
       return;
     }
     if (type === 'place') this.history.push(data);
@@ -818,11 +818,10 @@ class Job {
     const { cache, live } = this.source;
     return cache && live ? 'mixed' : cache ? 'cache' : 'live';
   }
-  flushTrial() { // chọn tối đa TRIAL_LEAD_LIMIT lead đầy đủ thông tin nhất (ưu tiên email); lead quét mới chỉ lấy trong hạn mức còn lại
+  flushTrial() { // chọn tối đa TRIAL_LEAD_LIMIT lead điểm cao nhất; lead quét mới chỉ lấy trong hạn mức còn lại
     const buf = this.trialBuf;
     this.trialBuf = null;
-    const score = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
-    const ranked = [...buf].sort((a, b) => score(b) - score(a) || (b.reviewsCount || 0) - (a.reviewsCount || 0));
+    const ranked = [...buf].sort(compareLeads); // 10 lead có điểm cao nhất
     const picked = [];
     let liveLeft = this.quotaLeft;
     for (const p of ranked) {
@@ -842,7 +841,7 @@ class Job {
     if (this.ended) return;
     if (this.trialBuf && status !== 'failed' && status !== 'cancelled') {
       const found = this.flushTrial();
-      if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead đầy đủ thông tin nhất, số điện thoại và email được ẩn một phần. Nâng cấp để xem toàn bộ.`;
+      if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead điểm cao nhất, số điện thoại và email được ẩn một phần. Nâng cấp để xem toàn bộ.`;
     }
     this.emit('end', {
       status, count: this.count, message,
