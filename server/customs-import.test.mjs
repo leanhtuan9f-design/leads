@@ -203,3 +203,25 @@ test('gov/edu emails: detected, entities dropped on import, purge keeps business
   assert.deepEqual(purgeGovEduEntities(db), { deleted: 1, stripped: 1 });
   assert.equal(db.prepare(`SELECT email FROM directory_entities WHERE name = 'Both'`).get().email, 'y@both.com');
 });
+
+test('directory email-suffix filter and suggestions', () => {
+  const db = openCustomsDb(':memory:');
+  const ins = db.prepare(`INSERT INTO directory_entities (dedupe_key,file,entity_type,name,name_norm,country,email) VALUES (?,?,?,?,?,?,?)`);
+  [['A Co', 'a@acme.vn'], ['B Co', 'b@gmail.com'], ['C Co', 'c@mail.acme.co.uk; c2@gmail.com'], ['D Co', 'd@xgmail.com'], ['E Co', 'e@shop.com.au'], ['F Co', '']].forEach(([n, e], i) => ins.run(`k${i}`, 'f', 'importer', n, n.toLowerCase(), 'US', e));
+  const api = createCustomsApi(db);
+  const names = f => api.directory({ emailSuffix: f, limit: 50 }).rows.map(r => r.name).sort();
+  assert.deepEqual(names('.vn'), ['A Co']);
+  assert.deepEqual(names('vn'), ['A Co']);
+  assert.deepEqual(names('gmail.com'), ['B Co', 'C Co']);
+  assert.deepEqual(names('@gmail.com'), ['B Co', 'C Co']);
+  assert.deepEqual(names('.co.uk'), ['C Co']);
+  assert.deepEqual(names('acme.co.uk'), ['C Co']);
+  assert.deepEqual(names('.com'), ['B Co', 'C Co', 'D Co']);
+  assert.equal(api.directory({ emailSuffix: '' }).total, 6);
+  const top = api.suggest({ field: 'email_suffix', view: 'directory', q: '' }).options;
+  assert.deepEqual(top[0], { value: '.com', label: 'đuôi', hint: 3 });
+  assert.ok(top.some(o => o.value === '.co.uk'));
+  const g = api.suggest({ field: 'email_suffix', view: 'directory', q: 'gma' }).options;
+  assert.deepEqual(g.map(o => o.value), ['gmail.com', 'xgmail.com']);
+  assert.equal(api.suggest({ field: 'email_suffix', view: 'directory', q: '.c' }).options[0].value, '.com');
+});

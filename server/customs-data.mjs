@@ -220,6 +220,41 @@ export function createCustomsApi(db) {
     return { total, limit, offset, rows: rows.map(({ productKey, ...r }) => ({ ...r, group: PRODUCT_LABELS[productKey] || '' })) };
   }
 
+  // Lọc theo đuôi email: ".vn"/"vn" = đuôi tên miền, "gmail.com" = đúng tên miền (kể cả tên miền con). Email lưu dạng 'a@x.com; b@y.vn'.
+  function emailSuffixCond(raw) {
+    const s = String(raw ?? '').trim().toLowerCase().replace(/^.*@/, '').replace(/[^a-z0-9.\-]/g, '');
+    if (!s || s === '.') return null;
+    const field = `(email || ';')`;
+    if (s.startsWith('.') || !s.includes('.')) return { sql: `${field} LIKE ?`, params: [`%.${s.replace(/^\./, '')};%`] };
+    return { sql: `(${field} LIKE ? OR ${field} LIKE ?)`, params: [`%@${s};%`, `%.${s};%`] };
+  }
+
+  // Thống kê tên miền/đuôi email của danh bạ (mỗi doanh nghiệp tính 1 lần cho mỗi tên miền); cache theo số dòng + id lớn nhất.
+  let mailStats = null, mailKey = '';
+  const SLD = new Set(['co', 'com', 'net', 'org', 'ne', 'or', 'ltd', 'plc']);
+  function emailStats() {
+    const k = one('SELECT COUNT(*) n, MAX(id) m FROM directory_entities');
+    const key = `${k.n}:${k.m}`;
+    if (mailStats && mailKey === key) return mailStats;
+    const domains = new Map(), suffixes = new Map();
+    const bump = (m, v) => m.set(v, (m.get(v) || 0) + 1);
+    for (const r of db.prepare(`SELECT email FROM directory_entities WHERE email <> ''`).all()) {
+      const doms = new Set(), sufs = new Set();
+      for (const e of r.email.split(/[;,\s]+/).filter(Boolean)) {
+        const d = e.toLowerCase().split('@')[1];
+        if (!d || !/^[a-z0-9-]+(\.[a-z0-9-]+)+\.?$/.test(d) || !/\.[a-z]{2,}\.?$/.test(d)) continue; // bỏ email lỗi định dạng (".ae/", "gmail.c")
+        const labels = d.split('.').filter(Boolean);
+        if (labels.length < 2) continue;
+        doms.add(d); sufs.add(`.${labels[labels.length - 1]}`);
+        if (labels.length >= 3 && labels[labels.length - 1].length === 2 && SLD.has(labels[labels.length - 2])) sufs.add(`.${labels.slice(-2).join('.')}`);
+      }
+      doms.forEach(d => bump(domains, d)); sufs.forEach(s => bump(suffixes, s));
+    }
+    mailStats = { domains: [...domains].sort((a, b) => b[1] - a[1]), suffixes: [...suffixes].sort((a, b) => b[1] - a[1]) };
+    mailKey = key;
+    return mailStats;
+  }
+
   function directory(query) {
     const { limit, offset } = page(query);
     const where = [];
@@ -228,6 +263,8 @@ export function createCustomsApi(db) {
     if (query.country) { where.push('country = ?'); params.push(String(query.country).toUpperCase()); }
     if (query.type) { where.push('entity_type = ?'); params.push(String(query.type)); }
     if (query.hasEmail === '1') where.push(`email <> ''`);
+    const suffix = emailSuffixCond(query.emailSuffix);
+    if (suffix) { where.push(suffix.sql); params.push(...suffix.params); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = one(`SELECT COUNT(*) n FROM directory_entities ${w}`, ...params).n;
     const rows = db.prepare(`SELECT entity_type type, name, country, city, address, email, phone, website, contact_person contact, activity, confidence FROM directory_entities ${w} ORDER BY name LIMIT ? OFFSET ?`).all(...params, limit, offset);
@@ -261,6 +298,15 @@ export function createCustomsApi(db) {
       const byCode = new Map();
       for (const r of rows) { const e = byCode.get(r.code) || { total: 0, g: r.g }; e.total += r.n; byCode.set(r.code, e); }
       return { options: [...byCode].sort((a, b) => b[1].total - a[1].total).slice(0, 8).map(([code, e]) => ({ value: code, label: PRODUCT_LABELS[e.g] || '', hint: e.total })) };
+    }
+    if (field === 'email_suffix') {
+      const t = raw.toLowerCase().replace(/^.*@/, '').replace(/[^a-z0-9.\-]/g, '');
+      const { domains, suffixes } = emailStats();
+      const sufOpts = suffixes.filter(([v]) => !t || v.startsWith(t.startsWith('.') ? t : `.${t}`)).slice(0, t ? 3 : 8).map(([v, n]) => ({ value: v, label: 'đuôi', hint: n }));
+      if (!t || t === '.') return { options: sufOpts };
+      const pre = domains.filter(([v]) => v.startsWith(t)), inn = domains.filter(([v]) => !v.startsWith(t) && v.includes(t));
+      const domOpts = t.startsWith('.') ? [] : [...pre, ...inn].slice(0, 8).map(([v, n]) => ({ value: v, label: 'tên miền', hint: n }));
+      return { options: [...sufOpts, ...domOpts].slice(0, 8) };
     }
     if (field === 'port_in' || field === 'port_out') {
       const col = field; const t = raw.trim();

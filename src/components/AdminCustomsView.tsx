@@ -95,6 +95,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
   const [productText, setProductText] = useState(() => products.find(p => p.key === initialProduct)?.label ?? '');
   const [type, setType] = useState('');
   const [hasEmail, setHasEmail] = useState(false);
+  const [emailSuffix, setEmailSuffix] = useState('');
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<Paged<Row> | null>(null);
   const [error, setError] = useState('');
@@ -104,7 +105,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
     fetchOptions('country', view, '', ctl.signal).then(setCountries).catch(() => {});
     return () => ctl.abort();
   }, [view]);
-  useEffect(() => { setOffset(0); }, [q, country, hs, portOut, portIn, type, hasEmail, product, view]);
+  useEffect(() => { setOffset(0); }, [q, country, hs, portOut, portIn, type, hasEmail, emailSuffix, product, view]);
   useEffect(() => {
     const ctl = new AbortController();
     const t = setTimeout(async () => {
@@ -115,6 +116,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       if (view === 'shipments') { if (portOut.trim()) p.set('portOut', portOut.trim()); if (portIn.trim()) p.set('portIn', portIn.trim()); }
       if (type && view === 'directory') p.set('type', type);
       if (hasEmail && view === 'directory') p.set('hasEmail', '1');
+      if (emailSuffix.trim() && view === 'directory') p.set('emailSuffix', emailSuffix.trim());
       if (product && view !== 'directory') p.set('product', product);
       try {
         const res = await fetch(`/api/admin/customs/${view}?${p}`, { credentials: 'same-origin', signal: ctl.signal });
@@ -124,7 +126,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       } catch (e) { if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); }
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
-  }, [q, country, hs, portOut, portIn, type, hasEmail, product, offset, view]);
+  }, [q, country, hs, portOut, portIn, type, hasEmail, emailSuffix, product, offset, view]);
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
       <Combo width="min-w-[8rem] flex-[2] basis-40" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm tên…" label="Tìm theo tên" />
@@ -140,7 +142,8 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portOut} onChange={setPortOut} source={(t, sig) => fetchOptions('port_out', view, t, sig)} placeholder="Cảng đi" label="Cảng đi" />}
       {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portIn} onChange={setPortIn} source={(t, sig) => fetchOptions('port_in', view, t, sig)} placeholder="Cảng đến" label="Cảng đến" />}
       {view === 'directory' && <select className={`${input} min-w-0 flex-1`} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
-      {view === 'directory' && <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
+      {view === 'directory' && <Combo width="min-w-[8rem] flex-1 basis-32" value={emailSuffix} onChange={setEmailSuffix} source={(t, sig) => fetchOptions('email_suffix', view, t, sig)} placeholder="Đuôi email (.vn, gmail.com)" label="Đuôi email" />}
+      {view === 'directory' && <label className="flex shrink-0 items-center gap-1 whitespace-nowrap text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
       {data && <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} kết quả</span>}
     </div>
     {error && <p className="mt-3 text-amber-300" role="status">{error}</p>}
