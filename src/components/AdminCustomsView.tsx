@@ -7,7 +7,9 @@ type Summary = {
   buyers: number; rankings: number; market: number; directory: number; files: number;
   topCountries: { country: string; shipments: number; usd: number | null }[];
   directoryTypes: { type: string; n: number }[];
+  products: ProductStat[];
 };
+type ProductStat = { key: string; label: string; shipments: number; usd: number | null; shipmentBuyers: number; rankings: number; market: number };
 type Paged<T> = { total: number; limit: number; offset: number; rows: T[] };
 type Row = Record<string, string | number | string[] | null>;
 type View = 'overview' | 'buyers' | 'shipments' | 'directory';
@@ -18,24 +20,25 @@ const TYPE_LABEL: Record<string, string> = {
   registry: 'Đăng ký doanh nghiệp', vendor: 'Vendor', document: 'Trích từ PDF/DOC (độ tin cậy thấp)', contact: 'Khác', competitor: 'Đối thủ'
 };
 const COLUMNS: Record<Exclude<View, 'overview'>, [string, string][]> = {
-  buyers: [['name', 'Buyer'], ['country', 'Nước'], ['transactions', 'Giao dịch'], ['usd', 'USD'], ['lastDate', 'Gần nhất'], ['hs', 'HS'], ['sources', 'Nguồn']],
-  shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portIn', 'Cảng đến']],
+  buyers: [['name', 'Buyer'], ['country', 'Nước'], ['transactions', 'Giao dịch'], ['usd', 'USD'], ['lastDate', 'Gần nhất'], ['products', 'Sản phẩm'], ['hs', 'HS'], ['sources', 'Nguồn']],
+  shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portIn', 'Cảng đến']],
   directory: [['name', 'Tên'], ['type', 'Loại'], ['country', 'Nước'], ['city', 'Thành phố'], ['email', 'Email'], ['phone', 'Điện thoại'], ['website', 'Website'], ['activity', 'Ngành / ghi chú']]
 };
 const fmt = (v: unknown) => Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v ?? '');
 const input = 'rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 placeholder:text-slate-500';
 
-function Table({ view, extra }: { view: Exclude<View, 'overview'>; extra?: (p: URLSearchParams) => void }) {
+function Table({ view, products, initialProduct = '', onProductChange }: { view: Exclude<View, 'overview'>; products: ProductStat[]; initialProduct?: string; onProductChange?: (key: string) => void }) {
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
   const [hs, setHs] = useState('');
+  const [product, setProduct] = useState(initialProduct);
   const [type, setType] = useState('');
   const [hasEmail, setHasEmail] = useState(false);
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<Paged<Row> | null>(null);
   const [error, setError] = useState('');
   const limit = 50;
-  useEffect(() => { setOffset(0); }, [q, country, hs, type, hasEmail, view]);
+  useEffect(() => { setOffset(0); }, [q, country, hs, type, hasEmail, product, view]);
   useEffect(() => {
     const ctl = new AbortController();
     const t = setTimeout(async () => {
@@ -45,7 +48,7 @@ function Table({ view, extra }: { view: Exclude<View, 'overview'>; extra?: (p: U
       if (hs.trim() && view !== 'directory') p.set('hs', hs.trim());
       if (type && view === 'directory') p.set('type', type);
       if (hasEmail && view === 'directory') p.set('hasEmail', '1');
-      extra?.(p);
+      if (product && view !== 'directory') p.set('product', product);
       try {
         const res = await fetch(`/api/admin/customs/${view}?${p}`, { credentials: 'same-origin', signal: ctl.signal });
         const body = await res.json().catch(() => ({}));
@@ -54,11 +57,12 @@ function Table({ view, extra }: { view: Exclude<View, 'overview'>; extra?: (p: U
       } catch (e) { if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); }
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
-  }, [q, country, hs, type, hasEmail, offset, view]);
+  }, [q, country, hs, type, hasEmail, product, offset, view]);
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2">
       <input className={`${input} w-56`} placeholder="Tìm theo tên" value={q} onChange={e => setQ(e.target.value)} aria-label="Tìm theo tên" />
       <input className={`${input} w-24`} placeholder="Nước (US)" maxLength={2} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} aria-label="Mã nước" />
+      {view !== 'directory' && <select className={input} value={product} onChange={e => { setProduct(e.target.value); onProductChange?.(e.target.value); }} aria-label="Sản phẩm"><option value="">Mọi sản phẩm</option>{products.map(p => <option key={p.key} value={p.key}>{p.label} ({(view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments).toLocaleString('vi-VN')})</option>)}</select>}
       {view !== 'directory' && <input className={`${input} w-28`} placeholder="Mã HS" value={hs} onChange={e => setHs(e.target.value)} aria-label="Mã HS" />}
       {view === 'directory' && <select className={input} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
       {view === 'directory' && <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
@@ -85,6 +89,7 @@ function Table({ view, extra }: { view: Exclude<View, 'overview'>; extra?: (p: U
 export function AdminCustomsView() {
   const [routeView, setView] = useRouteSegment<View>('customs-data', [], VIEWS);
   const view = routeView ?? 'overview';
+  const [product, setProduct] = useState('');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -106,12 +111,22 @@ export function AdminCustomsView() {
             <article key={String(label)} className="rounded border border-slate-800 bg-slate-950 p-3"><strong className="font-mono text-xl text-white">{Number(n).toLocaleString('vi-VN')}</strong><h4 className="mt-1 text-slate-300">{label}</h4></article>)}
         </div>
         <p className="mt-3 text-[11px] text-slate-400">Vận đơn từ {summary.shipments.minDate || '—'} đến {summary.shipments.maxDate || '—'} · {summary.files.toLocaleString('vi-VN')} tệp nguồn · {summary.market.toLocaleString('vi-VN')} dòng thống kê thị trường.</p>
+        <div className="mt-4 rounded border border-slate-800 bg-slate-950 p-3">
+          <h3 className="font-semibold text-white">Theo sản phẩm</h3>
+          <div className="mt-2 overflow-x-auto"><table className="w-full text-left text-[11px]">
+            <thead className="text-slate-400"><tr><th className="py-1 font-medium">Sản phẩm</th><th className="font-medium">Dòng vận đơn</th><th className="font-medium">Buyer (vận đơn)</th><th className="font-medium">USD (vận đơn)</th><th className="font-medium">Dòng xếp hạng</th><th className="font-medium">Thị trường</th></tr></thead>
+            <tbody>{summary.products.map(p => <tr key={p.key} className="border-t border-slate-800 text-slate-300">
+              <td className="py-1"><button type="button" className="text-sky-300 hover:underline" onClick={() => { setProduct(p.key); setView('buyers'); }}>{p.label}</button></td>
+              <td className="font-mono">{p.shipments.toLocaleString('vi-VN')}</td><td className="font-mono">{p.shipmentBuyers.toLocaleString('vi-VN')}</td><td className="font-mono">{p.usd == null ? '—' : p.usd.toLocaleString('vi-VN')}</td><td className="font-mono">{p.rankings.toLocaleString('vi-VN')}</td><td className="font-mono">{p.market.toLocaleString('vi-VN')}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="rounded border border-slate-800 bg-slate-950 p-3"><h3 className="font-semibold text-white">Top nước nhận hàng</h3><ul className="mt-2 space-y-1 text-slate-300">{summary.topCountries.map(c => <li key={c.country} className="flex justify-between"><span>{c.country}</span><span className="font-mono">{c.shipments.toLocaleString('vi-VN')} lô</span></li>)}</ul></div>
           <div className="rounded border border-slate-800 bg-slate-950 p-3"><h3 className="font-semibold text-white">Danh bạ theo loại</h3><ul className="mt-2 space-y-1 text-slate-300">{summary.directoryTypes.map(t => <li key={t.type} className="flex justify-between"><span>{TYPE_LABEL[t.type] ?? t.type}</span><span className="font-mono">{t.n.toLocaleString('vi-VN')}</span></li>)}</ul></div>
         </div>
       </>}
     </section>}
-    {view !== 'overview' && <Table view={view} />}
+    {view !== 'overview' && <Table key={view} view={view} products={summary?.products ?? []} initialProduct={product} onProductChange={setProduct} />}
   </div>;
 }

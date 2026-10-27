@@ -87,3 +87,25 @@ test('implausible USD values are hidden but rows are kept', () => {
   const rows = db.prepare('SELECT name, usd FROM customs_rankings ORDER BY name').all();
   assert.deepEqual(rows.map(r => [r.name, r.usd]), [['daisy fruit llc', null], ['ok trading', 5000]]);
 });
+
+test('product groups: description beats wrong HS; HS padded; folder used for rankings; API filters by product', async () => {
+  const { productGroup, normalizeHs } = await import('./customs-products.mjs');
+  assert.equal(normalizeHs('8109094'), '08109094');
+  assert.equal(productGroup({ description: 'Fresh passion fruit (2kg/ctn)#&VN', hs: '8109094' }), 'chanh-day');
+  assert.equal(productGroup({ description: 'Fresh mangosteen' }), 'mang-cut');
+  assert.equal(productGroup({ description: 'Dried coconut tofu', hs: '8109094' }), 'dua');
+  assert.equal(productGroup({ description: 'Along mosquito nets', hs: '709609' }), 'khac');
+  assert.equal(productGroup({ description: 'unknown', hs: '8045030' }), 'xoai');
+  assert.equal(productGroup({ source: '02.Datatradepro/Fruits/01.Dragon Fruits/USA/a.xlsx' }), 'thanh-long');
+  assert.equal(productGroup({ source: '03.52WMB/Product_Fresh Air Exports/a.xlsx' }), 'khac');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  book(dir, '02.Datatradepro/Fruits/Mango/Mango_Người mua.xlsx', { S: [['Buyer', 'Transactions', 'Percent', 'seller', 'URL'], ['al noor llc', 9, 0.2, 1, 'u'], ['b trading', 5, 0.1, 1, 'u']] });
+  book(dir, '02.Datatradepro/Fruits/Lychee/Lychee_Người mua.xlsx', { S: [['Buyer', 'Transactions', 'Percent', 'seller', 'URL'], ['c trading', 4, 0.2, 1, 'u']] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const api = createCustomsApi(db);
+  assert.deepEqual(api.buyers({ product: 'xoai' }).rows.map(r => r.name).sort(), ['al noor llc', 'b trading']);
+  assert.equal(api.buyers({ product: 'nhan-vai' }).total, 1);
+  assert.equal(api.buyers({}).total, 3);
+  assert.ok(api.summary().products.some(p => p.key === 'xoai' && p.rankings === 2));
+});

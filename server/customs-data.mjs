@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { PRODUCT_GROUPS, PRODUCT_LABELS, backfillProductGroups } from './customs-products.mjs';
 
 // Customs Data (vận đơn/hải quan thật) và Danh bạ doanh nghiệp nằm trong DB riêng, không dùng bảng `places` của kho.
 export const CUSTOMS_DB_PATH = process.env.CUSTOMS_DB_PATH || '/var/lib/maps-data/customs.db';
@@ -38,6 +39,12 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_de_name ON directory_entities(name_norm, country);
     CREATE INDEX IF NOT EXISTS idx_de_type ON directory_entities(entity_type, country);
   `);
+  // Cột product_group thêm sau: migrate DB cũ, tạo chỉ mục, điền các dòng còn trống.
+  for (const t of ['customs_shipments', 'customs_rankings', 'customs_market']) {
+    if (!db.prepare(`PRAGMA table_info(${t})`).all().some(c => c.name === 'product_group')) db.exec(`ALTER TABLE ${t} ADD COLUMN product_group TEXT`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_pg ON ${t}(product_group)`);
+  }
+  backfillProductGroups(db);
   return db;
 }
 
@@ -48,6 +55,7 @@ export function normalizeName(value) {
 }
 
 const like = value => `%${String(value).replace(/[\\%_]/g, '\\$&')}%`;
+const productParam = query => (PRODUCT_LABELS[query.product] ? String(query.product) : '');
 const page = (query, max = 100) => ({
   limit: Math.min(Math.max(parseInt(query.limit, 10) || 50, 1), max),
   offset: Math.max(parseInt(query.offset, 10) || 0, 0),
@@ -55,6 +63,15 @@ const page = (query, max = 100) => ({
 
 export function createCustomsApi(db) {
   const one = (sql, ...params) => db.prepare(sql).get(...params);
+
+  // Số dòng theo nhóm sản phẩm ở 3 bảng; buyers = số buyer riêng trong vận đơn.
+  function products() {
+    const agg = (table, extra = '') => Object.fromEntries(db.prepare(`SELECT product_group g, COUNT(*) n${extra} FROM ${table} GROUP BY product_group`).all().map(r => [r.g, r]));
+    const s = agg('customs_shipments', ', ROUND(SUM(usd)) usd, COUNT(DISTINCT buyer_norm || buyer_country) buyers'), r = agg('customs_rankings'), m = agg('customs_market');
+    return [...PRODUCT_GROUPS.map(g => g.key), 'khac'].map(key => ({
+      key, label: PRODUCT_LABELS[key], shipments: s[key]?.n ?? 0, usd: s[key]?.usd ?? null, shipmentBuyers: s[key]?.buyers ?? 0, rankings: r[key]?.n ?? 0, market: m[key]?.n ?? 0,
+    })).filter(p => p.shipments || p.rankings || p.market);
+  }
 
   function summary() {
     return {
@@ -65,6 +82,7 @@ export function createCustomsApi(db) {
       directory: one('SELECT COUNT(*) n FROM directory_entities').n,
       files: one('SELECT COUNT(*) n FROM customs_files').n,
       topCountries: db.prepare(`SELECT buyer_country country, COUNT(*) shipments, ROUND(SUM(usd)) usd FROM customs_shipments WHERE buyer_country <> '' GROUP BY buyer_country ORDER BY shipments DESC LIMIT 10`).all(),
+      products: products(),
       directoryTypes: db.prepare('SELECT entity_type type, COUNT(*) n FROM directory_entities GROUP BY entity_type ORDER BY n DESC').all(),
     };
   }
@@ -77,18 +95,19 @@ export function createCustomsApi(db) {
     if (query.q) { where.push(`name_norm LIKE ? ESCAPE '\\'`); params.push(like(normalizeName(query.q))); }
     if (query.country) { where.push('country = ?'); params.push(String(query.country).toUpperCase()); }
     if (query.hs) { where.push(`hs LIKE ? ESCAPE '\\'`); params.push(`${String(query.hs).replace(/[^0-9]/g, '')}%`); }
+    if (productParam(query)) { where.push('product_group = ?'); params.push(productParam(query)); }
     const sql = `FROM (
       SELECT buyer_norm name_norm, MIN(buyer) name, buyer_country country, COUNT(*) transactions, SUM(usd) usd, MAX(date) lastDate,
-        GROUP_CONCAT(DISTINCT substr(hs,1,6)) hs, 'shipments' source FROM customs_shipments WHERE buyer_norm <> '' GROUP BY buyer_norm, buyer_country
+        GROUP_CONCAT(DISTINCT substr(hs,1,6)) hs, 'shipments' source, product_group FROM customs_shipments WHERE buyer_norm <> '' GROUP BY buyer_norm, buyer_country, product_group
       UNION ALL
-      SELECT name_norm, MIN(name), country, SUM(transactions), SUM(usd), NULL, GROUP_CONCAT(DISTINCT substr(hs,1,6)), 'ranking'
-        FROM customs_rankings WHERE role = 'buyer' GROUP BY name_norm, country
+      SELECT name_norm, MIN(name), country, SUM(transactions), SUM(usd), NULL, GROUP_CONCAT(DISTINCT substr(hs,1,6)), 'ranking', product_group
+        FROM customs_rankings WHERE role = 'buyer' GROUP BY name_norm, country, product_group
     ) ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`;
     const total = one(`SELECT COUNT(*) n FROM (SELECT name_norm, country ${sql} GROUP BY name_norm, country)`, ...params).n;
     const rows = db.prepare(`SELECT MIN(name) name, country, SUM(transactions) transactions, ROUND(SUM(usd)) usd, MAX(lastDate) lastDate,
-      GROUP_CONCAT(DISTINCT source) sources, GROUP_CONCAT(hs) hs ${sql} GROUP BY name_norm, country ORDER BY transactions DESC, name LIMIT ? OFFSET ?`)
+      GROUP_CONCAT(DISTINCT source) sources, GROUP_CONCAT(hs) hs, GROUP_CONCAT(DISTINCT product_group) productKeys ${sql} GROUP BY name_norm, country ORDER BY transactions DESC, name LIMIT ? OFFSET ?`)
       .all(...params, limit, offset);
-    return { total, limit, offset, rows: rows.map(r => ({ ...r, hs: [...new Set(String(r.hs || '').split(',').filter(Boolean))].slice(0, 8) })) };
+    return { total, limit, offset, rows: rows.map(({ productKeys, ...r }) => ({ ...r, products: String(productKeys || '').split(',').filter(Boolean).map(k => PRODUCT_LABELS[k] || k).slice(0, 6), hs: [...new Set(String(r.hs || '').split(',').filter(Boolean))].slice(0, 8) })) };
   }
 
   function shipments(query) {
@@ -98,10 +117,11 @@ export function createCustomsApi(db) {
     if (query.q) { where.push(`(buyer_norm LIKE ? ESCAPE '\\' OR supplier_norm LIKE ? ESCAPE '\\')`); const p = like(normalizeName(query.q)); params.push(p, p); }
     if (query.country) { where.push('buyer_country = ?'); params.push(String(query.country).toUpperCase()); }
     if (query.hs) { where.push(`hs LIKE ? ESCAPE '\\'`); params.push(`${String(query.hs).replace(/[^0-9]/g, '')}%`); }
+    if (productParam(query)) { where.push('product_group = ?'); params.push(productParam(query)); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = one(`SELECT COUNT(*) n FROM customs_shipments ${w}`, ...params).n;
-    const rows = db.prepare(`SELECT date, buyer, buyer_country buyerCountry, supplier, hs, product, usd, qty, unit, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
-    return { total, limit, offset, rows };
+    const rows = db.prepare(`SELECT date, buyer, buyer_country buyerCountry, supplier, hs, product, product_group productKey, usd, qty, unit, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    return { total, limit, offset, rows: rows.map(({ productKey, ...r }) => ({ ...r, group: PRODUCT_LABELS[productKey] || '' })) };
   }
 
   function directory(query) {
@@ -118,5 +138,5 @@ export function createCustomsApi(db) {
     return { total, limit, offset, rows };
   }
 
-  return { summary, buyers, shipments, directory };
+  return { summary, products, buyers, shipments, directory };
 }
