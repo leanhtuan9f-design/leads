@@ -30,6 +30,16 @@ export default function AuthGate() {
     return () => window.removeEventListener('auth:expired', onExpired);
   }, []);
 
+  // Admin đổi gói/hạn mức ở phía server: tự làm mới khi quay lại tab và mỗi 30 giây để không phải tải lại trang
+  useEffect(() => {
+    if (state !== 'in') return;
+    const tick = () => { if (document.visibilityState === 'visible') refreshQuota(); };
+    const timer = window.setInterval(tick, 30000);
+    document.addEventListener('visibilitychange', tick);
+    window.addEventListener('focus', tick);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('focus', tick); };
+  }, [state, refreshQuota]);
+
   const logout = async () => {
     try { await apiJson('/auth/logout', 'POST', {}); } catch { /* bỏ qua */ }
     setUser(null); setQuota(null); setState('out');
