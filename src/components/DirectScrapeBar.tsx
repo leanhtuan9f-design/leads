@@ -70,10 +70,10 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   profileVersion = 0,
   onOpenProfile
 }) => {
-  const [product, setProduct] = useState(''); // sản phẩm xuất khẩu — AI dựa vào đây để gợi ý
+  const [product, setProduct] = useState(() => (new URLSearchParams(window.location.search).get('product') || '').slice(0, 600)); // sản phẩm xuất khẩu — AI dựa vào đây để gợi ý
   const [aiProduct, setAiProduct] = useState(''); // sản phẩm mà danh sách gợi ý hiện tại được tạo cho
-  const [category, setCategory] = useState('');
-  const [country, setCountry] = useState('');
+  const [category, setCategory] = useState(() => (new URLSearchParams(window.location.search).get('keyword') || '').slice(0, 200));
+  const [country, setCountry] = useState(() => (new URLSearchParams(window.location.search).get('country') || '').slice(0, 100));
   const [city, setCity] = useState(''); // thành phố / khu vực trong quốc gia
   const [maxResults, setMaxResults] = useState(25);
   const [showOptions, setShowOptions] = useState(false);

@@ -102,7 +102,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const [outreachLeads, setOutreachLeads] = useState<ScrapedBusiness[] | null>(null);
   const [activeGuideId, setActiveGuideId] = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(() => new URLSearchParams(window.location.search).get('billing') === '1');
   const [profileVersion, setProfileVersion] = useState(0); // tăng khi lưu hồ sơ → thanh tìm kiếm tải lại gợi ý
 
   // Active Job Execution state
