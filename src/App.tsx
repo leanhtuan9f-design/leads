@@ -52,6 +52,11 @@ interface AppProps {
   refreshQuota: () => void;
 }
 
+export const TAB_SLUGS: Record<ActiveTab, string> = {
+  leads: 'leads', map: 'map', jobs: 'jobs', analytics: 'analytics', api: 'api', admin: 'admin-users', background: 'background',
+  customs: 'customs-data', aiconfig: 'ai-config', marketconfig: 'market-config', billingconfig: 'billing-config'
+};
+
 export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   // Dữ liệu trong trình duyệt tách riêng theo từng tài khoản
   const keyLeads = `${STORAGE_KEY_LEADS}_u${user.id}`;
@@ -59,12 +64,30 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
   const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
+  const tabFromPath = (): ActiveTab | null => {
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const tab = (Object.keys(TAB_SLUGS) as ActiveTab[]).find(t => TAB_SLUGS[t] === slug);
+    return tab && TABS.includes(tab) ? tab : null;
+  };
   const [activeTab, setActiveTabRaw] = useState<ActiveTab>(() => {
+    const fromPath = tabFromPath();
+    if (fromPath) return fromPath;
     try { const t = localStorage.getItem(keyTab) as ActiveTab | null; if (t && TABS.includes(t)) return t; } catch (e) {}
     return 'leads';
   });
-  // nhớ tab đang xem để tải lại trang (F5) không bị nhảy về trang Lead
-  const setActiveTab = (t: ActiveTab) => { setActiveTabRaw(t); try { localStorage.setItem(keyTab, t); } catch (e) {} };
+  // Mỗi tab có đường dẫn riêng (vd. /customs-data/); nhớ tab cuối để /app và F5 không nhảy về Lead
+  const setActiveTab = (t: ActiveTab) => {
+    setActiveTabRaw(t);
+    try { localStorage.setItem(keyTab, t); } catch (e) {}
+    const target = `/${TAB_SLUGS[t]}/`;
+    if (window.location.pathname !== target) window.history.pushState(null, '', target);
+  };
+  useEffect(() => {
+    if (!tabFromPath()) window.history.replaceState(null, '', `/${TAB_SLUGS[activeTab]}/${window.location.search}`);
+    const onPop = () => { const t = tabFromPath(); if (t) setActiveTabRaw(t); };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
   const [businesses, setBusinesses] = useState<ScrapedBusiness[]>(() => {
     try {
       const saved = localStorage.getItem(keyLeads) || localStorage.getItem(STORAGE_KEY_LEADS); // key cũ (trước khi có đăng nhập)
