@@ -26,7 +26,13 @@ export function classifyBuyerSegment(record = {}) {
 const CONSUMER_FACING = /\bquan (?:ca phe|an|bar|nhau|tra|com|pho)\b|\bnha hang\b|\bkhach san\b|\bcafe\b|\bcoffee shop\b|\brestaurant\b|\bbar\b|\bpub\b|\bhotel\b|\bhostel\b|\bbakery shop\b|\bsalon\b|\bspa\b|\bgym\b|\bphong kham\b|\bclinic\b/;
 const PROCESSING = /\bco so (?:che bien|rang|dong goi|say|xay)\b|\bnha may\b|\bprocessor\b|\bprocessing\b|\broaster(?:y|s)?\b|\bpacker\b|\bpacking\b|\bmill\b/;
 const TRADE_NAME = /\bimport(?:er|s|ers)?\b|\bexport(?:er|s|ers)?\b|\btrading\b|\bwholesale\b|\bnhap khau\b|\bxuat nhap khau\b|\bban buon\b|\bhandel\b/;
+// Ngành CHÍNH là cửa hàng/siêu thị bán lẻ (không kèm bán buôn/nhập khẩu/sản xuất ở chính nhãn đó) → luôn loại, dù nhãn phụ có
+// "nhà bán buôn và nhập khẩu rượu" hay tên có "Import": đó vẫn là điểm bán lẻ.
+const RETAIL_PRIMARY = /\bcua hang\b|\bsieu thi\b|\bstore\b|\bshop\b|\bretail\b|\bsupermarket\b|\bgrocery\b/;
+const TRADE_PRIMARY = /\bban buon\b|\bwholesal|\bphan phoi\b|\bdistribut|\bnhap khau\b|\bimport|\bxuat khau\b|\bexport|\bsan xuat\b|\bmanufactur|\bfactory\b/;
 export function isImportCandidate(record = {}) {
+  const primary = norm(record.category);
+  if (RETAIL_PRIMARY.test(primary) && !TRADE_PRIMARY.test(primary)) return false;
   const segment = classifyBuyerSegment(record);
   if (segment === 'import_signal' || segment === 'distribution' || segment === 'manufacturing') return true;
   const categories = [record.category, ...(Array.isArray(record.subcategories) ? record.subcategories : [])]
