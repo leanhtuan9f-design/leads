@@ -1807,7 +1807,7 @@ async function createPlanTask(p, country, cfg) {
   const re = new RegExp(`(^|,\\s*)${known.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
   inTx(() => {
     const r = db.prepare('INSERT INTO auto_tasks (created_by, created_email, product, country, max_results, keywords, cities, buyer_types, proxies, status, created_at, burst_n, rest_min, rest_max, win_on, win_start, win_end, tz, plan_round, plan_group) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(planProxies()), 'running', Date.now(), 0, 0, 0, tz ? 1 : 0, 8, 19, tz, cfg.round + 1, p.key);
+      .run(0, 'Lịch xoay vòng', `${p.product} (xuất khẩu)`, known.name, MAX_RESULTS, JSON.stringify(keywords), JSON.stringify(cities), JSON.stringify(ai.buyerTypes), JSON.stringify(planProxies()), 'running', Date.now(), 0, 0, 0, 0, 8, 19, tz, cfg.round + 1, p.key); // lịch xoay vòng chạy 24/24: không dùng khung giờ làm việc
     const ins = db.prepare('INSERT INTO auto_runs (task_id, keyword, city, qtext, qkey, status) VALUES (?,?,?,?,?,?)');
     for (const city of cities) for (const kw of keywords) {
       const qtext = `${kw} ${city}${re.test(city) ? '' : `, ${known.name}`}`;
