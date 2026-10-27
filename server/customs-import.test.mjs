@@ -144,3 +144,25 @@ test('mixed-file rankings get a product from the buyer\'s own shipments; flowers
   assert.deepEqual({ ...get('nobody known inc') }, { g: 'khac', i: 0 });
   assert.deepEqual(inferRankingProducts(db), { buyer: 0, supplier: 0 });
 });
+
+test('ports: junk values dropped, aliases merged, filters and suggestions work', async () => {
+  const { cleanPort } = await import('./customs-data.mjs');
+  assert.equal(cleanPort('Not Available'), '');
+  assert.equal(cleanPort('undefined'), '');
+  assert.equal(cleanPort('CANG CAT LAI (HCM)'), 'Cat Lai');
+  assert.equal(cleanPort('Cat Lai Oil Port'), 'Cat Lai');
+  assert.equal(cleanPort('JEBEL ALI'), 'Jebel Ali');
+  assert.equal(cleanPort('Port Kelang Swetten'), 'Port Kelang Swetten');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  const hdr = ['Total amount(USD)', 'Product Description', 'Date', 'Bill of Lading Number', 'Supplier Address', "Buyer's address", 'HS code', 'Qty', 'quantity unit', 'importing country', 'Destination country', 'Buyer', 'Supplier', 'Import port', 'Port of departure'];
+  const row = (inP, outP, buyer) => [1000, 'Fresh mango', 45297, 'N/A', 'HCM', '1 Main St, Dubai, AE', 8045020, 10, 'Bag', 'VN', 'Vietnam', buyer, 'VN Exporter Co', inP, outP];
+  book(dir, '03.52WMB/BL.xlsx', { S: [hdr, row('JEBEL ALI', 'Cat Lai Oil Port', 'A Co'), row('Jebel Ali', 'CANG CAT LAI (HCM)', 'B Co'), row('Not Available', 'undefined', 'C Co')] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const api = createCustomsApi(db);
+  const rows = api.shipments({}).rows;
+  assert.deepEqual(rows.map(r => [r.portOut, r.portIn]).sort(), [['', ''], ['Cat Lai', 'Jebel Ali'], ['Cat Lai', 'Jebel Ali']]);
+  assert.equal(api.shipments({ portIn: 'jebel' }).total, 2);
+  assert.equal(api.shipments({ portOut: 'cat' , portIn: 'ali'}).total, 2);
+  assert.deepEqual(api.suggest({ field: 'port_out', view: 'shipments', q: 'cat' }).options, [{ value: 'Cat Lai', hint: 2 }]);
+});

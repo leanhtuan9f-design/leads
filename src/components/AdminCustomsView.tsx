@@ -21,7 +21,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 const COLUMNS: Record<Exclude<View, 'overview'>, [string, string][]> = {
   buyers: [['name', 'Buyer'], ['country', 'Nước'], ['transactions', 'Giao dịch'], ['usd', 'USD'], ['lastDate', 'Gần nhất'], ['products', 'Sản phẩm'], ['hs', 'HS'], ['sources', 'Nguồn']],
-  shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portIn', 'Cảng đến']],
+  shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portOut', 'Cảng đi'], ['portIn', 'Cảng đến']],
   directory: [['name', 'Tên'], ['type', 'Loại'], ['country', 'Nước'], ['city', 'Thành phố'], ['email', 'Email'], ['phone', 'Điện thoại'], ['website', 'Website'], ['activity', 'Ngành / ghi chú']]
 };
 const fmt = (v: unknown) => Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v ?? '');
@@ -89,6 +89,8 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
   const [countryText, setCountryText] = useState('');
   const [countries, setCountries] = useState<Opt[]>([]);
   const [hs, setHs] = useState('');
+  const [portOut, setPortOut] = useState('');
+  const [portIn, setPortIn] = useState('');
   const [product, setProduct] = useState(initialProduct);
   const [productText, setProductText] = useState(() => products.find(p => p.key === initialProduct)?.label ?? '');
   const [type, setType] = useState('');
@@ -102,7 +104,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
     fetchOptions('country', view, '', ctl.signal).then(setCountries).catch(() => {});
     return () => ctl.abort();
   }, [view]);
-  useEffect(() => { setOffset(0); }, [q, country, hs, type, hasEmail, product, view]);
+  useEffect(() => { setOffset(0); }, [q, country, hs, portOut, portIn, type, hasEmail, product, view]);
   useEffect(() => {
     const ctl = new AbortController();
     const t = setTimeout(async () => {
@@ -110,6 +112,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       if (q.trim()) p.set('q', q.trim());
       if (country.trim()) p.set('country', country.trim());
       if (hs.trim() && view !== 'directory') p.set('hs', hs.trim());
+      if (view === 'shipments') { if (portOut.trim()) p.set('portOut', portOut.trim()); if (portIn.trim()) p.set('portIn', portIn.trim()); }
       if (type && view === 'directory') p.set('type', type);
       if (hasEmail && view === 'directory') p.set('hasEmail', '1');
       if (product && view !== 'directory') p.set('product', product);
@@ -121,7 +124,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       } catch (e) { if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); }
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
-  }, [q, country, hs, type, hasEmail, product, offset, view]);
+  }, [q, country, hs, portOut, portIn, type, hasEmail, product, offset, view]);
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2">
       <Combo width="w-64" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm theo tên (gõ để gợi ý)" label="Tìm theo tên" />
@@ -134,6 +137,8 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
         onPick={o => { const hit = products.find(p => p.label === o.value); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
         source={t => { const k = norm(t); return products.filter(p => !k || norm(p.label).includes(k)).map(p => ({ value: p.label, hint: view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments })); }} />}
       {view !== 'directory' && <Combo width="w-52" value={hs} onChange={setHs} source={(t, sig) => fetchOptions('hs', view, t, sig)} minChars={2} placeholder="Mã HS (gõ 0810, 0803…)" label="Mã HS" />}
+      {view === 'shipments' && <Combo width="w-44" value={portOut} onChange={setPortOut} source={(t, sig) => fetchOptions('port_out', view, t, sig)} placeholder="Cảng đi (Cat Lai…)" label="Cảng đi" />}
+      {view === 'shipments' && <Combo width="w-44" value={portIn} onChange={setPortIn} source={(t, sig) => fetchOptions('port_in', view, t, sig)} placeholder="Cảng đến (Singapore…)" label="Cảng đến" />}
       {view === 'directory' && <select className={input} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
       {view === 'directory' && <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
       {data && <span className="text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} kết quả</span>}

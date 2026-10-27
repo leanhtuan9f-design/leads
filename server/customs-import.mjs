@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import XLSX from 'xlsx';
-import { openCustomsDb, normalizeName } from './customs-data.mjs';
+import { openCustomsDb, normalizeName, cleanPort } from './customs-data.mjs';
 import { backfillProductGroups, inferRankingProducts, normalizeHs } from './customs-products.mjs';
 
 // ---- chuẩn hóa chung ----
@@ -289,7 +289,7 @@ export function importAll(root, { db, docs = false } = {}) {
       for (const s of res.shipments) {
         const bn = normalizeName(s.buyer), sn2 = normalizeName(s.supplier);
         stats.shipments++; kinds.add('shipments');
-        if (apply) insS.run(sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')), rel, s.date, s.buyer, bn, s.buyerCountry, s.buyerAddress, s.supplier, sn2, s.supplierAddress, s.supplierPhone, normalizeHs(s.hs), s.product.slice(0, 300), shipmentUsd(s.usd), s.qty, s.unit, s.weight, s.portIn, s.portOut, s.mode, s.incoterms);
+        if (apply) insS.run(sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')), rel, s.date, s.buyer, bn, s.buyerCountry, s.buyerAddress, s.supplier, sn2, s.supplierAddress, s.supplierPhone, normalizeHs(s.hs), s.product.slice(0, 300), shipmentUsd(s.usd), s.qty, s.unit, s.weight, cleanPort(s.portIn), cleanPort(s.portOut), s.mode, s.incoterms);
       }
       res.rankings.forEach((r, i) => {
         const norm = normalizeName(r.name); if (!norm) return;

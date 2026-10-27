@@ -56,6 +56,15 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     }
     db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__hs_normalized__', 'migration', 0, ?)`).run(Date.now());
   }
+  if (!db.prepare(`SELECT 1 FROM customs_files WHERE path = '__ports_cleaned__'`).get()) {
+    const rows = db.prepare(`SELECT id, port_in, port_out FROM customs_shipments WHERE port_in <> '' OR port_out <> ''`).all();
+    const set = db.prepare('UPDATE customs_shipments SET port_in = ?, port_out = ? WHERE id = ?');
+    db.exec('BEGIN');
+    for (const r of rows) { const a = cleanPort(r.port_in), b = cleanPort(r.port_out); if (a !== r.port_in || b !== r.port_out) set.run(a, b, r.id); }
+    db.exec('COMMIT');
+    db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__ports_cleaned__', 'migration', 0, ?)`).run(Date.now());
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cs_port_in ON customs_shipments(port_in); CREATE INDEX IF NOT EXISTS idx_cs_port_out ON customs_shipments(port_out);');
   backfillProductGroups(db);
   return db;
 }
@@ -64,6 +73,16 @@ const SUFFIX = /\b(co|ltd|inc|llc|l l c|corp|corporation|limited|company|pvt|pri
 export function normalizeName(value) {
   return String(value ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(SUFFIX, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Tên cảng trong nguồn lẫn rác ("Not Available", "undefined") và nhiều cách viết cho cùng một cảng: làm sạch + gộp alias chính.
+const PORT_ALIASES = [[/cat\s*lai/i, 'Cat Lai'], [/cai\s*mep/i, 'Cai Mep'], [/hai\s*phong|haiphong|lach\s*huyen/i, 'Hai Phong'], [/da\s*nang/i, 'Da Nang'], [/ho\s*chi\s*minh|\bhcm\b|sai\s*gon|saigon/i, 'Ho Chi Minh City']];
+export function cleanPort(value) {
+  const t = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!t || /^(not available|undefined|null|n\/?a|other|others|unknown|none|0|-+|\.+)$/i.test(t)) return '';
+  const alias = PORT_ALIASES.find(([re]) => re.test(t));
+  if (alias) return alias[1];
+  return t === t.toUpperCase() || t === t.toLowerCase() ? t.toLowerCase().replace(/(^|[\s(\-/])(\p{L})/gu, (_, a, b) => a + b.toUpperCase()) : t;
 }
 
 const like = value => `%${String(value).replace(/[\\%_]/g, '\\$&')}%`;
@@ -130,9 +149,11 @@ export function createCustomsApi(db) {
     if (query.country) { where.push('buyer_country = ?'); params.push(String(query.country).toUpperCase()); }
     if (query.hs) { where.push(`hs LIKE ? ESCAPE '\\'`); params.push(`${String(query.hs).replace(/[^0-9]/g, '')}%`); }
     if (productParam(query)) { where.push('product_group = ?'); params.push(productParam(query)); }
+    if (query.portOut) { where.push(`port_out LIKE ? ESCAPE '\\'`); params.push(like(String(query.portOut).trim())); }
+    if (query.portIn) { where.push(`port_in LIKE ? ESCAPE '\\'`); params.push(like(String(query.portIn).trim())); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = one(`SELECT COUNT(*) n FROM customs_shipments ${w}`, ...params).n;
-    const rows = db.prepare(`SELECT date, buyer, buyer_country buyerCountry, supplier, hs, product, product_group productKey, usd, qty, unit, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    const rows = db.prepare(`SELECT date, buyer, buyer_country buyerCountry, supplier, hs, product, product_group productKey, usd, qty, unit, port_out portOut, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
     return { total, limit, offset, rows: rows.map(({ productKey, ...r }) => ({ ...r, group: PRODUCT_LABELS[productKey] || '' })) };
   }
 
@@ -177,6 +198,11 @@ export function createCustomsApi(db) {
       const byCode = new Map();
       for (const r of rows) { const e = byCode.get(r.code) || { total: 0, g: r.g }; e.total += r.n; byCode.set(r.code, e); }
       return { options: [...byCode].sort((a, b) => b[1].total - a[1].total).slice(0, 8).map(([code, e]) => ({ value: code, label: PRODUCT_LABELS[e.g] || '', hint: e.total })) };
+    }
+    if (field === 'port_in' || field === 'port_out') {
+      const col = field; const t = raw.trim();
+      if (t.length < 1) return { options: db.prepare(`SELECT ${col} v, COUNT(*) n FROM customs_shipments WHERE ${col} <> '' GROUP BY 1 ORDER BY n DESC LIMIT 8`).all().map(r => ({ value: r.v, hint: r.n })) };
+      return { options: db.prepare(`SELECT ${col} v, COUNT(*) n FROM customs_shipments WHERE ${col} LIKE ? ESCAPE '\\' GROUP BY 1 ORDER BY (${col} LIKE ? ESCAPE '\\') DESC, n DESC LIMIT 8`).all(like(t), `${t.replace(/[\\%_]/g, '\\$&')}%`).map(r => ({ value: r.v, hint: r.n })) };
     }
     const n = normalizeName(raw);
     if (n.length < 2) return { options: [] };
