@@ -1,7 +1,7 @@
 /** Customer-facing benefits supported by the current application. */
 export const planFeatures = {
   BASIC: [
-    'Chọn 1 quốc gia để tìm kiếm',
+    'Chọn 1 hoặc nhiều quốc gia, giá tính theo số quốc gia',
     '1 tìm kiếm chạy cùng lúc, không giới hạn số lượt tìm',
     'Tìm doanh nghiệp theo ngành hàng và thị trường',
     'Email, điện thoại, website và địa chỉ khi có',

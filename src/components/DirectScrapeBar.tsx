@@ -137,8 +137,12 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   }, [category, fullLocation, existingBusinesses]);
 
   // Gói giới hạn 1 quốc gia: nước đã khoá lúc mua gói thì cố định, không đổi trên ô nhập
-  const lockedCountry = (quota?.maxCountries === 1 && quota.countries?.length === 1) ? quota.countries[0] : '';
+  // Gói giới hạn quốc gia: nước đã mua/khoá là cố định (1 nước: ô khoá; nhiều nước: chỉ chọn trong danh sách đã mua)
+  const allowedCountries = quota?.maxCountries && quota.countries && quota.countries.length >= quota.maxCountries ? quota.countries : [];
+  const lockedCountry = allowedCountries.length === 1 ? allowedCountries[0] : '';
+  const pickFromAllowed = allowedCountries.length > 1;
   useEffect(() => { if (lockedCountry && country !== lockedCountry) setCountry(lockedCountry); }, [lockedCountry, country]);
+  useEffect(() => { if (pickFromAllowed && !allowedCountries.some(c => c.toLowerCase() === country.trim().toLowerCase())) setCountry(allowedCountries[0]); }, [pickFromAllowed, allowedCountries.join('|'), country]);
   const quotaFull = quota ? quota.newUsed >= quota.newLimit : false;
   const canSubmit = !isRunning && category.trim() !== '' && fullLocation !== '';
 
@@ -211,18 +215,24 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
 
         <div className="md:col-span-2 relative">
           <Globe className="w-4 h-4 absolute left-3 top-3 text-amber-300 pointer-events-none" />
-          <input
+          {pickFromAllowed ? <select
+            value={country}
+            onChange={(e) => { setCountry(e.target.value); setCity(''); }}
+            aria-label="Quốc gia"
+            title="Bạn chỉ tìm kiếm trong các quốc gia đã mua. Mua thêm quốc gia ở bảng gói dịch vụ."
+            className={`${inputCls} pl-9`}
+          >{allowedCountries.map(c => <option key={c} value={c}>{c}</option>)}</select> : <input
             type="text"
             list="country-list"
             value={country}
             readOnly={Boolean(lockedCountry)}
-            title={lockedCountry ? 'Gói Căn bản chỉ tìm trong 1 quốc gia đã chọn khi mua. Nâng cấp gói Nâng cao để tìm nhiều nước.' : undefined}
+            title={lockedCountry ? 'Gói Căn bản chỉ tìm trong quốc gia đã chọn khi mua. Mua thêm quốc gia hoặc nâng cấp gói Nâng cao để tìm nhiều nước.' : undefined}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="Quốc gia"
             aria-label="Quốc gia"
             className={`${inputCls} pl-9`}
             autoComplete="off"
-          />
+          />}
           <datalist id="country-list">{COUNTRIES.map(c => <option key={c} value={c} />)}</datalist>
         </div>
 

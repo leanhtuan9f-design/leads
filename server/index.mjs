@@ -393,7 +393,7 @@ app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
 app.post('/api/billing/checkout', async (req, res) => {
   try {
     const existingUser = req.user && req.user.role !== 'trial' ? { id: req.user.id, email: req.user.email, pass: req.user.pass } : undefined;
-    const result = await billing.createCheckout({ name: req.body?.name, emailAddress: req.body?.email, phone: req.body?.phone, password: req.body?.password, plan: req.body?.plan, billingCycle: req.body?.billingCycle, trialId: req.body?.trialId, existingUser, country: req.body?.country });
+    const result = await billing.createCheckout({ name: req.body?.name, emailAddress: req.body?.email, phone: req.body?.phone, password: req.body?.password, plan: req.body?.plan, billingCycle: req.body?.billingCycle, trialId: req.body?.trialId, existingUser, country: req.body?.country, countries: req.body?.countries });
     res.status(201).json(result);
   } catch (error) {
     res.status(Number(error?.statusCode) || 502).json({ code: error?.code || 'CHECKOUT_FAILED', error: error?.message || 'Không tạo được đơn thanh toán' });

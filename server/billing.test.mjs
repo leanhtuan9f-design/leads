@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { ensureAuthSchema, hashPassword } from './auth-lib.mjs';
 import { ensureBillingSchema, createBillingService, normCountry, parseCountries } from './billing.mjs';
@@ -87,4 +88,87 @@ test('admin can override the number of countries per user; plan change resets it
   assert.deepEqual([l.maxCountries, l.countries], [2, ['Japan']]);
   paidOrder(db, billing, { orderId: 'o3', plan: 'ADVANCED' });
   assert.deepEqual([billing.limitsFor(id).overrides, billing.limitsFor(id).maxCountries], [{}, 0]);
+});
+
+
+// CRM giả: ghi lại body, trả phiên với giá SKU 4000 (nhân quantity nếu `supportsQuantity`).
+// reject400: mô phỏng CRM cũ (schema strict) từ chối trường quantity bằng 422.
+function fakeCrm({ supportsQuantity = true, reject400 = false } = {}) {
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const body = raw ? JSON.parse(raw) : {};
+      seen.push(body);
+      res.setHeader('content-type', 'application/json');
+      if (reject400 && body.quantity) { res.statusCode = 422; return res.end(JSON.stringify({ error: { message: 'Unrecognized key(s): quantity' } })); }
+      const q = supportsQuantity ? (body.quantity ?? 1) : 1;
+      res.end(JSON.stringify({ data: { paymentSessionId: `ps-${seen.length}`, externalOrderId: body.externalOrderId, sourceKey: body.sourceKey, product: { sku: body.productSku, name: 'Basic' },
+        amount: { value: String(4000 * q), currency: 'VND' }, status: 'PENDING', instructions: {}, ...(supportsQuantity && q > 1 ? { quantity: q, unitAmount: '4000' } : {}) } }));
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, seen, url: `http://127.0.0.1:${server.address().port}` })));
+}
+function setupWithCrm(url) {
+  const db = new DatabaseSync(':memory:');
+  db.exec('CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+  ensureAuthSchema(db);
+  ensureBillingSchema(db);
+  db.prepare("INSERT INTO app_settings (key, value) VALUES ('billing', ?)").run(JSON.stringify({ sourceKey: 'maps', skus: { BASIC_ANNUAL: 'SKU_BA', BASIC_MONTHLY: 'SKU_BM', ADVANCED_ANNUAL: 'SKU_AA', ADVANCED_MONTHLY: 'SKU_AM' } }));
+  const billing = createBillingService({ db, stmt: { userByEmail: db.prepare('SELECT * FROM users WHERE email = ?') }, hashPassword, crm: { sourceKey: 'maps', apiKey: 'api-key', callbackKey: 'cb-key', baseUrl: url } });
+  return { db, billing };
+}
+const existing = { id: 1, email: 'a@b.com', pass: 'p' };
+
+test('multi-country checkout sends quantity = number of countries and stores the countries; total = unit × N', async () => {
+  const crm = await fakeCrm();
+  try {
+    const { db, billing } = setupWithCrm(crm.url);
+    const r = await billing.createCheckout({ plan: 'BASIC', billingCycle: 'ANNUAL', existingUser: existing, countries: ['Japan', 'japan', 'Germany', 'Viet Nam'] });
+    assert.equal(crm.seen[0].quantity, 3); // 'Japan' và 'japan' là một
+    assert.equal(r.session.amount.value, '12000');
+    const order = db.prepare('SELECT * FROM billing_orders WHERE order_id = ?').get(r.orderId);
+    assert.deepEqual([order.quantity, order.amount, JSON.parse(order.countries), order.country], [3, 12000, ['Japan', 'Germany', 'Viet Nam'], 'Japan']);
+    // một quốc gia: không gửi quantity (tương thích CRM cũ)
+    const r1 = await billing.createCheckout({ plan: 'BASIC', billingCycle: 'MONTHLY', existingUser: existing, country: 'Japan' });
+    assert.equal('quantity' in crm.seen[1], false);
+    assert.equal(db.prepare('SELECT quantity FROM billing_orders WHERE order_id = ?').get(r1.orderId).quantity, 1);
+    // đơn chờ thanh toán cũ không được dùng lại khi đổi số quốc gia (giá khác)
+    const again = await billing.createCheckout({ plan: 'BASIC', billingCycle: 'ANNUAL', existingUser: existing, countries: ['Japan', 'Germany'] });
+    assert.notEqual(again.orderId, r.orderId);
+    assert.equal(again.session.amount.value, '8000');
+    // Advanced: không cần/không gửi quốc gia
+    await billing.createCheckout({ plan: 'ADVANCED', billingCycle: 'ANNUAL', existingUser: existing, countries: ['Japan', 'Germany'] });
+    assert.equal('quantity' in crm.seen.at(-1), false);
+  } finally { crm.server.close(); }
+});
+
+test('multi-country checkout refuses to continue when the CRM does not confirm quantity', async () => {
+  for (const mode of [{ supportsQuantity: false }, { reject400: true }]) {
+    const crm = await fakeCrm(mode);
+    try {
+      const { db, billing } = setupWithCrm(crm.url);
+      await assert.rejects(billing.createCheckout({ plan: 'BASIC', billingCycle: 'ANNUAL', existingUser: existing, countries: ['Japan', 'Germany'] }), (e) => e.code === 'CRM_QUANTITY_UNSUPPORTED' && e.statusCode === 503);
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM billing_orders').get().n, 0);
+      assert.equal(db.prepare('SELECT COUNT(*) n FROM billing_pending_accounts').get().n, 0);
+    } finally { crm.server.close(); }
+  }
+});
+
+test('paying for N countries locks exactly those countries and allows N; renewal with fewer replaces them', () => {
+  const { db, billing } = setup();
+  const pay = (orderId, countries) => {
+    db.prepare('INSERT INTO billing_orders (order_id, crm_session_id, email, customer_name, product_sku, plan, billing_cycle, amount, currency, status, created_at, updated_at, country, countries, quantity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(orderId, `s-${orderId}`, 'a@b.com', 'A', 'BASIC_ANNUAL', 'BASIC', 'ANNUAL', 4000 * countries.length, 'VND', 'PENDING_PAYMENT', 1, 1, countries[0], JSON.stringify(countries), countries.length);
+    db.prepare('INSERT INTO billing_pending_accounts (order_id, email, customer_name, pass, created_at) VALUES (?,?,?,?,?)').run(orderId, 'a@b.com', 'A', hashPassword('x'.repeat(12)), 1);
+    return billing.applyEntitlement({ providedKey: 'cb-key', eventType: 'PAYMENT_COMPLETED', eventId: `e-${orderId}`, externalOrderId: orderId, sourceKey: 'maps', productSku: 'BASIC_ANNUAL', amount: { value: 4000 * countries.length, currency: 'VND' }, crmTransactionId: 't' });
+  };
+  pay('o1', ['Japan', 'Germany', 'France']);
+  const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
+  let l = billing.limitsFor(id);
+  assert.deepEqual([l.maxCountries, l.countries, l.planMaxCountries], [3, ['Japan', 'Germany', 'France'], 1]);
+  pay('o2', ['Italy']); // gia hạn chỉ 1 nước → về đúng giới hạn gói, bỏ ghi đè
+  l = billing.limitsFor(id);
+  assert.deepEqual([l.maxCountries, l.countries, l.overrides], [1, ['Italy'], {}]);
 });
