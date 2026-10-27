@@ -188,7 +188,8 @@ test('formatCompanyName capitalizes words and keeps legal abbreviations', async 
 test('gov/edu emails: detected, entities dropped on import, purge keeps businesses with other emails', async () => {
   const { isGovEduEmail, stripGovEduEmails, purgeGovEduEntities } = await import('./customs-data.mjs');
   for (const e of ['a@maryland.gov', 'b@hemaya.gov.ae', 'c@umich.edu', 'd@x.edu.au', 'e@gov.vn', 'F@USDA.GOV']) assert.equal(isGovEduEmail(e), true, e);
-  for (const e of ['a@govfoods.com', 'b@education.com', 'c@edu-trading.co', 'd@proecuador.gob.ec', '', 'nodomain']) assert.equal(isGovEduEmail(e), false, e);
+  for (const e of ['d@proecuador.gob.ec', 'x@a.gouv.fr', 'y@mofa.go.jp', 'z@ox.ac.uk', 'q@army.mil', 'w@who.int', 'v@a.gv.at', 'u@a.nic.in']) assert.equal(isGovEduEmail(e), true, e);
+  for (const e of ['a@govfoods.com', 'b@education.com', 'c@edu-trading.co', 'd@go.com', 'e@ac.com', 'f@goodfoods.co.uk', 'g@gob.com', '', 'nodomain']) assert.equal(isGovEduEmail(e), false, e);
   assert.deepEqual(stripGovEduEmails('a@x.gov; b@shop.com'), { email: 'b@shop.com', removed: true, dropAll: false });
   assert.deepEqual(stripGovEduEmails('a@x.gov'), { email: '', removed: true, dropAll: true });
   assert.deepEqual(stripGovEduEmails(''), { email: '', removed: false, dropAll: false });

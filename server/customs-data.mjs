@@ -107,12 +107,15 @@ export function formatCompanyName(value) {
   });
 }
 
-// Email cơ quan nhà nước/trường học (…@x.gov, @x.gov.vn, @x.edu, @x.edu.au) không phải doanh nghiệp: loại khỏi danh bạ.
+// Email cơ quan nhà nước/quân đội/tổ chức quốc tế/trường học không phải doanh nghiệp: loại khỏi danh bạ.
+// Đuôi chung: .gov .edu .mil .int; dưới đuôi quốc gia (2 chữ): gov, gob, gouv, govt, gub, go, gv, nic, edu, ac, sch (vd .gov.vn, .gob.ec, .go.jp, .ac.uk).
+const AGENCY_TLDS = new Set(['gov', 'edu', 'mil', 'int']);
+const AGENCY_SECOND = new Set(['gov', 'gob', 'gouv', 'govt', 'gub', 'go', 'gv', 'nic', 'edu', 'ac', 'sch']);
 export function isGovEduEmail(email) {
   const labels = String(email ?? '').trim().toLowerCase().split('@').pop().split('.').filter(Boolean);
   if (labels.length < 2) return false;
   const last = labels[labels.length - 1], second = labels[labels.length - 2];
-  return last === 'gov' || last === 'edu' || (last.length === 2 && (second === 'gov' || second === 'edu'));
+  return AGENCY_TLDS.has(last) || (last.length === 2 && AGENCY_SECOND.has(second));
 }
 // Trả về {email: các email còn lại ('a; b'), removed: có email gov/edu bị bỏ, dropAll: có email nhưng toàn gov/edu}.
 export function stripGovEduEmails(field) {
