@@ -68,6 +68,14 @@ export const DataTable: React.FC<DataTableProps> = ({
   // Quốc gia đang lọc không còn lead nào (ví dụ vừa xóa) thì quay về 'Tất cả'
   const activeCountry = countryFilter && (countryFilter === '?' ? countryOptions.unknown > 0 : countryOptions.list.some(c => c.code === countryFilter)) ? countryFilter : '';
 
+  // Số lượng mỗi bộ lọc nhanh, cùng cơ sở với "Tất cả" (toàn bộ lead đang có)
+  const filterCounts = useMemo<Record<FilterType, number>>(() => ({
+    all: businesses.length,
+    phone: businesses.filter(b => b.phone).length,
+    email: businesses.filter(b => b.email).length,
+    unclaimed: businesses.filter(b => !b.isClaimed).length
+  }), [businesses]);
+
   const filteredBusinesses = useMemo(() => {
     return businesses.filter(b => {
       if (activeCountry) {
@@ -183,7 +191,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                   filterType === f.id ? 'bg-blue-600 text-white font-medium' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {f.label}{f.id === 'all' ? ` (${businesses.length})` : ''}
+                {f.label} ({filterCounts[f.id]})
               </button>
             ))}
           </div>
