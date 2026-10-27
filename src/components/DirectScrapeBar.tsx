@@ -67,6 +67,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [showOptions, setShowOptions] = useState(false);
   const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
   const [skipWithoutWebsite, setSkipWithoutWebsite] = useState(false);
+  const [importOnly, setImportOnly] = useState(true);
   const [forceRefresh, setForceRefresh] = useState(false);
 
   // Gợi ý từ khóa bằng AI dựa trên Hồ sơ
@@ -160,6 +161,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       extractEmails: true,
       skipWithoutPhone,
       skipWithoutWebsite,
+      importOnly,
       language: 'vi',
       existingBusinesses, // tự bỏ qua cơ sở đã có
       scrapeMode: isFull ? 'exhaustive' : 'batch',
@@ -406,6 +408,10 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
         {showOptions && (
           <div className="mt-2 p-3 bg-slate-900/60 border border-slate-800 rounded-lg space-y-3 text-xs text-slate-300">
             <div className="flex flex-col sm:flex-row sm:flex-wrap gap-x-5 gap-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={importOnly} onChange={(e) => setImportOnly(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+                <span>Chỉ lấy doanh nghiệp thương mại (nhập khẩu, bán buôn, phân phối, sản xuất) — bỏ quán ăn, quán cà phê, cửa hàng bán lẻ</span>
+              </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={skipWithoutPhone} onChange={(e) => setSkipWithoutPhone(e.target.checked)} className="rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-0 focus:ring-offset-0" />
                 <span>Chỉ lấy lead có số điện thoại</span>

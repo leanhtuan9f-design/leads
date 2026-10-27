@@ -20,3 +20,19 @@ export function classifyBuyerSegment(record = {}) {
   if (categories.some(x => /\bcua hang\b|\bsieu thi\b|\bcho\b|\bretail\b|\bsupermarket\b|\bgrocery store\b/.test(x))) return 'market_retail';
   return 'other';
 }
+
+// Search-time gate: keeps trade roles that can plausibly buy in bulk or import, for any industry.
+// Based on role words only (never on a product), so it works for coffee, textiles, machinery, etc.
+const CONSUMER_FACING = /\bquan (?:ca phe|an|bar|nhau|tra|com|pho)\b|\bnha hang\b|\bkhach san\b|\bcafe\b|\bcoffee shop\b|\brestaurant\b|\bbar\b|\bpub\b|\bhotel\b|\bhostel\b|\bbakery shop\b|\bsalon\b|\bspa\b|\bgym\b|\bphong kham\b|\bclinic\b/;
+const PROCESSING = /\bco so (?:che bien|rang|dong goi|say|xay)\b|\bnha may\b|\bprocessor\b|\bprocessing\b|\broaster(?:y|s)?\b|\bpacker\b|\bpacking\b|\bmill\b/;
+const TRADE_NAME = /\bimport(?:er|s|ers)?\b|\bexport(?:er|s|ers)?\b|\btrading\b|\bwholesale\b|\bnhap khau\b|\bxuat nhap khau\b|\bban buon\b|\bhandel\b/;
+export function isImportCandidate(record = {}) {
+  const segment = classifyBuyerSegment(record);
+  if (segment === 'import_signal' || segment === 'distribution' || segment === 'manufacturing') return true;
+  const categories = [record.category, ...(Array.isArray(record.subcategories) ? record.subcategories : [])]
+    .filter(x => typeof x === 'string').map(norm);
+  if (categories.some(x => CONSUMER_FACING.test(x))) return false;
+  if (categories.some(x => PROCESSING.test(x))) return true;
+  // Trade words in the business name rescue generic labels (e.g. "X Import GmbH"), never consumer-facing ones.
+  return TRADE_NAME.test(norm(record.title));
+}

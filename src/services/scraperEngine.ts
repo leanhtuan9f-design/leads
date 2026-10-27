@@ -1,4 +1,5 @@
 import { ScrapedBusiness, ScraperOptions } from '../types/scraper';
+import { isImportCandidate } from '../../shared/buyer-segments.mjs';
 
 export interface ProgressCallbackData {
   scrapedCount: number;
@@ -354,6 +355,7 @@ export async function executeScrapingJob(
     es.addEventListener('place', (e) => {
       const { fromCache, ...raw } = JSON.parse((e as MessageEvent).data) as ScrapedBusiness & { fromCache?: boolean };
       if ((options.skipWithoutPhone && !raw.phone) || (options.skipWithoutWebsite && !raw.website)) return;
+      if (options.importOnly && !isImportCandidate(raw)) return;
       const keys = dedupeKeys(raw);
       const elapsedMin = Math.max((Date.now() - startTime) / 60000, 1 / 60);
 

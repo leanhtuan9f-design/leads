@@ -48,6 +48,7 @@ export interface ScraperOptions {
   extractSocials?: boolean; // không còn dùng (engine không trả link mạng xã hội)
   skipWithoutPhone: boolean;
   skipWithoutWebsite: boolean;
+  importOnly?: boolean; // chỉ giữ doanh nghiệp có vai trò thương mại (nhập khẩu/bán buôn/phân phối/sản xuất), bỏ quán ăn, cà phê, bán lẻ
   proxyType?: 'direct' | 'datacenter_rotating' | 'residential_proxy'; // chỉ để tương thích job cũ trong localStorage
   language: string;
   forceRefresh?: boolean; // bỏ qua kho dữ liệu đã lưu, cào mới (giới hạn số lần/ngày)
