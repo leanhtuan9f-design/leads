@@ -94,6 +94,7 @@ function Table({ view, products, initialProduct = '', onProductChange, fixed, in
   const [countryText, setCountryText] = useState('');
   const [countries, setCountries] = useState<Opt[]>([]);
   const [hs, setHs] = useState('');
+  const [blNo, setBlNo] = useState('');
   const [portOut, setPortOut] = useState('');
   const [portIn, setPortIn] = useState('');
   const [product, setProduct] = useState(initialProduct);
@@ -110,7 +111,7 @@ function Table({ view, products, initialProduct = '', onProductChange, fixed, in
     fetchOptions('country', view, '', ctl.signal).then(setCountries).catch(() => {});
     return () => ctl.abort();
   }, [view]);
-  useEffect(() => { setOffset(0); }, [q, country, hs, portOut, portIn, type, hasEmail, emailSuffix, product, view]);
+  useEffect(() => { setOffset(0); }, [q, country, hs, blNo, portOut, portIn, type, hasEmail, emailSuffix, product, view]);
   useEffect(() => {
     const ctl = new AbortController();
     const t = setTimeout(async () => {
@@ -118,7 +119,7 @@ function Table({ view, products, initialProduct = '', onProductChange, fixed, in
       if (q.trim()) p.set('q', q.trim());
       if (country.trim()) p.set('country', country.trim());
       if (hs.trim() && view !== 'directory') p.set('hs', hs.trim());
-      if (view === 'shipments') { if (portOut.trim()) p.set('portOut', portOut.trim()); if (portIn.trim()) p.set('portIn', portIn.trim()); }
+      if (view === 'shipments') { if (blNo.trim()) p.set('blNo', blNo.trim()); if (portOut.trim()) p.set('portOut', portOut.trim()); if (portIn.trim()) p.set('portIn', portIn.trim()); }
       if (type && view === 'directory') p.set('type', type);
       if (hasEmail && view === 'directory') p.set('hasEmail', '1');
       if (emailSuffix.trim() && view === 'directory') p.set('emailSuffix', emailSuffix.trim());
@@ -132,7 +133,7 @@ function Table({ view, products, initialProduct = '', onProductChange, fixed, in
       } catch (e) { if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); }
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
-  }, [q, country, hs, portOut, portIn, type, hasEmail, emailSuffix, product, offset, view]);
+  }, [q, country, hs, blNo, portOut, portIn, type, hasEmail, emailSuffix, product, offset, view]);
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
       <Combo width="min-w-[8rem] flex-[2] basis-40" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm tên…" label="Tìm theo tên" />
@@ -145,6 +146,7 @@ function Table({ view, products, initialProduct = '', onProductChange, fixed, in
         onPick={o => { const hit = products.find(p => p.label === o.value); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
         source={t => { const k = norm(t); return products.filter(p => !k || norm(p.label).includes(k)).map(p => ({ value: p.label, hint: view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments })); }} />}
       {view !== 'directory' && <Combo width="min-w-[6rem] flex-1 basis-24" value={hs} onChange={setHs} source={(t, sig) => fetchOptions('hs', view, t, sig)} minChars={2} placeholder="Mã HS" label="Mã HS" />}
+      {view === 'shipments' && <Combo width="min-w-[7rem] flex-1 basis-28" value={blNo} onChange={setBlNo} source={(t, sig) => fetchOptions('bl_no', view, t, sig)} minChars={2} placeholder="Mã vận đơn" label="Mã vận đơn" />}
       {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portOut} onChange={setPortOut} source={(t, sig) => fetchOptions('port_out', view, t, sig)} placeholder="Cảng đi" label="Cảng đi" />}
       {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portIn} onChange={setPortIn} source={(t, sig) => fetchOptions('port_in', view, t, sig)} placeholder="Cảng đến" label="Cảng đến" />}
       {view === 'directory' && <select className={`${input} min-w-0 flex-1`} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}

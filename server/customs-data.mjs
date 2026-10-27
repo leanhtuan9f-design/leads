@@ -344,6 +344,11 @@ export function createCustomsApi(db) {
       const domOpts = t.startsWith('.') ? [] : [...pre, ...inn].slice(0, 8).map(([v, n]) => ({ value: v, label: 'tên miền', hint: n }));
       return { options: [...sufOpts, ...domOpts].slice(0, 8) };
     }
+    if (field === 'bl_no') {
+      const t = raw.trim();
+      if (t.length < 2) return { options: [] };
+      return { options: db.prepare(`SELECT bl_no v, COUNT(*) n FROM customs_shipments WHERE bl_no LIKE ? ESCAPE '\\' GROUP BY 1 ORDER BY (bl_no LIKE ? ESCAPE '\\') DESC, n DESC LIMIT 8`).all(like(t), `${t.replace(/[\\%_]/g, '\\$&')}%`).map(r => ({ value: r.v, hint: r.n })) };
+    }
     if (field === 'port_in' || field === 'port_out') {
       const col = field; const t = raw.trim();
       if (t.length < 1) return { options: db.prepare(`SELECT ${col} v, COUNT(*) n FROM customs_shipments WHERE ${col} <> '' GROUP BY 1 ORDER BY n DESC LIMIT 8`).all().map(r => ({ value: r.v, hint: r.n })) };
