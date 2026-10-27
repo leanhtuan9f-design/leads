@@ -335,8 +335,9 @@ const neededDepth = (maxResults, nQueries) => {
 };
 
 const app = express();
-app.use(['/api/state', '/api/items'], express.json({ limit: '25mb' })); // lead/job của người dùng có thể lớn
-app.use(express.json({ limit: '32kb' }));
+const bigJson = express.json({ limit: '25mb' }); // lead/job của người dùng có thể lớn: chỉ parse SAU khi đã xác thực (xem requireAuth bên dưới)
+const smallJson = express.json({ limit: '32kb' });
+app.use((req, res, next) => (/^\/api\/(state|items)(\/|$)/.test(req.path) ? next() : smallJson(req, res, next)));
 
 // ===== Xác thực =====
 const COOKIE = 'mapsid';
@@ -372,7 +373,7 @@ const canAccess = (user, job) => Boolean(user && (user.role === 'admin' || job.u
 app.get('/api/billing/config', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const config = billing.getConfig();
-  res.json({ sourceKey: config.sourceKey, plans: config.plans, prices: config.prices, benefits: config.benefits, skus: config.skus });
+  res.json({ plans: config.plans, prices: config.prices, benefits: config.benefits }); // sourceKey/skus chỉ trả cho admin
 });
 app.get('/api/admin/billing-config', requireAdmin, (_req, res) => {
   const config = billing.getConfig();
@@ -457,7 +458,7 @@ app.get('/api/account/plan', requireAuth, (req, res) => {
   res.json({ plan: activePlan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices, benefits: config.benefits });
 });
 app.use('/api/jobs', requireAuth);
-app.use(['/api/state', '/api/items'], requireAuth);
+app.use(['/api/state', '/api/items'], requireAuth, bigJson);
 
 // ===== Dữ liệu riêng của từng người dùng (lead, lịch sử job, proxy) =====
 const STATE_KEYS = new Set(['proxies', 'profile']);
@@ -582,6 +583,17 @@ function quotaOf(u) {
 
 const loginFails = new Map(); // key -> { n, until }
 const failKey = (req, email) => `${req.headers['x-real-ip'] || req.ip}|${email}`;
+// Chặn tạo hàng loạt tài khoản dùng thử để lách hạn mức: tối đa TRIAL_MAX_PER_IP_DAY trial mới/IP/ngày (giờ VN)
+const TRIAL_MAX_PER_IP_DAY = 5;
+const trialByIp = new Map(); // ip -> { day, n }
+const trialQuotaOk = (ip) => {
+  const day = vnDay();
+  const e = trialByIp.get(ip);
+  if (!e || e.day !== day) { trialByIp.set(ip, { day, n: 1 }); return true; }
+  if (e.n >= TRIAL_MAX_PER_IP_DAY) return false;
+  e.n++; return true;
+};
+setInterval(() => { const d = vnDay(); for (const [k, v] of trialByIp) if (v.day !== d) trialByIp.delete(k); }, 3600 * 1000).unref();
 app.post('/api/trial/start', (req, res) => {
   if (req.user) {
     if (req.user.role === 'trial') {
@@ -596,6 +608,7 @@ app.post('/api/trial/start', (req, res) => {
     }
     return res.json({ user: publicUser(req.user), quota: quotaOf(req.user), trial: true });
   }
+  if (!trialQuotaOk(String(req.headers['x-real-ip'] || req.ip))) return res.status(429).json({ error: 'Quá nhiều lượt dùng thử từ địa chỉ này hôm nay. Vui lòng đăng nhập hoặc thử lại ngày mai.' });
   const trialId = newToken();
   const trialEmail = `trial_${trialId.slice(0, 24)}@trial.local`;
   const userId = stmt.insertUser.run(trialEmail, hashPassword(randomPassword()), 'trial', TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT, 3, Date.now()).lastInsertRowid;
