@@ -78,3 +78,12 @@ test('supplier list with a "buyer" count column ranks by supplier name', () => {
   const rows = db.prepare('SELECT role, name FROM customs_rankings ORDER BY name').all();
   assert.deepEqual(rows.map(r => [r.role, r.name]), [['supplier', 'hanla co'], ['supplier', 'van minh co']]);
 });
+
+test('implausible USD values are hidden but rows are kept', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  book(dir, '03.52WMB/India/081090-india-Buyer list.xlsx', { S: [['Buyer', 'Transactions', 'Percent', 'qty', 'amount', 'seller', 'URL'], ['daisy fruit llc', 68, 0.1, 234294016, 34637210093, 1, 'u1'], ['ok trading', 10, 0.1, 100, 5000, 1, 'u2']] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const rows = db.prepare('SELECT name, usd FROM customs_rankings ORDER BY name').all();
+  assert.deepEqual(rows.map(r => [r.name, r.usd]), [['daisy fruit llc', null], ['ok trading', 5000]]);
+});

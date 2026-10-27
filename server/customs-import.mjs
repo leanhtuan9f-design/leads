@@ -49,6 +49,10 @@ export function toDate(v) {
   const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/);
   return m ? m[0] : '';
 }
+// Giá trị USD phi thực tế trong nguồn (đơn vị sai/nhập sai): ẩn (NULL), giữ dòng. Khóa dedupe vẫn dùng giá trị gốc.
+export const MAX_SHIPMENT_USD = 1e7, MAX_RANKING_USD_PER_TX = 1e7;
+export const shipmentUsd = v => (v != null && v >= MAX_SHIPMENT_USD ? null : v);
+export const rankingUsd = (v, tx) => (v != null && tx > 0 && v / tx >= MAX_RANKING_USD_PER_TX ? null : v);
 const sha = s => crypto.createHash('sha1').update(s).digest('hex').slice(0, 24);
 const keyOf = s => String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
@@ -284,12 +288,12 @@ export function importAll(root, { db, docs = false } = {}) {
       for (const s of res.shipments) {
         const bn = normalizeName(s.buyer), sn2 = normalizeName(s.supplier);
         stats.shipments++; kinds.add('shipments');
-        if (apply) insS.run(sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')), rel, s.date, s.buyer, bn, s.buyerCountry, s.buyerAddress, s.supplier, sn2, s.supplierAddress, s.supplierPhone, s.hs, s.product.slice(0, 300), s.usd, s.qty, s.unit, s.weight, s.portIn, s.portOut, s.mode, s.incoterms);
+        if (apply) insS.run(sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')), rel, s.date, s.buyer, bn, s.buyerCountry, s.buyerAddress, s.supplier, sn2, s.supplierAddress, s.supplierPhone, s.hs, s.product.slice(0, 300), shipmentUsd(s.usd), s.qty, s.unit, s.weight, s.portIn, s.portOut, s.mode, s.incoterms);
       }
       res.rankings.forEach((r, i) => {
         const norm = normalizeName(r.name); if (!norm) return;
         stats.rankings++; kinds.add('rankings');
-        if (apply) insR.run(sha([rel, sn, i, r.role, norm].join('|')), rel, r.role, r.name, norm, r.country, r.hs, r.product, r.transactions, r.usd, r.qty, r.weight, r.share, r.url);
+        if (apply) insR.run(sha([rel, sn, i, r.role, norm].join('|')), rel, r.role, r.name, norm, r.country, r.hs, r.product, r.transactions, rankingUsd(r.usd, r.transactions), r.qty, r.weight, r.share, r.url);
       });
       res.market.forEach((m, i) => { stats.market++; kinds.add('market'); if (apply) insM.run(sha([rel, sn, i, m.name].join('|')), rel, m.kind, m.name, m.shipments, m.usd, m.qty, m.weight, m.product); });
       if (res.directory.length) kinds.add('directory');
