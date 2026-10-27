@@ -4,7 +4,6 @@ import {
   Search,
   Mail,
   Phone,
-  Star,
   ArrowUpDown,
   FileSpreadsheet,
   Copy,
@@ -305,14 +304,13 @@ export const DataTable: React.FC<DataTableProps> = ({
               {sortableTh('title', 'Doanh nghiệp')}
               <th className="py-2.5 px-3">Liên hệ</th>
               <th className="py-2.5 px-3">Địa chỉ</th>
-              {sortableTh('rating', 'Đánh giá')}
               {sortableTh('leadScore', 'Điểm', 'text-right')}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80">
             {filteredBusinesses.length === 0 ? (
               <tr>
-                <td colSpan={6} className="py-12 text-center text-slate-400">
+                <td colSpan={5} className="py-12 text-center text-slate-400">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Search className="w-6 h-6 text-slate-600" />
                     {businesses.length === 0 ? (
@@ -384,14 +382,6 @@ export const DataTable: React.FC<DataTableProps> = ({
                     <td className="py-2.5 px-3">
                       <div className="text-slate-200">{biz.city}{biz.state ? `, ${biz.state}` : ''}</div>
                       <div className="text-[11px] text-slate-400 truncate max-w-[170px]" title={biz.street}>{biz.street}</div>
-                    </td>
-
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-1 font-mono tabular-nums text-slate-100 font-medium">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>{biz.rating.toFixed(1)}</span>
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">{biz.reviewsCount} đánh giá</div>
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
