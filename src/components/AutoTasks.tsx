@@ -31,7 +31,7 @@ const TASK_STATUS: Record<string, [string, string]> = {
 };
 const RUN_STATUS: Record<string, [string, string]> = {
   pending: ['Chờ', 'text-slate-400'],
-  running: ['Đang cào', 'text-emerald-300'],
+  running: ['Đang quét', 'text-emerald-300'],
   done: ['Xong', 'text-blue-300'],
   empty: ['Không có kết quả', 'text-amber-300'],
   error: ['Lỗi', 'text-red-300']
@@ -107,7 +107,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
   };
 
   const act = async (id: number, what: 'stop' | 'resume' | 'delete') => {
-    if (what === 'delete' && !window.confirm('Xóa tác vụ và báo cáo của nó? (Dữ liệu đã cào vẫn nằm trong kho.)')) return;
+    if (what === 'delete' && !window.confirm('Xóa tác vụ và báo cáo của nó? (Dữ liệu đã quét vẫn nằm trong kho.)')) return;
     try {
       if (what === 'delete') { await apiJson(`/admin/auto/${id}`, 'DELETE'); if (openId === id) setOpenId(null); }
       else await apiJson(`/admin/auto/${id}/${what}`, 'POST', {});
@@ -151,8 +151,8 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
         <>
           <h3 className="font-semibold text-white mb-1">Tác vụ thủ công (sản phẩm → quốc gia → từ khóa × thành phố)</h3>
           <p className="text-[11px] text-slate-500 mb-3">
-            Nhập sản phẩm và quốc gia, hệ thống tự nhờ AI chọn từ khóa + loại khách hàng, ghép với thành phố của nước đó rồi cào lần lượt khi máy rảnh
-            (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần cào, tối đa {maxPairs} cặp ban đầu/tác vụ). Để không sót: mỗi cặp cào sâu nhất; cặp nào chạm trần Google (≥100 lead) tự được tách thành quận/phường rồi cào tiếp; cặp lỗi/trống được thử lại; gián đoạn (khởi động lại) thì chạy lại cặp dở. Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
+            Nhập sản phẩm và quốc gia, hệ thống tự nhờ AI chọn từ khóa + loại khách hàng, ghép với thành phố của nước đó rồi quét lần lượt khi máy rảnh
+            (ưu tiên người dùng trước, nghỉ {gapSec}s giữa hai lần quét, tối đa {maxPairs} cặp ban đầu/tác vụ). Để không sót: mỗi cặp quét sâu nhất; cặp nào chạm trần Google (≥100 lead) tự được tách thành quận/phường rồi quét tiếp; cặp lỗi/trống được thử lại; gián đoạn (khởi động lại) thì chạy lại cặp dở. Không tính hạn mức của ai; dữ liệu vào kho chung nên người dùng tìm cùng từ khóa sẽ có sẵn.
           </p>
         </>
       ) : (
@@ -189,9 +189,9 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
             <input value={cities} onChange={e => setCities(e.target.value)} placeholder="vd: Tokyo, Osaka" className={inputCls} />
           </div>
           <div className="md:col-span-4">
-            <label className="block text-[11px] text-slate-400 mb-1" title="Chống bị Google chặn: cào đủ N cặp thì nghỉ ngẫu nhiên trong khoảng từ–đến (phút) cho tự nhiên. 0 = không nghỉ.">Nghỉ: sau (cặp) · từ – đến (phút)</label>
+            <label className="block text-[11px] text-slate-400 mb-1" title="Chống bị Google chặn: quét đủ N cặp thì nghỉ ngẫu nhiên trong khoảng từ–đến (phút) cho tự nhiên. 0 = không nghỉ.">Nghỉ: sau (cặp) · từ – đến (phút)</label>
             <div className="flex items-center gap-1.5">
-              <input type="number" min={0} max={100} value={burstN ?? (noProxy ? '5' : '0')} onChange={e => setBurstN(e.target.value)} className={`${inputCls} text-center`} aria-label="Số cặp cào trước khi nghỉ" />
+              <input type="number" min={0} max={100} value={burstN ?? (noProxy ? '5' : '0')} onChange={e => setBurstN(e.target.value)} className={`${inputCls} text-center`} aria-label="Số cặp quét trước khi nghỉ" />
               <span className="text-slate-500">·</span>
               <input type="number" min={0} max={240} value={restMin ?? (noProxy ? '20' : '0')} onChange={e => setRestMin(e.target.value)} className={`${inputCls} text-center`} aria-label="Nghỉ tối thiểu (phút)" />
               <span className="text-slate-500">–</span>
@@ -212,14 +212,14 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
           <span>giờ –</span>
           <input type="number" min={1} max={24} value={winEnd} onChange={e => setWinEnd(e.target.value)} disabled={!winOn} className="w-14 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-center text-white disabled:opacity-40" aria-label="Giờ kết thúc" />
           <span>giờ</span>
-          <span className="text-slate-500">Ngoài khung giờ này tác vụ chờ; cặp đang cào không bị ngắt. Nước chưa có múi giờ trong bảng thì chạy bất kỳ lúc nào.</span>
+          <span className="text-slate-500">Ngoài khung giờ này tác vụ chờ; cặp đang quét không bị ngắt. Nước chưa có múi giờ trong bảng thì chạy bất kỳ lúc nào.</span>
           {winOn && tzFor(country) && Number(winStart) !== Number(winEnd) && (
             <span className="basis-full text-emerald-300">🕘 {windowPreview(tzFor(country), Number(winStart), Number(winEnd))}</span>
           )}
           {country.trim() && !tzFor(country) && <span className="basis-full text-amber-300">Nước này chưa có múi giờ trong bảng nên sẽ chạy bất kỳ lúc nào.</span>}
         </div>
         {!aiEnabled && <div className="text-amber-300">AI chưa được cấu hình (menu tài khoản → Cấu hình AI).</div>}
-        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = cào bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định sau mỗi 5 cặp nghỉ ngẫu nhiên 20–40 phút; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
+        {noProxy && <div className="text-[11px] text-slate-500">Không nhập proxy = quét bằng IP máy chủ (dễ bị Google chặn khi chạy nhiều). Mặc định sau mỗi 5 cặp nghỉ ngẫu nhiên 20–40 phút; chỉnh hai ô “Nghỉ” nếu muốn (0 = không nghỉ).</div>}
         {error && <div className="p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </form>
       )}
@@ -272,7 +272,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
                   {editRest.wOn && t.win.tz && Number(editRest.ws) !== Number(editRest.we) && (
                     <span className="basis-full text-emerald-300">🕘 {windowPreview(t.win.tz, Number(editRest.ws), Number(editRest.we))}</span>
                   )}
-                  <span className="text-slate-500">Áp dụng từ cặp kế tiếp; cặp đang cào không bị ngắt.</span>
+                  <span className="text-slate-500">Áp dụng từ cặp kế tiếp; cặp đang quét không bị ngắt.</span>
                 </div>
               )}
               <div className="h-1 bg-slate-800 mx-3 rounded"><div className="h-1 bg-emerald-500 rounded" style={{ width: `${pct}%` }} /></div>
@@ -284,7 +284,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
                     : t.restUntil > 0
                     ? `😴 Đang nghỉ chống bị chặn đến ${new Date(t.restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (sau mỗi ${t.burstN} cặp nghỉ ngẫu nhiên ${t.restMin === t.restMax ? t.restMin : `${t.restMin}–${t.restMax}`} phút)`
                     : t.current
-                    ? `⏳ Đang cào: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
+                    ? `⏳ Đang quét: “${t.current.keyword}” @ ${t.current.city} — ${Math.max(0, Math.round((Date.now() - t.current.startedAt) / 1000))}s (mỗi cặp thường mất 2–6 phút, kết quả hiện khi cặp xong)`
                     : `⏸ Đang chờ máy rảnh (ưu tiên lượt của người dùng, nghỉ ${gapSec}s giữa các cặp)`}
                 </div>
               )}
@@ -296,7 +296,7 @@ export const AutoTasks: React.FC<{ kind: 'manual' | 'plan'; pairTab: PairTab }> 
               <div className="px-3 pb-3 pt-2 text-[11px] text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
                 <span>Lead khác nhau: <b className="text-white">{s.uniquePlaces}</b></span>
                 <span>SĐT {s.withPhone}</span><span>Website {s.withWebsite}</span><span>Email {s.withEmail}</span>
-                <span>Cào mới {s.fromLive} · Từ kho {s.fromCache}</span>
+                <span>Quét mới {s.fromLive} · Từ kho {s.fromCache}</span>
                 {s.saturated > 0 && <span className="text-sky-300">Chạm trần Google {s.saturated} cặp → đã/đang tách khu nhỏ{s.splitting > 0 ? ` (chờ tách ${s.splitting})` : ''}</span>}
                 {s.unsplit > 0 && <span className="text-amber-300">Chưa tách hết {s.unsplit} cặp (có thể còn sót)</span>}
                 {s.retried > 0 && <span>Thử lại {s.retried} cặp</span>}

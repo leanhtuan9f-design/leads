@@ -34,7 +34,7 @@ export interface ScrapedBusiness {
   leadScore: number; // 0-100 calculated score
   leadStatus: 'hot' | 'warm' | 'cold';
   scrapedAt: string;
-  possiblyClosed?: boolean; // lần cào lại gần nhất không còn thấy cơ sở này
+  possiblyClosed?: boolean; // lần quét lại gần nhất không còn thấy cơ sở này
 }
 
 export interface ScraperOptions {
@@ -51,8 +51,8 @@ export interface ScraperOptions {
   importOnly?: boolean; // chỉ giữ doanh nghiệp có vai trò thương mại (nhập khẩu/bán buôn/phân phối/sản xuất), bỏ quán ăn, cà phê, bán lẻ
   proxyType?: 'direct' | 'datacenter_rotating' | 'residential_proxy'; // chỉ để tương thích job cũ trong localStorage
   language: string;
-  forceRefresh?: boolean; // bỏ qua kho dữ liệu đã lưu, cào mới (giới hạn số lần/ngày)
-  proxies?: string[]; // proxy do người dùng nhập (http/https/socks5), mỗi lần cào đi qua các proxy này
+  forceRefresh?: boolean; // bỏ qua kho dữ liệu đã lưu, quét mới (giới hạn số lần/ngày)
+  proxies?: string[]; // proxy do người dùng nhập (http/https/socks5), mỗi lần quét đi qua các proxy này
   existingBusinesses?: ScrapedBusiness[];
   scrapeMode?: 'batch' | 'exhaustive';
   useDistrictSubdivision?: boolean;

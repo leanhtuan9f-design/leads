@@ -311,7 +311,7 @@ async function suggestCountriesRaw(profile) {
   return { countries, buyerTypes: sanitizeBuyerTypes(parsed?.buyerTypes), usage };
 }
 
-// Chia một khu vực lớn thành các quận/phường/khu nhỏ để cào không sót (Google chỉ trả ~120 kết quả mỗi truy vấn)
+// Chia một khu vực lớn thành các quận/phường/khu nhỏ để quét không sót (Google chỉ trả ~120 kết quả mỗi truy vấn)
 const AREA_SCHEMA = { type: 'object', properties: { areas: { type: 'array', items: { type: 'string' } } }, required: ['areas'], additionalProperties: false };
 export const suggestAreas = (place) => guarded(() => suggestAreasRaw(place));
 async function suggestAreasRaw(place) {

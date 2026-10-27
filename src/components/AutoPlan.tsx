@@ -110,7 +110,7 @@ export const AutoPlan: React.FC = () => {
         <>
           <div className="text-xs text-slate-300 mb-2">
             {plan.enabled ? <span className="text-emerald-300">Đang bật</span> : <span className="text-slate-400">Đang tắt</span>}
-            {' · '}{plan.products} mặt hàng · {plan.items} cặp mặt hàng×nước · tối đa {plan.rounds} vòng · khoảng {plan.totalPairs} cặp cào/chu kỳ · đã xong {plan.cycles} chu kỳ
+            {' · '}{plan.products} mặt hàng · {plan.items} cặp mặt hàng×nước · tối đa {plan.rounds} vòng · khoảng {plan.totalPairs} cặp quét/chu kỳ · đã xong {plan.cycles} chu kỳ
             {plan.enabled && <> · vòng {plan.current.round}: {plan.current.running}/{plan.current.tasks} tác vụ đang chạy</>}
             {plan.restUntil > Date.now() && <> · ☕ nghỉ chung đến {new Date(plan.restUntil).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</>}
           </div>

@@ -75,14 +75,14 @@ const STATUS: Record<string, string> = { done: 'Xong', cancelled: 'Đã hủy', 
 
 const Kind: React.FC<{ j: JobRow }> = ({ j }) => (
   <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${j.auto ? 'bg-emerald-500/20 text-emerald-300' : j.background ? 'bg-purple-500/20 text-purple-300' : j.cacheOnly ? 'bg-slate-500/20 text-slate-300' : 'bg-blue-500/20 text-blue-300'}`}>
-    {j.auto ? 'Tác vụ tự động' : j.background ? 'Nền (cập nhật kho)' : j.cacheOnly ? 'Từ kho' : j.force ? 'Người dùng · cào mới' : 'Người dùng'}
+    {j.auto ? 'Tác vụ tự động' : j.background ? 'Nền (cập nhật kho)' : j.cacheOnly ? 'Từ kho' : j.force ? 'Người dùng · quét mới' : 'Người dùng'}
   </span>
 );
 
 const QueueSection: React.FC<{ title: string; q: BackgroundInfo['autoQueues']['manual'] }> = ({ title, q }) => (
   <section className="bg-slate-950 border border-slate-800 rounded-lg p-4">
     <h3 className="font-semibold text-white mb-2">{title} ({q.total} cặp)</h3>
-    <p className="text-[11px] text-slate-500 mb-2">Các cặp (từ khóa @ khu vực) của tác vụ đang chạy, theo thứ tự sẽ cào. Chạy khi máy rảnh, sau lượt người dùng.</p>
+    <p className="text-[11px] text-slate-500 mb-2">Các cặp (từ khóa @ khu vực) của tác vụ đang chạy, theo thứ tự sẽ quét. Chạy khi máy rảnh, sau lượt người dùng.</p>
     {q.total === 0 ? (
       <div className="text-slate-500">Không có cặp nào đang chờ.</div>
     ) : (
@@ -260,7 +260,7 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
         </div>
       </div>
       <p className="text-[11px] text-slate-500">
-        Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại bằng tối đa {workerCount} luồng nền (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
+        Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được quét lại bằng tối đa {workerCount} luồng nền (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
 

@@ -28,7 +28,7 @@ curl -c cookies.txt -X POST "${base}/api/auth/login" \\
   -H "Content-Type: application/json" \\
   -d '{"email": "you@example.com", "password": "..."}'
 
-# 1. Tạo tác vụ cào (trả về {"id": "..."})
+# 1. Tạo tác vụ quét (trả về {"id": "..."})
 curl -b cookies.txt -X POST "${base}/api/jobs" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -127,7 +127,7 @@ with s.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
                 <HelpButton guideId="api_cli" onOpenGuide={onOpenGuide} tooltipText="Xem hướng dẫn tích hợp API" />
               )}
             </div>
-            <p className="text-[11px] text-slate-400">Tạo tác vụ cào và nhận kết quả theo thời gian thực từ hệ thống của bạn</p>
+            <p className="text-[11px] text-slate-400">Tạo tác vụ quét và nhận kết quả theo thời gian thực từ hệ thống của bạn</p>
           </div>
         </div>
         <ul className="text-slate-300 leading-relaxed mt-2 space-y-1 list-disc pl-5">
@@ -135,7 +135,7 @@ with s.get(f"{BASE}/api/jobs/{job['id']}/events", stream=True) as r:
           <li><code className="text-blue-400 font-mono">GET /api/jobs/:id/events</code> — luồng SSE: <code className="font-mono">status</code>, <code className="font-mono">place</code> (một địa điểm), <code className="font-mono">end</code>.</li>
           <li><code className="text-blue-400 font-mono">DELETE /api/jobs/:id</code> — hủy tác vụ.</li>
           <li><code className="text-blue-400 font-mono">POST /api/auth/login</code> — đăng nhập (email, password), nhận cookie phiên; các lời gọi <code className="font-mono">/api/jobs</code> đều cần cookie này. Tài khoản do quản trị viên cấp, mỗi tài khoản có hạn mức địa điểm mới và số lần làm mới mỗi ngày (vượt hạn mức sẽ nhận lỗi 429 hoặc chỉ nhận dữ liệu đã lưu).</li>
-          <li>Chạy 1 tác vụ cào tại một thời điểm, tối đa 3 tác vụ xếp hàng; giới hạn 6 yêu cầu tạo tác vụ mỗi phút.</li>
+          <li>Chạy 1 tác vụ quét tại một thời điểm, tối đa 3 tác vụ xếp hàng; giới hạn 6 yêu cầu tạo tác vụ mỗi phút.</li>
         </ul>
       </div>
 

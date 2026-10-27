@@ -12,43 +12,43 @@ export interface ModuleGuide {
 export const MODULE_GUIDES: Record<string, ModuleGuide> = {
   scraper_config: {
     id: 'scraper_config',
-    title: 'Bộ cấu hình & Khởi chạy cào dữ liệu (Scraper Engine)',
-    subtitle: 'Cách thiết lập từ khóa, vị trí, độ sâu cào và cơ chế quét email từ website',
+    title: 'Bộ cấu hình & Khởi chạy quét dữ liệu (Scraper Engine)',
+    subtitle: 'Cách thiết lập từ khóa, vị trí, độ sâu quét và cơ chế quét email từ website',
     tag: 'Thu thập dữ liệu',
     logicExplanation: [
       'Giao diện tách thành 2 ô nhập: [Ngành nghề / Dịch vụ] và [Địa điểm / Tọa độ GPS].',
-      'Hỗ trợ cào theo Tọa độ GPS: nhập cặp tọa độ ví dụ "21.0285, 105.8542" để quét bán kính 10 km quanh điểm đó.',
-      'Engine cào chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
+      'Hỗ trợ quét theo Tọa độ GPS: nhập cặp tọa độ ví dụ "21.0285, 105.8542" để quét bán kính 10 km quanh điểm đó.',
+      'Engine quét chạy trên máy chủ (trình duyệt Chromium headless mở Google Maps thật), không còn dữ liệu mô phỏng. Kết quả được đẩy về bảng theo thời gian thực.',
       'Bóc tách Email: engine truy cập website công khai của doanh nghiệp để tìm địa chỉ email. Chỉ có email nếu doanh nghiệp có website và website đó công bố email. Link mạng xã hội hiện CHƯA được bóc tách.',
-      'Kho dữ liệu dùng chung: kết quả mỗi truy vấn (ngành + khu vực) được lưu trên máy chủ. Ai tìm trùng sẽ nhận ngay dữ liệu đã lưu (không cần chờ cào). Dữ liệu quá 14 ngày vẫn được trả ngay, đồng thời hệ thống tự cập nhật bản mới ở nền cho lần tìm sau. Muốn dữ liệu mới nhất ngay, tick "Bỏ qua dữ liệu đã lưu, cào mới hoàn toàn" (tối đa 3 lần/ngày).',
+      'Kho dữ liệu dùng chung: kết quả mỗi truy vấn (ngành + khu vực) được lưu trên máy chủ. Ai tìm trùng sẽ nhận ngay dữ liệu đã lưu (không cần chờ quét). Dữ liệu quá 14 ngày vẫn được trả ngay, đồng thời hệ thống tự cập nhật bản mới ở nền cho lần tìm sau. Muốn dữ liệu mới nhất ngay, tick "Bỏ qua dữ liệu đã lưu, quét mới hoàn toàn" (tối đa 3 lần/ngày).',
       'Mỗi lần chỉ chạy 1 tác vụ; các tác vụ khác xếp hàng chờ (tối đa 3). Tốc độ phụ thuộc Google Maps — thường vài chục giây đến vài phút cho 25 điểm.'
     ],
     steps: [
-      'Bước 1: Tại thanh cào trực tiếp ở đầu trang, nhập ô thứ nhất: [Ngành nghề / Dịch vụ] (Ví dụ: "Nha khoa", "Quán cafe", "Thầu xây dựng", "Khách sạn").',
+      'Bước 1: Tại thanh quét trực tiếp ở đầu trang, nhập ô thứ nhất: [Ngành nghề / Dịch vụ] (Ví dụ: "Nha khoa", "Quán cafe", "Thầu xây dựng", "Khách sạn").',
       'Bước 2: Nhập ô thứ hai: [Địa điểm / Tỉnh thành] (Ví dụ: "Hà Nội", "Quận 1 TP.HCM") hoặc [Tọa độ GPS] (Ví dụ: "21.0285, 105.8542").',
-      'Bước 3: Chọn số lượng địa điểm cần cào (10 đến 150, hoặc "Quét FULL" để lấy toàn bộ phần còn lại).',
-      'Bước 4: Nhấn nút màu xanh "⚡ Bắt đầu cào" và theo dõi dữ liệu được trích xuất và hiển thị trực tiếp lên bảng dữ liệu.'
+      'Bước 3: Chọn số lượng địa điểm cần quét (10 đến 150, hoặc "Quét FULL" để lấy toàn bộ phần còn lại).',
+      'Bước 4: Nhấn nút màu xanh "⚡ Bắt đầu quét" và theo dõi dữ liệu được trích xuất và hiển thị trực tiếp lên bảng dữ liệu.'
     ],
     proTips: [
-      'Mẹo 1: Bạn có thể sao chép kinh độ/vĩ độ từ Google Maps (dạng 21.0285, 105.8542) dán thẳng vào ô Địa điểm/Tọa độ để cào cực kỳ chuẩn xác khu vực mong muốn.',
+      'Mẹo 1: Bạn có thể sao chép kinh độ/vĩ độ từ Google Maps (dạng 21.0285, 105.8542) dán thẳng vào ô Địa điểm/Tọa độ để quét cực kỳ chuẩn xác khu vực mong muốn.',
       'Mẹo 2: Nếu cần cấu hình chuyên sâu (ngôn ngữ, bật/tắt quét email, bắt buộc có SĐT hoặc website), hãy nhấn nút "Tùy chọn nâng cao".'
     ]
   },
   deduplication_and_market_exhaustion: {
     id: 'deduplication_and_market_exhaustion',
-    title: 'Cơ chế Chống cào trùng & Cách cào vét sạch >100 điểm tại một Thành phố',
-    subtitle: 'Giải đáp chi tiết: Vì sao Google Maps chỉ trả về 20-25 điểm một lượt, cách không bị cào lặp lại và làm sao biết đã quét hết 100%',
+    title: 'Cơ chế Chống quét trùng & Cách quét vét sạch >100 điểm tại một Thành phố',
+    subtitle: 'Giải đáp chi tiết: Vì sao Google Maps chỉ trả về 20-25 điểm một lượt, cách không bị quét lặp lại và làm sao biết đã quét hết 100%',
     tag: 'Thuật toán Scraper cốt lõi',
     logicExplanation: [
       '1. VẤN ĐỀ VÌ SAO CHỈ RA 20-25 ĐIỂM (DÙ THỰC TẾ CÓ HƠN 100 ĐIỂM):',
       'Google Maps giới hạn kỹ thuật: Mỗi một lượt tìm kiếm theo khung nhìn bản đồ (Viewport), Google chỉ tải về khoảng 20-25 kết quả đầu tiên. Ngay cả khi bạn cuộn chuột hết cỡ, Google Maps cũng khống chế tối đa ~120 kết quả ở trung tâm rồi hiện thông báo "You\'ve reached the end of the list". Các cơ sở ở các quận ngoại thành hoặc ngõ ngách sẽ bị ẩn đi nếu không phóng to (zoom in) hoặc chia nhỏ truy vấn.',
       '',
-      '2. LÀM THẾ NÀO ĐỂ KHÔNG BỊ CÀO LẠI (CƠ CHẾ CHỐNG TRÙNG LẶP - DEDUPLICATION):',
+      '2. LÀM THẾ NÀO ĐỂ KHÔNG BỊ QUÉT LẠI (CƠ CHẾ CHỐNG TRÙNG LẶP - DEDUPLICATION):',
       'Mỗi địa điểm trên Google Maps đều có 3 mã định danh độc nhất: Mã địa điểm "place_id" (ví dụ: ChIJ...), Số điện thoại chuẩn hóa, và Tên + Địa chỉ.',
-      'Khi bạn đã cào đợt 1 (ví dụ 25 phòng khám nha khoa tại Hà Nội), hệ thống đã lập chỉ mục (index) 25 địa điểm này vào bộ nhớ.',
-      'Khi bạn cào đợt 2 (hoặc bấm "Cào tiếp +25 điểm"): Scraper sẽ kiểm tra tức thì từng địa điểm tìm thấy. Nếu địa điểm đó đã có trong danh sách -> Hệ thống tự động BỎ QUA (Skip duplicate), không tính vào số lượng cào mới và không bị ghi đè. Scraper tiếp tục cào để gom đúng 25 địa điểm MỚI 100%!',
+      'Khi bạn đã quét đợt 1 (ví dụ 25 phòng khám nha khoa tại Hà Nội), hệ thống đã lập chỉ mục (index) 25 địa điểm này vào bộ nhớ.',
+      'Khi bạn quét đợt 2 (hoặc bấm "Quét tiếp +25 điểm"): Scraper sẽ kiểm tra tức thì từng địa điểm tìm thấy. Nếu địa điểm đó đã có trong danh sách -> Hệ thống tự động BỎ QUA (Skip duplicate), không tính vào số lượng quét mới và không bị ghi đè. Scraper tiếp tục quét để gom đúng 25 địa điểm MỚI 100%!',
       '',
-      '3. LÀM THẾ NÀO ĐỂ CÀO ĐỦ HƠN 100 ĐIỂM (PHƯƠNG PHÁP PHÂN RÃ THEO QUẬN/HUYỆN):',
+      '3. LÀM THẾ NÀO ĐỂ QUÉT ĐỦ HƠN 100 ĐIỂM (PHƯƠNG PHÁP PHÂN RÃ THEO QUẬN/HUYỆN):',
       'Để vét sạch hơn 100 phòng khám nha khoa tại Hà Nội, kỹ thuật chuẩn là "Tự động phân mảnh theo Quận/Huyện" (District Subdivision):',
       'Hệ thống tự động chia nhỏ truy vấn thành:',
       '• "Phòng khám nha khoa Quận Cầu Giấy"',
@@ -62,13 +62,13 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       '',
       '4. LÀM THẾ NÀO ĐỂ BIẾT ĐÃ QUÉT HẾT (3 TÍN HIỆU NHẬN BIẾT 100%):',
       '• Tín hiệu 1 (Tỷ lệ phát hiện mới = 0%): Khi crawler quét qua tất cả các quận/huyện hoặc ô lưới tọa độ, nhưng 100% kết quả Google Maps trả về đều là các địa điểm đã có trong cơ sở dữ liệu -> Hệ thống xác nhận không còn bất kỳ cơ sở nào mới.',
-      '• Tín hiệu 2 (Engine tự kết thúc): ở chế độ "Cào cạn kiệt", khi Google hết kết quả cho tất cả quận mà chưa đủ chỉ tiêu, hệ thống báo đã quét hết kết quả Google Maps.',
+      '• Tín hiệu 2 (Engine tự kết thúc): ở chế độ "Quét cạn kiệt", khi Google hết kết quả cho tất cả quận mà chưa đủ chỉ tiêu, hệ thống báo đã quét hết kết quả Google Maps.',
       '• Tín hiệu 3 (Độ phủ ước lượng): thanh tiến trình so sánh với con số ƯỚC LƯỢNG theo ngành và quy mô đô thị, chỉ mang tính tham khảo, không phải số liệu thật của Google.'
     ],
     steps: [
       'Bước 1: Nhập [Phòng khám nha khoa] vào ô Ngành nghề, nhập [Hà Nội] vào ô Địa điểm.',
       'Bước 2: Bật tùy chọn "Tách truy vấn theo quận/huyện" (chỉ có cho Hà Nội, TP.HCM, Đà Nẵng, Hải Phòng, Cần Thơ, Bình Dương; các nơi khác chạy 1 truy vấn nên thường chỉ lấy được tối đa ~120 điểm).',
-      'Bước 3: Bấm nút "🔥 Cào cạn kiệt toàn bộ Hà Nội (>100 điểm)" hoặc cào từng đợt (+25 điểm).',
+      'Bước 3: Bấm nút "🔥 Quét cạn kiệt toàn bộ Hà Nội (>100 điểm)" hoặc quét từng đợt (+25 điểm).',
       'Bước 4: Theo dõi bộ đếm chống trùng: Hệ thống sẽ hiển thị "Đã bỏ qua X địa điểm trùng -> Gom thành công Y địa điểm mới".',
       'Bước 5: Khi thanh trạng thái chuyển sang màu xanh lục báo "🎉 ĐÃ QUÉT HẾT 100% THỊ TRƯỜNG", bạn đã có trong tay danh sách đầy đủ nhất không sót phòng khám nào.'
     ],
@@ -86,10 +86,10 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Điều khoản dịch vụ của Google không cho phép tự động bóc tách (scraping) Google Maps. Công cụ này truy cập Google Maps bằng trình duyệt tự động; việc sử dụng là trách nhiệm của người vận hành. Thông tin công khai (tên, địa chỉ, SĐT) không đồng nghĩa với được phép dùng cho mọi mục đích — khi gửi email/tin nhắn chào hàng cần tuân thủ quy định về quảng cáo và bảo vệ dữ liệu cá nhân.',
       '',
       '2. HỆ THỐNG ĐANG LÀM GÌ ĐỂ GIẢM TẢI:',
-      '• Nếu bạn nhập proxy (Tùy chọn nâng cao → "Proxy của bạn"), mọi truy vấn của bạn đi qua các proxy đó. Nếu để trống, truy vấn ra Google bằng IP máy chủ — dễ bị CAPTCHA/chặn khi cào nhiều.',
+      '• Nếu bạn nhập proxy (Tùy chọn nâng cao → "Proxy của bạn"), mọi truy vấn của bạn đi qua các proxy đó. Nếu để trống, truy vấn ra Google bằng IP máy chủ — dễ bị CAPTCHA/chặn khi quét nhiều.',
       '• Chỉ chạy 1 tác vụ tại một thời điểm; tối đa 3 tác vụ xếp hàng, quá số này sẽ báo bận.',
-      '• Mỗi tài khoản có hạn mức địa điểm mới và số lần cào mới hoàn toàn mỗi ngày (đặt lại 0h giờ Việt Nam); dữ liệu lấy từ kho đã lưu không bị tính. Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
-      '• Tốc độ do chính engine cào quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
+      '• Mỗi tài khoản có hạn mức địa điểm mới và số lần quét mới hoàn toàn mỗi ngày (đặt lại 0h giờ Việt Nam); dữ liệu lấy từ kho đã lưu không bị tính. Giới hạn 6 yêu cầu tạo tác vụ mỗi phút cho mỗi IP, tối đa 300 kết quả và 12 truy vấn mỗi tác vụ, tác vụ quá 20 phút bị dừng.',
+      '• Tốc độ do chính engine quét quyết định; không có bộ điều tốc hay xoay vân tay trình duyệt riêng.',
       '',
       '3. CHƯA CÓ (CẦN PHÁT TRIỂN NẾU MỞ CHO NHIỀU NGƯỜI):',
       '• Kho proxy dùng chung/tự xoay vòng (hiện mỗi người tự cung cấp proxy; nên dùng proxy dân cư để ít bị chặn).',
@@ -98,12 +98,12 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Nếu bị Google yêu cầu CAPTCHA hoặc chặn IP, tác vụ sẽ trả ít hoặc không có kết quả và báo lỗi.'
     ],
     steps: [
-      'Bước 1: Nếu cào nhiều, hãy nhập proxy dân cư của bạn ở "Tùy chọn nâng cao"; chỉ cào khối lượng vừa phải, tránh chạy liên tục nhiều tác vụ lớn.',
+      'Bước 1: Nếu quét nhiều, hãy nhập proxy dân cư của bạn ở "Tùy chọn nâng cao"; chỉ quét khối lượng vừa phải, tránh chạy liên tục nhiều tác vụ lớn.',
       'Bước 2: Nếu tác vụ báo lỗi hoặc không có kết quả, đợi một thời gian rồi thử lại với số lượng nhỏ hơn.',
       'Bước 3: Với nhu cầu thương mại quy mô lớn, cân nhắc dùng Google Places API chính thức.'
     ],
     proTips: [
-      'Dữ liệu cào là thông tin công khai nhưng vẫn có thể là dữ liệu cá nhân (ví dụ SĐT hộ kinh doanh). Chỉ liên hệ khi có cơ sở hợp pháp và luôn cho người nhận cách từ chối.'
+      'Dữ liệu quét là thông tin công khai nhưng vẫn có thể là dữ liệu cá nhân (ví dụ SĐT hộ kinh doanh). Chỉ liên hệ khi có cơ sở hợp pháp và luôn cho người nhận cách từ chối.'
     ]
   },
   data_table: {
@@ -165,13 +165,13 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       '5. Dấu hiệu 5 (Tab Quản lý tác vụ): Trạng thái của chiến dịch chuyển sang nhãn màu xanh [ĐÃ HOÀN THÀNH] kèm mốc thời gian hoàn tất.'
     ],
     steps: [
-      'Bước 1: Khi nhấn "Bắt đầu cào", quan sát thanh tiến trình phần trăm tăng dần từ 0% lên 100%.',
+      'Bước 1: Khi nhấn "Bắt đầu quét", quan sát thanh tiến trình phần trăm tăng dần từ 0% lên 100%.',
       'Bước 2: Khi quét hết, thanh màu xanh lá sẽ hiện ra với các nút bấm thao tác nhanh.',
       'Bước 3: Bạn có thể nhấn ngay "Xuất file CSV ngay" hoặc "Soạn email tiếp cận" mà không cần làm gì thêm.',
-      'Bước 4: Vào tab "Quản lý tác vụ" để xem lại lịch sử các đợt cào trước đó.'
+      'Bước 4: Vào tab "Quản lý tác vụ" để xem lại lịch sử các đợt quét trước đó.'
     ],
     proTips: [
-      'Mẹo: Nếu bạn đặt mục tiêu 100 địa điểm nhưng crawler dừng ở 42 địa điểm kèm thông báo hoàn tất, điều đó có nghĩa là toàn bộ thành phố/khu vực đó chỉ có đúng 42 cơ sở kinh doanh ngành nghề đó trên Google Maps (đã cào sạch không sót cơ sở nào)!'
+      'Mẹo: Nếu bạn đặt mục tiêu 100 địa điểm nhưng crawler dừng ở 42 địa điểm kèm thông báo hoàn tất, điều đó có nghĩa là toàn bộ thành phố/khu vực đó chỉ có đúng 42 cơ sở kinh doanh ngành nghề đó trên Google Maps (đã quét sạch không sót cơ sở nào)!'
     ]
   },
   admin_background: {
@@ -182,14 +182,14 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     logicExplanation: [
       'HAI TAB: trang Chạy ngầm có hai tab con. Tab "Thủ công" là các tác vụ bạn tự tạo (sản phẩm + quốc gia), kèm hàng chờ của chúng. Tab "Tự động (lịch xoay vòng)" gồm khối cấu hình lịch, các tác vụ do lịch tạo và hàng chờ của lịch. Phần trên hai tab (thống kê, cấu hình đa luồng, đang chạy) và phần dưới (hàng đợi người dùng, kho cũ, lịch sử, gọi AI) dùng chung cho cả hai. Tab đang xem được nhớ khi tải lại trang.',
       'THỨ TỰ ƯU TIÊN: người dùng đang tìm luôn chạy trước mọi tác vụ nền. Giữa hai tab, các cặp xếp hàng theo thứ tự tạo tác vụ; mỗi lúc chỉ một cặp dùng IP máy chủ. Tác vụ nền không tính hạn mức của ai và dữ liệu vào kho chung.',
-      'TAB THỦ CÔNG: nhập sản phẩm + quốc gia, AI chọn từ khóa, ghép với toàn bộ thành phố của nước đó rồi cào lần lượt. Có thể nhập proxy riêng cho từng tác vụ, nghỉ ngẫu nhiên sau N cặp và giới hạn giờ làm việc theo múi giờ nước đích.',
+      'TAB THỦ CÔNG: nhập sản phẩm + quốc gia, AI chọn từ khóa, ghép với toàn bộ thành phố của nước đó rồi quét lần lượt. Có thể nhập proxy riêng cho từng tác vụ, nghỉ ngẫu nhiên sau N cặp và giới hạn giờ làm việc theo múi giờ nước đích.',
       'LỊCH XOAY VÒNG THEO DỮ LIỆU XUẤT KHẨU (tab Tự động): dùng số liệu xuất khẩu theo mặt hàng của Cục Thống kê (GSO) mới nhất. Mỗi vòng, mỗi mặt hàng chỉ được tìm lead ở MỘT nước nhập khẩu: vòng 1 là nước kim ngạch cao nhất, vòng 2 là nước thứ hai, và cứ thế. Nhờ vậy mọi mặt hàng đều có lead sớm thay vì dồn vào một mặt hàng.',
       'GSO chỉ công bố tối đa 5 nước cho mỗi mặt hàng nên mỗi mặt hàng có tối đa 5 vòng. Dầu thô, xăng dầu, than, quặng, xi măng bị bỏ qua vì không phải ngành tìm người mua trên Google Maps. Nước chưa có danh sách thành phố cũng bị bỏ qua.',
-      'Mỗi nước chỉ cào số từ khóa × số thành phố lớn nhất đã đặt (mặc định 3 × 3 = 9 cặp). Từ khóa do AI chọn theo mặt hàng và nước. Cặp nào chạm trần Google (≥100 lead) vẫn tự được tách thành quận/phường. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong hoặc bị dừng. Hết các nước, lịch tự mở rộng sang các thành phố còn lại trong danh sách, không tạo lại cặp đã có. Khu vực chạm trần được tách sâu tối đa 3 cấp, tổng tối đa 600 cặp/tác vụ. Khi hết phần có thể mở rộng, lịch tự tắt và ghi rõ trạng thái; báo cáo độ phủ giữ các khu vực lỗi/chạm giới hạn.',
-      'GIỜ LÀM VIỆC VÀ NGHỈ: mỗi tác vụ chỉ cào trong giờ làm việc (mặc định 8–19h, giờ địa phương) của nước đích, nên khi nước này ngoài giờ máy chuyển sang nước khác. Khi KHÔNG có proxy, các tác vụ của lịch dùng chung một bộ đếm nghỉ (sau N cặp nghỉ ngẫu nhiên từ–đến phút). Khi CÓ proxy thì không nghỉ chung.',
+      'Mỗi nước chỉ quét số từ khóa × số thành phố lớn nhất đã đặt (mặc định 3 × 3 = 9 cặp). Từ khóa do AI chọn theo mặt hàng và nước. Cặp nào chạm trần Google (≥100 lead) vẫn tự được tách thành quận/phường. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong hoặc bị dừng. Hết các nước, lịch tự mở rộng sang các thành phố còn lại trong danh sách, không tạo lại cặp đã có. Khu vực chạm trần được tách sâu tối đa 3 cấp, tổng tối đa 600 cặp/tác vụ. Khi hết phần có thể mở rộng, lịch tự tắt và ghi rõ trạng thái; báo cáo độ phủ giữ các khu vực lỗi/chạm giới hạn.',
+      'GIỜ LÀM VIỆC VÀ NGHỈ: mỗi tác vụ chỉ quét trong giờ làm việc (mặc định 8–19h, giờ địa phương) của nước đích, nên khi nước này ngoài giờ máy chuyển sang nước khác. Khi KHÔNG có proxy, các tác vụ của lịch dùng chung một bộ đếm nghỉ (sau N cặp nghỉ ngẫu nhiên từ–đến phút). Khi CÓ proxy thì không nghỉ chung.',
       'ĐỊNH DẠNG PROXY: host:port, host:port:user:pass, user:pass@host:port hoặc có tiền tố http:// | socks5://; không có tiền tố thì mặc định http. Proxy chỉ có host:port thường dùng whitelist IP: phải thêm IP máy chủ vào danh sách cho phép của nhà cung cấp (nút "Thử proxy" khi lỗi sẽ hiện IP máy chủ để sao chép).',
       'KEY PROXY XOAY (proxy.vn / proxyxoay.shop): dán Key (mỗi dòng một Key, tối đa 6) vào ô "Key proxy xoay" rồi bấm "Lưu Key & lấy proxy". Máy chủ tự gọi API của nhà cung cấp để lấy proxy, tự cho phép IP máy chủ (whitelist) và tự lấy proxy mới trước khi hết hạn (mỗi proxy sống khoảng 25–30 phút). Key được lưu ở máy chủ và không bao giờ hiện lại; dòng trạng thái của Key hiện ip:port, loại mạng và thời gian còn lại của proxy. Mỗi Key chỉ có một IP tại một thời điểm, nên các luồng cùng một Key dùng chung một IP; muốn tách IP hãy dùng nhiều Key. Có Key thì lịch dùng proxy từ Key và bỏ qua proxy tự nhập.',
-      'ĐỔI PROXY AN TOÀN: khi proxy còn dưới 2,5 phút, lịch tự ngừng mở cặp mới (cặp đang cào chạy nốt), lấy proxy mới, rồi đợi thêm 1 phút mới cào tiếp, nên cặp mới luôn dùng proxy mới đã sẵn sàng. Nếu chưa lấy được proxy (API lỗi, bị giới hạn tần suất đổi IP) tác vụ của lịch chờ và thử lại, không bao giờ cào bằng IP máy chủ trong lúc chờ. Nút "Lấy proxy mới" ép đổi IP ngay; đừng bấm liên tục vì nhà cung cấp giới hạn tần suất.',
+      'ĐỔI PROXY AN TOÀN: khi proxy còn dưới 2,5 phút, lịch tự ngừng mở cặp mới (cặp đang quét chạy nốt), lấy proxy mới, rồi đợi thêm 1 phút mới quét tiếp, nên cặp mới luôn dùng proxy mới đã sẵn sàng. Nếu chưa lấy được proxy (API lỗi, bị giới hạn tần suất đổi IP) tác vụ của lịch chờ và thử lại, không bao giờ quét bằng IP máy chủ trong lúc chờ. Nút "Lấy proxy mới" ép đổi IP ngay; đừng bấm liên tục vì nhà cung cấp giới hạn tần suất.',
       'NGÀY HẾT HẠN PROXY / KEY: ô "Ngày hết hạn proxy / Key" là MỐC bạn đặt, áp dụng cho cả Key lẫn proxy tự nhập (mỗi dòng một proxy, tối đa 10, như tab Thủ công). Hãy nhập đúng ngày hết hạn gói bạn đã mua. Trước mốc 24 giờ có cảnh báo vàng. Quá mốc mà chưa gia hạn (đổi lại ngày hoặc nhập proxy/Key mới), hoặc Key liên tục không lấy được proxy suốt 30 phút (Key sai), lịch tự chuyển sang CHẾ ĐỘ DỰ PHÒNG chạy như tab Thủ công: không proxy (IP máy chủ), chỉ 1 luồng, nghỉ chung chống chặn, và xếp hàng chung với tab Thủ công (không chạy song song cùng IP). Lưu proxy hoặc ngày mới thì lịch cập nhật ngay, bỏ thời gian nghỉ chung còn dư của chế độ dự phòng và quay lại chế độ proxy đa luồng. Dòng "Chế độ hiện tại" dưới khối proxy cho biết lịch đang chạy bằng gì: Proxy từ Key, Proxy tự nhập, Dự phòng (không proxy), Đang đổi proxy Key hoặc Không proxy. Quá mốc, hệ thống cũng ngừng gọi API của nhà cung cấp để lấy proxy; bạn gia hạn gói rồi đổi ngày thì lịch lấy proxy mới và chạy lại ngay. Để trống ô ngày nghĩa là không đặt mốc.',
       'ĐA LUỒNG TỰ ĐIỀU CHỈNH: khi có proxy, các tác vụ của lịch chạy từ tối thiểu 2 đến tối đa 6 luồng. Luồng thứ 3 trở đi chỉ mở khi RAM trống đủ cho thêm một container (khoảng 2,2GB) và tải CPU dưới 75%, mỗi lần mở một luồng. Luồng đang chạy không bị ngắt nên khi tài nguyên thấp số luồng giảm dần. Không có proxy, hết hạn hoặc có người dùng đang chờ thì không mở luồng phụ. Số luồng đang chạy, RAM trống và tải CPU hiện ngay dưới khối proxy.',
       'NÚT "THỬ PROXY": gọi 3 lần qua proxy tới dịch vụ hỏi IP (báo kết nối được không, thời gian phản hồi, IP có đổi giữa các lần không) và 1 lần tới Google Maps (báo có bị chặn/CAPTCHA không). Thử bằng proxy đang gõ trong ô; ô trống thì thử proxy hoặc Key đã lưu. Lỗi sẽ kèm gợi ý nguyên nhân (chưa whitelist, cần mật khẩu, sai cổng...).'
@@ -268,7 +268,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
       'Bước 4: Xem danh sách trường dữ liệu JSON ở phần dưới cùng để map vào cơ sở dữ liệu.'
     ],
     proTips: [
-      'Nếu cào số lượng lớn, hãy dùng proxy dân cư (nhập ở Tùy chọn nâng cao).'
+      'Nếu quét số lượng lớn, hãy dùng proxy dân cư (nhập ở Tùy chọn nâng cao).'
     ]
   },
   export_dialog: {

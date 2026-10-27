@@ -1,4 +1,4 @@
-// Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
+// Backend quét Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import { maskTrialPlace } from './trial-mask.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
@@ -49,7 +49,7 @@ let bgScanIntervalMinutes = 60;
 let bgScanTimer = null;
 const PURGE_AFTER_MS = 180 * 24 * 3600 * 1000; // xóa dữ liệu không ai dùng sau 180 ngày
 const DEPTHS = [1, 2, 4, 8, 16, 32, 40];
-const AUTO_GAP_MS = Number(process.env.AUTO_GAP_MS ?? 20000); // nghỉ giữa hai lần cào thật của tác vụ tự động (tránh dồn dập lên Google)
+const AUTO_GAP_MS = Number(process.env.AUTO_GAP_MS ?? 20000); // nghỉ giữa hai lần quét thật của tác vụ tự động (tránh dồn dập lên Google)
 const AUTO_MAX_PAIRS = 80;
 const AUTO_MAX_RUNS = 600; // trần tổng số cặp (kể cả cặp tách nhỏ) mỗi tác vụ
 const AUTO_SAT = 100; // một truy vấn trả ≥ ngần này lead = chạm trần ~120 của Google → tách thành khu nhỏ để không sót
@@ -778,7 +778,7 @@ class Job {
     const { cache, live } = this.source;
     return cache && live ? 'mixed' : cache ? 'cache' : 'live';
   }
-  flushTrial() { // chọn tối đa TRIAL_LEAD_LIMIT lead đầy đủ thông tin nhất (ưu tiên email); lead cào mới chỉ lấy trong hạn mức còn lại
+  flushTrial() { // chọn tối đa TRIAL_LEAD_LIMIT lead đầy đủ thông tin nhất (ưu tiên email); lead quét mới chỉ lấy trong hạn mức còn lại
     const buf = this.trialBuf;
     this.trialBuf = null;
     const score = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
@@ -819,7 +819,7 @@ class Job {
     this.detached = true;
     this.endClients('done', message);
   }
-  deliverLive(place) { // địa điểm cào mới: tính vào hạn mức của người dùng
+  deliverLive(place) { // địa điểm quét mới: tính vào hạn mức của người dùng
     if (this.detached || this.aborted) return;
     if (this.userId && !this.trialBuf) {
       if (this.quotaLeft <= 0) { this.detach('Đã hết hạn mức địa điểm mới hôm nay. Dữ liệu đã lưu vẫn xem được; hạn mức đặt lại vào 0h (giờ Việt Nam).'); return; }
@@ -1049,7 +1049,7 @@ function scrapeQuery(job, q, idx) {
   });
 }
 
-// Ghi nhận một truy vấn đã cào xong trọn vẹn: cập nhật liên kết, đánh dấu cơ sở biến mất là "có thể đã đóng cửa"
+// Ghi nhận một truy vấn đã quét xong trọn vẹn: cập nhật liên kết, đánh dấu cơ sở biến mất là "có thể đã đóng cửa"
 function saveRun(job, q, placeIds) {
   const now = Date.now();
   const old = new Set(stmt.linkedIds.all(q.key).map((r) => r.place_id));
@@ -1060,12 +1060,12 @@ function saveRun(job, q, placeIds) {
   stmt.saveRun.run(q.key, q.text, now, now, job.spec.depth, job.spec.extractEmails ? 1 : 0, placeIds.length);
 }
 
-// Dùng được nếu cào đủ sâu, hoặc kho đã có đủ số địa điểm phần của truy vấn này
+// Dùng được nếu quét đủ sâu, hoặc kho đã có đủ số địa điểm phần của truy vấn này
 const isUsable = (run, spec) => Boolean(run && (run.with_email || !spec.extractEmails)
   && (run.depth >= spec.depth || run.result_count >= Math.ceil(spec.maxResults / spec.queries.length)));
 
 // Giai đoạn 1 (không cần trình duyệt, chạy ngay khi nhận yêu cầu): lấy từ kho những truy vấn còn dùng được.
-// Trả về danh sách truy vấn còn thiếu cần cào mới.
+// Trả về danh sách truy vấn còn thiếu cần quét mới.
 function prepareCached(job) {
   const { queries, force, background } = job.spec;
   const live = [];
@@ -1091,7 +1091,7 @@ function prepareCached(job) {
   if (cachedQueries > 0) {
     job.emit('status', {
       status: 'running',
-      message: `Lấy ${cachedQueries}/${queries.length} truy vấn từ kho dữ liệu đã lưu${live.length ? `, cào mới ${live.length} truy vấn` : ''}...`,
+      message: `Lấy ${cachedQueries}/${queries.length} truy vấn từ kho dữ liệu đã lưu${live.length ? `, quét mới ${live.length} truy vấn` : ''}...`,
       cache: { queries: cachedQueries, oldestAt: job.source.oldestAt, refreshing: job.source.refreshing },
     });
   }
@@ -1108,16 +1108,16 @@ async function runJob(job) {
     job.emit('status', { status: 'running', message: `Đang mở trình duyệt Google Maps (${live.length} truy vấn, ${via})...` });
   }
 
-  // Đã có dữ liệu từ kho: chờ ngắn để client kịp báo "đủ chỉ tiêu" trước khi mở trình duyệt cào thêm
+  // Đã có dữ liệu từ kho: chờ ngắn để client kịp báo "đủ chỉ tiêu" trước khi mở trình duyệt quét thêm
   if (job.count > 0 && live.length > 0) await new Promise((r) => setTimeout(r, 2500));
 
-  // Giai đoạn 2: cào mới từng truy vấn (tuần tự, 1 trình duyệt)
+  // Giai đoạn 2: quét mới từng truy vấn (tuần tự, 1 trình duyệt)
   let lastErr = '';
   let scrapedAny = 0;
   let idx = 0;
   for (const q of live) {
     if (job.aborted || job.detached) break;
-    job.emit('status', { status: 'running', message: `Đang cào: ${q.text}` });
+    job.emit('status', { status: 'running', message: `Đang quét: ${q.text}` });
     const r = await scrapeQuery(job, q, idx++);
     if (job.timedOut && job.spec.auto && r.placeIds.length > 0) { // hết giờ nhưng đã lấy được một phần: giữ lại, cặp này sẽ được tách nhỏ
       saveRun(job, q, r.placeIds);
@@ -1624,7 +1624,7 @@ const autoExtra = new Set(); // luồng phụ của lịch xoay vòng (chỉ ch�
 let extraNotBefore = 0;
 const memAvailMb = () => { try { return Number(readFileSync('/proc/meminfo', 'utf8').match(/MemAvailable:\s+(\d+)/)[1]) / 1024; } catch { return Infinity; } };
 // Số luồng tự động điều chỉnh theo CPU/RAM: tối thiểu AUTO_MIN_THREADS, tối đa AUTO_MAX_THREADS.
-// Mỗi container cào giới hạn 1,8GB RAM/2 CPU: luồng thứ 3 trở đi chỉ mở khi RAM trống đủ cho một container nữa và tải CPU chưa cao.
+// Mỗi container quét giới hạn 1,8GB RAM/2 CPU: luồng thứ 3 trở đi chỉ mở khi RAM trống đủ cho một container nữa và tải CPU chưa cao.
 // Không ngắt luồng đang chạy; khi tài nguyên thấp thì số luồng tự giảm dần vì không mở thêm.
 const AUTO_MIN_THREADS = Math.max(1, Number(process.env.AUTO_MIN_THREADS) || 2);
 const AUTO_MAX_THREADS = Math.max(AUTO_MIN_THREADS, Number(process.env.AUTO_MAX_THREADS) || 6);
@@ -1646,7 +1646,7 @@ function selectAutoPair(extra) {
   const filter = extra ? " AND plan_round>0 AND proxies != '[]'" : '';
   const keyOk = !planBlocked(loadPlan());
   for (const t of db.prepare(`SELECT * FROM auto_tasks WHERE status='running'${filter} AND EXISTS (SELECT 1 FROM auto_runs x WHERE x.task_id=auto_tasks.id AND x.status='pending') ORDER BY id`).all()) {
-    const w = taskWait(t) || (t.plan_round > 0 && !keyOk ? { until: Date.now() + 15000 } : null); // chế độ Key mà chưa có proxy hợp lệ: chờ, tuyệt đối không cào bằng IP máy chủ
+    const w = taskWait(t) || (t.plan_round > 0 && !keyOk ? { until: Date.now() + 15000 } : null); // chế độ Key mà chưa có proxy hợp lệ: chờ, tuyệt đối không quét bằng IP máy chủ
     if (w) { wake = wake ? Math.min(wake, w.until) : w.until; continue; }
     r = db.prepare("SELECT r.*, t.max_results, t.proxies, t.plan_round FROM auto_runs r JOIN auto_tasks t ON t.id=r.task_id WHERE r.task_id=? AND r.status='pending' ORDER BY r.id LIMIT 1").get(t.id);
     if (r) break;
@@ -1654,7 +1654,7 @@ function selectAutoPair(extra) {
   return { r, wake };
 }
 
-// Bắt đầu cào một cặp. extra=false: luồng chính (chiếm `running`, nhường người dùng); extra=true: luồng phụ
+// Bắt đầu quét một cặp. extra=false: luồng chính (chiếm `running`, nhường người dùng); extra=true: luồng phụ
 function launchAuto(r, extra) {
   autoPicking = true;
   try {
@@ -1730,7 +1730,7 @@ function pickAutoExtra() {
   launchAuto(r, true);
 }
 
-// Khung giờ làm việc theo múi giờ của nước đích: chỉ cào khi giờ địa phương nằm trong [win_start, win_end)
+// Khung giờ làm việc theo múi giờ của nước đích: chỉ quét khi giờ địa phương nằm trong [win_start, win_end)
 const hourFmt = new Map(); // tạo Intl.DateTimeFormat rất tốn: dùng lại theo múi giờ (trước đây tạo mới hàng chục nghìn lần mỗi lượt chọn tác vụ → tràn RAM)
 const localHour = (tz, t) => {
   try {
@@ -1750,7 +1750,7 @@ const nextWindowOpen = (task, t = Date.now()) => { // thời điểm gần nhấ
   for (let i = 1; i <= 24 * 12 + 12; i++) { const x = t + i * 5 * 60000; if (inWindow(task, x)) return x; }
   return 0;
 };
-// Thời điểm tác vụ được phép cào tiếp: sau nghỉ định kỳ và trong khung giờ làm việc
+// Thời điểm tác vụ được phép quét tiếp: sau nghỉ định kỳ và trong khung giờ làm việc
 const taskWait = (task, now = Date.now()) => {
   const restAt = Math.max(task.rest_until, task.plan_round > 0 && planRestUntil > now && planProxies().length === 0 ? planRestUntil : 0); // tác vụ của lịch xoay vòng dùng chung một bộ đếm nghỉ — chỉ khi chạy không proxy (có proxy thì nghỉ chung không còn hiệu lực)
   const rest = restAt > now ? restAt : 0;
@@ -1779,7 +1779,7 @@ function finishAutoRun(job) {
     status = job.errNote ? 'error' : 'empty';
     msg = job.errNote || msg || 'Google không trả kết quả cho cặp này';
   } else if (job.cacheOnly) msg = 'Lấy từ kho đã lưu';
-  // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần cào thật thì nghỉ M phút
+  // nghỉ định kỳ (chống bị Google chặn khi không có proxy): sau mỗi N lần quét thật thì nghỉ M phút
   if (!job.cacheOnly) {
     const t = db.prepare('SELECT burst_n, rest_min, rest_max, since_rest, plan_round, proxies FROM auto_tasks WHERE id=?').get(taskId);
     if (t && t.plan_round > 0) { // có proxy xoay IP thì không cần nghỉ chung
@@ -1810,8 +1810,8 @@ function finishAutoRun(job) {
 }
 
 // ---- Lịch xoay vòng theo dữ liệu xuất khẩu (GSO) ----
-// Mỗi vòng, mỗi mặt hàng được cào ĐÚNG MỘT nước nhập khẩu (vòng 1 = nước kim ngạch cao nhất, vòng 2 = nước thứ hai…);
-// mỗi nước chỉ cào vài từ khóa × vài thành phố lớn. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong/dừng.
+// Mỗi vòng, mỗi mặt hàng được quét ĐÚNG MỘT nước nhập khẩu (vòng 1 = nước kim ngạch cao nhất, vòng 2 = nước thứ hai…);
+// mỗi nước chỉ quét vài từ khóa × vài thành phố lớn. Vòng sau chỉ bắt đầu khi mọi tác vụ của vòng trước đã xong/dừng.
 const PLAN_SKIP_HS = new Set(['2709', '2710', '2701', '26', '2523']); // dầu thô, xăng dầu, than, quặng, xi măng: không phải ngành tìm người mua trên Google Maps
 const PLAN_DEFAULT = { enabled: false, round: 0, filled: false, cycles: 0, keywords: 3, cities: 3, burstN: 5, restMin: 20, restMax: 40, proxies: [], proxyExpiresAt: 0, keys: [], note: '' };
 let planRestUntil = 0, planSince = 0, planBusy = false;
@@ -1845,7 +1845,7 @@ function planProducts() {
 // Proxy xoay theo Key (proxy.vn): mỗi Key cho một proxy sống ~30 phút; gọi lại gần hết hạn để lấy proxy (IP) mới.
 // Key là bí mật: chỉ lưu trong app_settings, không bao giờ trả về trình duyệt hay ghi vào log.
 const KEY_REFRESH_BEFORE_MS = 150000;
-const KEY_SETTLE_MS = 60000; // sau khi lấy proxy mới, chờ thêm 1 phút rồi mới cào tiếp
+const KEY_SETTLE_MS = 60000; // sau khi lấy proxy mới, chờ thêm 1 phút rồi mới quét tiếp
 const keyState = new Map(); // key -> { proxy, expiresAt, error, retryAt, location, carrier }
 let serverIpCache = { ip: '', at: 0 };
 // Proxy còn hạn được lưu để khởi động lại (mỗi lần deploy) dùng tiếp, không gọi lại API (nhà cung cấp giới hạn tần suất đổi IP)
@@ -1877,7 +1877,7 @@ const keysExpired = (c) => c.keys.length > 0 && c.keys.every((k) => { const st =
 const planFallback = (c) => (c.keys.length > 0 || c.proxies.length > 0) && (ownProxyExpired(c) || (c.keys.length > 0 && keysExpired(c)));
 // Proxy dùng cho tác vụ của lịch: chế độ Key → proxy khỏe từ Key; không thì proxy tự nhập; hết hạn → không proxy
 const planProxies = () => { const c = loadPlan(); return planFallback(c) ? [] : c.keys.length ? keyHealthy() : c.proxies; };
-// Có Key/proxy còn hạn nhưng chưa dùng được (đang đổi proxy) → không mở cặp mới, tuyệt đối không cào bằng IP máy chủ
+// Có Key/proxy còn hạn nhưng chưa dùng được (đang đổi proxy) → không mở cặp mới, tuyệt đối không quét bằng IP máy chủ
 const planBlocked = (c) => !planFallback(c) && c.keys.length > 0 && keyHealthy().length === 0;
 // Đồng bộ proxy của các tác vụ lịch đang chạy với cấu hình hiện tại (kể cả khi chuyển sang/ra chế độ không proxy)
 function syncPlanProxies() {
@@ -1916,7 +1916,7 @@ async function refreshKeyProxies(force = false) {
     }
     saveKeyState();
     const list = keyHealthy();
-    if (list.length) { // cặp mới dùng proxy mới; cặp đang cào giữ proxy cũ cho tới khi xong
+    if (list.length) { // cặp mới dùng proxy mới; cặp đang quét giữ proxy cũ cho tới khi xong
       const json = JSON.stringify(list);
       db.prepare("UPDATE auto_tasks SET proxies=? WHERE plan_round>0 AND status='running' AND proxies != ?").run(json, json);
     }
@@ -2261,7 +2261,7 @@ app.post('/api/admin/auto/:id/stop', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   stmt.autoTaskEnd.run('stopped', Date.now(), 'Admin dừng', id);
   const activeAuto = [running, ...backgroundRuns, ...autoExtra].find((job) => job?.spec.auto?.taskId === id);
-  if (activeAuto) { activeAuto.stopRequested = true; activeAuto.abort(); } // dừng luôn cặp đang cào
+  if (activeAuto) { activeAuto.stopRequested = true; activeAuto.abort(); } // dừng luôn cặp đang quét
   res.json({ ok: true });
 });
 // Sửa thông số nghỉ của tác vụ đang có (áp dụng từ cặp kế tiếp)

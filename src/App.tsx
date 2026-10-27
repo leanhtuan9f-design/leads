@@ -40,7 +40,7 @@ const STORAGE_KEY_PROXIES = 'gmaps_scraper_proxies_v1';
 const parseProxies = (text: string): string[] =>
   text.split('\n').map(l => l.trim()).filter(Boolean);
 
-// Xóa dữ liệu v2 (gồm lead mẫu/lead giả do engine mô phỏng cũ sinh ra) để chỉ còn dữ liệu cào thật
+// Xóa dữ liệu v2 (gồm lead mẫu/lead giả do engine mô phỏng cũ sinh ra) để chỉ còn dữ liệu quét thật
 try {
   localStorage.removeItem('gmaps_scraper_leads_v2');
   localStorage.removeItem('gmaps_scraper_jobs_v2');
@@ -208,7 +208,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
     const newJob: ScraperJob = {
       id: jobId,
-      name: `Cào: ${targetName}`,
+      name: `Quét: ${targetName}`,
       query: targetName,
       status: 'running',
       totalFound: options.maxResults,
@@ -241,7 +241,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
             const ci = progress.cacheInfo;
             const age = ci.oldestAt ? Math.max(0, Math.floor((Date.now() - ci.oldestAt) / 86400000)) : null;
             setDataNote(
-              (ci.source === 'cache' ? 'Dữ liệu lấy từ kho đã lưu' : 'Dữ liệu gồm kho đã lưu và cào mới') +
+              (ci.source === 'cache' ? 'Dữ liệu lấy từ kho đã lưu' : 'Dữ liệu gồm kho đã lưu và quét mới') +
               (age !== null ? ` (bản cũ nhất cập nhật ${age === 0 ? 'hôm nay' : age + ' ngày trước'})` : '') +
               (ci.refreshing ? ' · đang cập nhật bản mới ở nền, lần tìm sau sẽ có dữ liệu mới hơn.' : '.')
             );
@@ -300,7 +300,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
       }
     } catch (err) {
       setJobs(prev => prev.map(j => (j.id === jobId ? { ...j, status: 'failed' } : j)));
-      setScrapeError(err instanceof Error ? err.message : 'Cào thất bại');
+      setScrapeError(err instanceof Error ? err.message : 'Quét thất bại');
     } finally {
       setActiveJobId(null);
       setJobProgress(null);

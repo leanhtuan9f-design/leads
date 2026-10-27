@@ -73,7 +73,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
           <div className="text-[11px] text-slate-400 mb-1 flex items-center justify-between">
-            <span>Tổng số địa điểm đã cào</span>
+            <span>Tổng số địa điểm đã quét</span>
             <Building2 className="w-3.5 h-3.5 text-slate-500" />
           </div>
           <div className="font-mono text-2xl font-bold text-white tabular-nums">
@@ -225,7 +225,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Categories */}
         <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
-          <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Top Ngành nghề được cào nhiều nhất</h3>
+          <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3">Top Ngành nghề được quét nhiều nhất</h3>
           <div className="space-y-1.5">
             {stats.sortedCategories.map(([cat, count]) => (
               <div key={cat} className="flex items-center justify-between py-1 border-b border-slate-900">

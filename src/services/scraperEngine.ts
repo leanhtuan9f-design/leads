@@ -225,7 +225,7 @@ function parseQuery(options: ScraperOptions): { category: string; city: string; 
   return { category, city: location, state: 'VN', customLat, customLon };
 }
 
-// ===== Engine cào THẬT: gọi backend /api/jobs (engine cào chạy trong Docker) =====
+// ===== Engine quét THẬT: gọi backend /api/jobs (engine quét chạy trong Docker) =====
 const API_BASE = '/api';
 const MAX_JOB_RESULTS = 300;
 const MAX_DISTRICT_QUERIES = 12;
@@ -270,7 +270,7 @@ export async function executeScrapingJob(
       const wanted = options.selectedDistricts?.length
         ? districts.filter(d => options.selectedDistricts!.includes(d.name))
         : districts;
-      // Luôn gửi đủ danh sách quận: kho dữ liệu trả nhanh những quận đã có, chỉ cào mới quận còn thiếu; dừng khi đủ chỉ tiêu
+      // Luôn gửi đủ danh sách quận: kho dữ liệu trả nhanh những quận đã có, chỉ quét mới quận còn thiếu; dừng khi đủ chỉ tiêu
       queries = wanted.slice(0, MAX_DISTRICT_QUERIES).map(d => `${category} ${d.name}, ${city}`);
     } else {
       queries = [`${category} ${city}`];
@@ -322,7 +322,7 @@ export async function executeScrapingJob(
     const es = new EventSource(`${API_BASE}/jobs/${jobId}/events`);
     let settled = false;
 
-    // hard=true: người dùng bấm hủy → dừng ngay; graceful: đủ chỉ tiêu → để truy vấn đang cào kịp lưu vào kho
+    // hard=true: người dùng bấm hủy → dừng ngay; graceful: đủ chỉ tiêu → để truy vấn đang quét kịp lưu vào kho
     const stop = (err?: Error, mode: 'hard' | 'graceful' | 'none' = 'graceful') => {
       if (settled) return;
       settled = true;
@@ -396,7 +396,7 @@ export async function executeScrapingJob(
     es.addEventListener('end', (e) => {
       const d = JSON.parse((e as MessageEvent).data);
       if (d.status === 'failed' && results.length === 0) {
-        return stop(new Error(d.message || 'Engine cào thất bại'), 'none');
+        return stop(new Error(d.message || 'Engine quét thất bại'), 'none');
       }
       endedNaturally = d.status === 'done';
       if (d.status === 'done' && d.message) serverNotice = d.message;
@@ -421,7 +421,7 @@ export async function executeScrapingJob(
       marketEstimatedTotal: Math.max(marketEstimatedTotal, total),
       marketCoveragePercent: 100,
       isMarketExhausted: true,
-      statusMessage: `Đã cào hết kết quả Google Maps cho "${effectiveQuery}" (${total} cơ sở).`
+      statusMessage: `Đã quét hết kết quả Google Maps cho "${effectiveQuery}" (${total} cơ sở).`
     });
   }
 
@@ -442,7 +442,7 @@ export async function executeScrapingJob(
     onProgress({
       scrapedCount: results.length, totalFound: targetCount, currentQuery: effectiveQuery, speedPerMin: 0,
       skippedDuplicates: skippedDuplicatesCount, cacheInfo: info,
-      statusMessage: info.source === 'cache' ? 'Lấy từ kho dữ liệu đã lưu' : 'Hoàn tất (kho + cào mới)'
+      statusMessage: info.source === 'cache' ? 'Lấy từ kho dữ liệu đã lưu' : 'Hoàn tất (kho + quét mới)'
     });
   }
 
