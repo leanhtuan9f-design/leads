@@ -31,6 +31,7 @@ export interface AdminUserRow {
   refreshUsed: number;
   plan?: 'BASIC' | 'ADVANCED' | null;
   maxCountries?: number;
+  effectiveUntil?: number | null;
   planMaxCountries?: number;
   maxCountriesCustom?: boolean;
   countries?: string[];

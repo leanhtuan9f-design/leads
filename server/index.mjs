@@ -243,6 +243,7 @@ const stmt = {
   itemsAfter: db.prepare('SELECT item_id, data, deleted, seq FROM user_items WHERE user_id = ? AND kind = ? AND seq > ? ORDER BY seq LIMIT ?'),
   upsertItem: db.prepare(`INSERT INTO user_items (user_id, kind, item_id, data, deleted, seq) VALUES (?, ?, ?, ?, 0, ?)
     ON CONFLICT(user_id, kind, item_id) DO UPDATE SET data = excluded.data, deleted = 0, seq = excluded.seq`),
+  itemExists: db.prepare('SELECT 1 AS x FROM user_items WHERE user_id = ? AND kind = ? AND item_id = ?'),
   trashItems: db.prepare('SELECT data FROM user_items WHERE user_id = ? AND kind = ? AND deleted = 1 ORDER BY seq DESC LIMIT 2000'),
   removeItem: db.prepare('UPDATE user_items SET deleted = 1, seq = ? WHERE user_id = ? AND kind = ? AND item_id = ? AND deleted = 0'),
   getState: db.prepare('SELECT value, updated_at FROM user_state WHERE user_id = ? AND key = ?'),
@@ -450,7 +451,8 @@ app.get('/api/account/plan', requireAuth, (req, res) => {
   const plan = db.prepare('SELECT plan, billing_cycle AS billingCycle, order_id AS orderId, effective_from AS effectiveFrom, effective_until AS effectiveUntil FROM user_plans WHERE user_id = ?').get(accountUser.id);
   const config = billing.getConfig();
   res.setHeader('Cache-Control', 'private, no-store');
-  res.json({ plan: plan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices, benefits: config.benefits });
+  const activePlan = plan && billing.limitsFor(accountUser.id) ? plan : null; // gói hết hạn = miễn phí
+  res.json({ plan: activePlan || { plan: 'TRIAL', billingCycle: null, orderId: null }, quota: quotaOf(accountUser), plans: config.plans, prices: config.prices, benefits: config.benefits });
 });
 app.use('/api/jobs', requireAuth);
 app.use(['/api/state', '/api/items'], requireAuth);
@@ -467,6 +469,13 @@ app.get('/api/state/:key', (req, res) => {
 const ITEM_KINDS = { leads: 'lead', jobs: 'job' };
 const MAX_SYNC_ITEMS = 2000;
 const inTx = (fn) => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
+// Tài khoản miễn phí chỉ nhận liên hệ đã che: lead/job lưu từ trước (khi chưa là gói miễn phí hoặc đã hết hạn) cũng che khi trả về; bản gốc giữ nguyên trong DB để nâng gói xem lại đủ
+const isFreeUser = (u) => isFree(u, billing.limitsFor(u.id));
+const maskItemData = (kind, data) => {
+  if (!data || typeof data !== 'object') return data;
+  if (kind === 'lead') return maskTrialPlace(data);
+  return Array.isArray(data.results) ? { ...data, results: data.results.map((p) => (p && typeof p === 'object' ? maskTrialPlace(p) : p)) } : data;
+};
 app.get('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
   if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
@@ -491,24 +500,28 @@ app.get('/api/items/:kind', (req, res) => {
   }
   const rows = stmt.itemsAfter.all(uid, kind, after, limit + 1);
   const more = rows.length > limit;
-  const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : JSON.parse(r.data), deleted: Boolean(r.deleted), seq: r.seq }));
+  const free = isFreeUser(req.user);
+  const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : (free ? maskItemData(kind, JSON.parse(r.data)) : JSON.parse(r.data)), deleted: Boolean(r.deleted), seq: r.seq }));
   res.json({ items, more, last: items.length ? items[items.length - 1].seq : after });
 });
 app.get('/api/items/:kind/trash', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
   if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
-  res.json({ items: stmt.trashItems.all(req.user.id, kind).map((r) => JSON.parse(r.data)) });
+  const free = isFreeUser(req.user);
+  res.json({ items: stmt.trashItems.all(req.user.id, kind).map((r) => (free ? maskItemData(kind, JSON.parse(r.data)) : JSON.parse(r.data))) });
 });
 app.post('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
   if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
-  const upsert = Array.isArray(req.body?.upsert) ? req.body.upsert : [];
+  let upsert = Array.isArray(req.body?.upsert) ? req.body.upsert : [];
   const remove = Array.isArray(req.body?.remove) ? req.body.remove : [];
   if (kind === 'lead' && remove.length > 0 && req.user.role !== 'admin') return res.status(403).json({ error: 'Tài khoản người dùng không được xóa lead.' });
   if (upsert.length + remove.length > MAX_SYNC_ITEMS) return res.status(400).json({ error: 'Gửi quá nhiều dòng một lần' });
   const validId = (id) => typeof id === 'string' && id && id.length <= 200;
   if (!upsert.every((x) => x && typeof x === 'object' && validId(x.id)) || !remove.every(validId)) return res.status(400).json({ error: 'Dữ liệu sai định dạng' });
   const uid = req.user.id;
+  // Gói miễn phí chỉ thấy bản che: không cho bản che ghi đè lead gốc đã lưu (dữ liệu cũ vẫn dùng được khi nâng gói)
+  if (kind === 'lead' && isFreeUser(req.user)) upsert = upsert.filter((x) => !stmt.itemExists.get(uid, kind, x.id));
   const last = inTx(() => {
     let seq = stmt.itemMaxSeq.get(uid, kind).m;
     for (const x of upsert) stmt.upsertItem.run(uid, kind, x.id, JSON.stringify(x), ++seq);
@@ -623,7 +636,7 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
     const limits = billing.limitsFor(u.id);
     const has = (k) => (limits ? k in limits.overrides : false);
     return { id: u.id, email: u.email, role: u.role, createdAt: u.created_at, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, searchUsed: use.searches || 0,
-      plan: limits?.plan ?? null, billingCycle: limits?.billingCycle ?? null, effectiveFrom: limits?.effectiveFrom ?? null, manualPlan: limits?.manual ?? false,
+      plan: limits?.plan ?? null, billingCycle: limits?.billingCycle ?? null, effectiveFrom: limits?.effectiveFrom ?? null, effectiveUntil: limits?.effectiveUntil ?? null, manualPlan: limits?.manual ?? false,
       maxCountries: limits?.maxCountries ?? 0, planMaxCountries: limits?.planMaxCountries ?? 0, maxCountriesCustom: has('maxCountries'),
       maxConcurrentSearches: limits?.maxConcurrentSearches ?? 0, planMaxConcurrentSearches: limits?.planMaxConcurrentSearches ?? 0, maxConcurrentCustom: has('maxConcurrentSearches'),
       dailySearches: limits?.dailySearches ?? 0, planDailySearches: limits?.planDailySearches ?? 0, dailySearchesCustom: has('dailySearches'), countries: limits?.countries ?? [] };

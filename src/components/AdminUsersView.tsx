@@ -261,7 +261,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
                     <td className="p-2.5 break-all">{u.email}{u.id === currentUserId && <span className="text-slate-500"> (bạn)</span>}</td>
                     <td className="p-2.5 whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded border ${g.badge}`}>{g.label}</span>
-                      {u.plan && <span className="text-slate-500"> {u.billingCycle === 'ANNUAL' ? 'năm' : 'tháng'} · từ {day(u.effectiveFrom)}{u.manualPlan ? ' · gán tay' : ''}</span>}
+                      {u.plan && <span className="text-slate-500"> {u.billingCycle === 'ANNUAL' ? 'năm' : 'tháng'} · từ {day(u.effectiveFrom)}{u.effectiveUntil ? ` · đến ${day(u.effectiveUntil)}` : ' · không hết hạn'}{u.manualPlan ? ' · gán tay' : ''}</span>}
                     </td>
                     <td className="p-2.5">{u.plan ? (u.maxCountries ? <>{u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>} <span className="text-slate-500">(tối đa {u.maxCountries}{u.maxCountriesCustom ? ', tùy chỉnh' : ''})</span></> : <>mọi nước{u.maxCountriesCustom ? <span className="text-slate-500"> (tùy chỉnh)</span> : null}</>) : <span className="text-slate-500">—</span>}</td>
                     <td className="p-2.5 font-mono">{u.plan ? <>{u.searchUsed ?? 0} / {lim(u.dailySearches)}{u.dailySearchesCustom && <span className="text-slate-500"> *</span>}</> : <span className="text-slate-500">—</span>}</td>

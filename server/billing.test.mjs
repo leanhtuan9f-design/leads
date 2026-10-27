@@ -47,9 +47,10 @@ test('payment locks the chosen country for Basic; Advanced keeps none; limitsFor
   assert.equal(billing.limitsFor(999), null);
   paidOrder(db, billing, { orderId: 'o1', plan: 'BASIC', country: 'Japan' });
   const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
-  const { billingCycle, effectiveFrom, manual, planMaxConcurrentSearches, planDailySearches, ...rest } = billing.limitsFor(id);
+  const { billingCycle, effectiveFrom, effectiveUntil, manual, planMaxConcurrentSearches, planDailySearches, ...rest } = billing.limitsFor(id);
   assert.deepEqual(rest, { plan: 'BASIC', maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, countries: ['Japan'], planMaxCountries: 1, overrides: {} });
   assert.deepEqual([billingCycle, manual, planMaxConcurrentSearches, planDailySearches], ['ANNUAL', false, 1, 0]);
+  assert.ok(Math.abs(effectiveUntil - (Date.now() + 365 * 86400000)) < 60000, 'gói năm hết hạn sau 365 ngày');
   assert.ok(effectiveFrom > 0);
   // admin đổi nước
   assert.equal(billing.setCountries(id, ['Germany', 'germany', ' ']), true);
@@ -206,4 +207,17 @@ test('admin assignPlan: creates, switches (clearing overrides and countries), re
   assert.throws(() => billing.assignPlan(id, 'GOLD'), /không hợp lệ/);
   billing.assignPlan(id, null);
   assert.equal(billing.limitsFor(id), null);
+});
+
+test('an expired plan falls back to free (limitsFor null); admin-assigned plans also expire', () => {
+  const { db, billing } = setup();
+  paidOrder(db, billing, { orderId: 'e1', plan: 'BASIC', country: 'Japan' });
+  const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
+  assert.ok(billing.limitsFor(id));
+  db.prepare('UPDATE user_plans SET effective_until = ? WHERE user_id = ?').run(Date.now() - 1000, id);
+  assert.equal(billing.limitsFor(id), null);
+  billing.assignPlan(id, 'ADVANCED', 'MONTHLY');
+  const l = billing.limitsFor(id);
+  assert.equal(l.plan, 'ADVANCED');
+  assert.ok(Math.abs(l.effectiveUntil - (Date.now() + 30 * 86400000)) < 60000);
 });

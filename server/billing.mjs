@@ -66,7 +66,12 @@ export function ensureBillingSchema(db) {
   for (const [table, column, type] of [['billing_orders', 'country', 'TEXT'], ['billing_orders', 'countries', 'TEXT'], ['billing_orders', 'quantity', 'INTEGER NOT NULL DEFAULT 1'], ['user_plans', 'countries', 'TEXT'], ['user_plans', 'limit_overrides', 'TEXT']]) {
     if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
+  // Gói đã mua trước khi có hạn: tính hạn từ ngày bắt đầu + chu kỳ. Gói admin gán tay cũ (order_id='ADMIN') giữ nguyên, không hết hạn.
+  db.prepare("UPDATE user_plans SET effective_until = effective_from + CASE billing_cycle WHEN 'ANNUAL' THEN ? ELSE ? END WHERE effective_until IS NULL AND effective_from IS NOT NULL AND COALESCE(order_id,'') <> 'ADMIN'").run(PERIOD_MS.ANNUAL, PERIOD_MS.MONTHLY);
 }
+
+// Thời hạn một chu kỳ thanh toán; hết hạn thì tài khoản về gói miễn phí (limitsFor trả null).
+export const PERIOD_MS = { MONTHLY: 30 * 86400000, ANNUAL: 365 * 86400000 };
 
 export const parseCountries = (value) => {
   try { const list = JSON.parse(value || '[]'); return Array.isArray(list) ? list.map((c) => text(c, 100)).filter(Boolean) : []; } catch { return []; }
@@ -290,9 +295,14 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
         const user = stmt.userByEmail.get(pending.email);
         const userId = user?.id || db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?,?,?,?,?,?)').run(pending.email, pending.pass, 'user', quota.dailyNew, quota.dailyRefresh, Date.now()).lastInsertRowid;
         db.prepare('UPDATE users SET daily_new=?, daily_refresh=?, disabled=0 WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
-        const prevPlan = db.prepare('SELECT plan FROM user_plans WHERE user_id=?').get(userId)?.plan;
+        const prevRow = db.prepare('SELECT plan, effective_until FROM user_plans WHERE user_id=?').get(userId);
+        const prevPlan = prevRow?.plan;
         db.prepare(`INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET plan=excluded.plan, billing_cycle=excluded.billing_cycle, order_id=excluded.order_id, effective_from=excluded.effective_from`).run(userId, order.plan, order.billing_cycle, orderId, Date.now());
         if (prevPlan !== order.plan) db.prepare('UPDATE user_plans SET limit_overrides=NULL WHERE user_id=?').run(userId); // đổi gói: bỏ ghi đè của admin
+        // Hạn: gia hạn cùng gói khi còn hạn thì cộng nối tiếp; đổi gói hoặc đã hết hạn thì tính từ bây giờ
+        const nowMs = Date.now();
+        const base = prevPlan === order.plan && prevRow.effective_until > nowMs ? prevRow.effective_until : nowMs;
+        db.prepare('UPDATE user_plans SET effective_until=? WHERE user_id=?').run(base + (PERIOD_MS[order.billing_cycle] || PERIOD_MS.MONTHLY), userId);
         const kept = db.prepare('SELECT countries, limit_overrides FROM user_plans WHERE user_id=?').get(userId);
         const bought = cleanCountryList(parseCountries(order.countries).length ? parseCountries(order.countries) : order.country);
         let maxCountries = parseOverrides(kept?.limit_overrides).maxCountries ?? (quota.maxCountries || 0);
@@ -317,12 +327,13 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
 
   // Giới hạn tìm kiếm của người dùng theo gói đang dùng; null = không có gói (admin/trial/tài khoản thủ công) → không áp giới hạn này.
   const limitsFor = (userId) => {
-    const row = db.prepare('SELECT plan, billing_cycle, countries, limit_overrides, effective_from, order_id FROM user_plans WHERE user_id = ?').get(userId);
+    const row = db.prepare('SELECT plan, billing_cycle, countries, limit_overrides, effective_from, effective_until, order_id FROM user_plans WHERE user_id = ?').get(userId);
     const plan = row && readConfig().plans[row.plan];
     if (!plan) return null;
+    if (row.effective_until && row.effective_until < Date.now()) return null; // hết hạn → coi như chưa có gói (miễn phí)
     const overrides = parseOverrides(row.limit_overrides);
     const pick = (key) => overrides[key] ?? (plan[key] || 0);
-    return { plan: row.plan, billingCycle: row.billing_cycle, effectiveFrom: row.effective_from, manual: row.order_id === 'ADMIN', maxCountries: pick('maxCountries'), maxConcurrentSearches: pick('maxConcurrentSearches'), dailySearches: pick('dailySearches'), countries: parseCountries(row.countries), planMaxCountries: plan.maxCountries || 0, planMaxConcurrentSearches: plan.maxConcurrentSearches || 0, planDailySearches: plan.dailySearches || 0, overrides };
+    return { plan: row.plan, billingCycle: row.billing_cycle, effectiveFrom: row.effective_from, effectiveUntil: row.effective_until, manual: row.order_id === 'ADMIN', maxCountries: pick('maxCountries'), maxConcurrentSearches: pick('maxConcurrentSearches'), dailySearches: pick('dailySearches'), countries: parseCountries(row.countries), planMaxCountries: plan.maxCountries || 0, planMaxConcurrentSearches: plan.maxConcurrentSearches || 0, planDailySearches: plan.dailySearches || 0, overrides };
   };
   // value null = bỏ ghi đè (theo gói). Trả false nếu người dùng chưa có gói.
   const setOverrides = (userId, patch) => {
@@ -341,9 +352,13 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     if (planKey === null) { db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId); return true; }
     const quota = readConfig().plans[planKey];
     if (!quota || !['MONTHLY', 'ANNUAL'].includes(cycle)) throw Object.assign(new Error('Gói hoặc chu kỳ không hợp lệ'), { statusCode: 422 });
-    const prev = db.prepare('SELECT plan FROM user_plans WHERE user_id = ?').get(userId);
-    if (!prev) db.prepare('INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from) VALUES (?,?,?,?,?)').run(userId, planKey, cycle, 'ADMIN', Date.now());
-    else db.prepare('UPDATE user_plans SET plan=?, billing_cycle=? WHERE user_id=?').run(planKey, cycle, userId);
+    const prev = db.prepare('SELECT plan, billing_cycle FROM user_plans WHERE user_id = ?').get(userId);
+    const until = Date.now() + PERIOD_MS[cycle]; // gán/đổi gói hoặc chu kỳ: tính hạn mới từ bây giờ
+    if (!prev) db.prepare('INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from, effective_until) VALUES (?,?,?,?,?,?)').run(userId, planKey, cycle, 'ADMIN', Date.now(), until);
+    else {
+      db.prepare('UPDATE user_plans SET plan=?, billing_cycle=? WHERE user_id=?').run(planKey, cycle, userId);
+      if (prev.plan !== planKey || prev.billing_cycle !== cycle) db.prepare('UPDATE user_plans SET effective_until=? WHERE user_id=?').run(until, userId);
+    }
     if (prev && prev.plan !== planKey) db.prepare('UPDATE user_plans SET limit_overrides=NULL, countries=NULL WHERE user_id=?').run(userId);
     if (!prev || prev.plan !== planKey) db.prepare('UPDATE users SET daily_new=?, daily_refresh=? WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
     return true;
