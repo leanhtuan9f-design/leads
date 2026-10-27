@@ -1,5 +1,5 @@
 // Backend quét Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
-import { maskTrialPlace } from './trial-mask.mjs';
+import { maskTrialPlace, pickVisibleIds, redactPlace } from './trial-mask.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
 import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
@@ -243,6 +243,7 @@ const stmt = {
   itemsAfter: db.prepare('SELECT item_id, data, deleted, seq FROM user_items WHERE user_id = ? AND kind = ? AND seq > ? ORDER BY seq LIMIT ?'),
   upsertItem: db.prepare(`INSERT INTO user_items (user_id, kind, item_id, data, deleted, seq) VALUES (?, ?, ?, ?, 0, ?)
     ON CONFLICT(user_id, kind, item_id) DO UPDATE SET data = excluded.data, deleted = 0, seq = excluded.seq`),
+  jobItems: db.prepare("SELECT data FROM user_items WHERE user_id = ? AND kind = 'job' AND deleted = 0"),
   itemExists: db.prepare('SELECT 1 AS x FROM user_items WHERE user_id = ? AND kind = ? AND item_id = ?'),
   trashItems: db.prepare('SELECT data FROM user_items WHERE user_id = ? AND kind = ? AND deleted = 1 ORDER BY seq DESC LIMIT 2000'),
   removeItem: db.prepare('UPDATE user_items SET deleted = 1, seq = ? WHERE user_id = ? AND kind = ? AND item_id = ? AND deleted = 0'),
@@ -471,10 +472,20 @@ const MAX_SYNC_ITEMS = 2000;
 const inTx = (fn) => { db.exec('BEGIN IMMEDIATE'); try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; } };
 // Tài khoản miễn phí chỉ nhận liên hệ đã che: lead/job lưu từ trước (khi chưa là gói miễn phí hoặc đã hết hạn) cũng che khi trả về; bản gốc giữ nguyên trong DB để nâng gói xem lại đủ
 const isFreeUser = (u) => isFree(u, billing.limitsFor(u.id));
-const maskItemData = (kind, data) => {
+// Mỗi lượt tìm chỉ được xem TRIAL_LEAD_LIMIT lead tốt nhất (liên hệ che một phần); các lead còn lại ẩn luôn thông tin công ty.
+const visibleLeadIds = (uid) => {
+  const ids = new Set();
+  for (const row of stmt.jobItems.all(uid)) {
+    try { for (const id of pickVisibleIds(JSON.parse(row.data).results, TRIAL_LEAD_LIMIT)) ids.add(id); } catch { /* bỏ qua job hỏng */ }
+  }
+  return ids;
+};
+const maskItemData = (kind, data, visible) => {
   if (!data || typeof data !== 'object') return data;
-  if (kind === 'lead') return maskTrialPlace(data);
-  return Array.isArray(data.results) ? { ...data, results: data.results.map((p) => (p && typeof p === 'object' ? maskTrialPlace(p) : p)) } : data;
+  if (kind === 'lead') return visible.has(data.id) ? maskTrialPlace(data) : redactPlace(data);
+  if (!Array.isArray(data.results)) return data;
+  const own = new Set(pickVisibleIds(data.results, TRIAL_LEAD_LIMIT));
+  return { ...data, results: data.results.map((p) => (p && typeof p === 'object' ? (own.has(p.id) ? maskTrialPlace(p) : redactPlace(p)) : p)) };
 };
 app.get('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
@@ -501,14 +512,16 @@ app.get('/api/items/:kind', (req, res) => {
   const rows = stmt.itemsAfter.all(uid, kind, after, limit + 1);
   const more = rows.length > limit;
   const free = isFreeUser(req.user);
-  const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : (free ? maskItemData(kind, JSON.parse(r.data)) : JSON.parse(r.data)), deleted: Boolean(r.deleted), seq: r.seq }));
+  const visible = free && kind === 'lead' ? visibleLeadIds(uid) : null;
+  const items = rows.slice(0, limit).map((r) => ({ id: r.item_id, data: r.deleted ? null : (free ? maskItemData(kind, JSON.parse(r.data), visible) : JSON.parse(r.data)), deleted: Boolean(r.deleted), seq: r.seq }));
   res.json({ items, more, last: items.length ? items[items.length - 1].seq : after });
 });
 app.get('/api/items/:kind/trash', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
   if (!kind) return res.status(404).json({ error: 'Không tìm thấy' });
   const free = isFreeUser(req.user);
-  res.json({ items: stmt.trashItems.all(req.user.id, kind).map((r) => (free ? maskItemData(kind, JSON.parse(r.data)) : JSON.parse(r.data))) });
+  const visible = free && kind === 'lead' ? visibleLeadIds(req.user.id) : null;
+  res.json({ items: stmt.trashItems.all(req.user.id, kind).map((r) => (free ? maskItemData(kind, JSON.parse(r.data), visible) : JSON.parse(r.data))) });
 });
 app.post('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];

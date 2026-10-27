@@ -41,3 +41,22 @@ export function maskTrialPlace(place) {
     website: maskWebsite(place.website),
   };
 }
+
+// Xếp hạng lead đầy đủ thông tin (ưu tiên email) để chọn lead được xem ở gói miễn phí.
+export const leadRank = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
+
+// id của tối đa `limit` lead tốt nhất trong một danh sách kết quả.
+export function pickVisibleIds(results, limit) {
+  const list = (Array.isArray(results) ? results : []).filter((p) => p && typeof p === 'object' && typeof p.id === 'string');
+  return list.map((p, i) => ({ p, i })).sort((a, b) => leadRank(b.p) - leadRank(a.p) || (b.p.reviewsCount || 0) - (a.p.reviewsCount || 0) || a.i - b.i).slice(0, limit).map(({ p }) => p.id);
+}
+
+// Lead nằm ngoài 10 lead được xem: giữ id/ngành/quốc gia để đếm và đồng bộ, bỏ mọi thông tin nhận diện công ty.
+export function redactPlace(place) {
+  return {
+    id: place.id, title: 'Công ty ẩn — nâng cấp để xem', category: place.category || '', subcategories: [], address: '', street: '', city: '', state: '', postalCode: '',
+    country: place.country || '', phone: '', website: '', email: '', additionalEmails: [], socials: {}, rating: 0, reviewsCount: 0, priceLevel: '',
+    isClaimed: false, isOpenNow: false, openHoursSummary: '', latitude: 0, longitude: 0, googleMapsUrl: '', placeId: '', photosCount: 0,
+    leadScore: place.leadScore || 0, leadStatus: place.leadStatus || 'cold', scrapedAt: place.scrapedAt || '', hidden: true,
+  };
+}

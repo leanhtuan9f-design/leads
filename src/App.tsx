@@ -464,7 +464,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         {activeTab === 'map' && (
           <MapView
-            businesses={shown}
+            businesses={shown.filter(b => !b.hidden)}
             onSelectBusiness={(biz) => setSelectedBusiness(biz)}
             onOpenGuide={(guideId) => setActiveGuideId(guideId)}
           />
