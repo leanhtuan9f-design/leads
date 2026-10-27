@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiJson } from '../auth/types';
+import { useRouteSegment } from '../utils/routeSegment';
 
 type Summary = {
   shipments: { n: number; usd: number | null; minDate: string | null; maxDate: string | null };
@@ -11,6 +12,7 @@ type Paged<T> = { total: number; limit: number; offset: number; rows: T[] };
 type Row = Record<string, string | number | string[] | null>;
 type View = 'overview' | 'buyers' | 'shipments' | 'directory';
 
+const VIEWS = ['overview', 'buyers', 'shipments', 'directory'] as const;
 const TYPE_LABEL: Record<string, string> = {
   importer: 'Nhà nhập khẩu / buyer', supplier: 'Nhà cung cấp', manufacturer: 'Nhà máy', shipper: 'Shipper / forwarder',
   registry: 'Đăng ký doanh nghiệp', vendor: 'Vendor', document: 'Trích từ PDF/DOC (độ tin cậy thấp)', contact: 'Khác', competitor: 'Đối thủ'
@@ -81,7 +83,8 @@ function Table({ view, extra }: { view: Exclude<View, 'overview'>; extra?: (p: U
 }
 
 export function AdminCustomsView() {
-  const [view, setView] = useState<View>('overview');
+  const [routeView, setView] = useRouteSegment<View>('customs-data', [], VIEWS);
+  const view = routeView ?? 'overview';
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useRouteSegment } from '../utils/routeSegment';
 import { Terminal, Copy, Check } from 'lucide-react';
 import { HelpButton } from './HelpButton';
 
@@ -7,10 +8,12 @@ interface ApiDocsModalProps {
 }
 
 type Lang = 'curl' | 'node' | 'python';
+const LANGS = ['curl', 'node', 'python'] as const;
 
 export const ApiDocsModal: React.FC<ApiDocsModalProps> = ({ onOpenGuide }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [activeLang, setActiveLang] = useState<Lang>('curl');
+  const [routeLang, setActiveLang] = useRouteSegment<Lang>('api-docs', [], LANGS);
+  const activeLang = routeLang ?? 'curl';
 
   const base = typeof window !== 'undefined' ? window.location.origin : 'https://your-domain';
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Mail, MailX, Phone, Search, X } from 'lucide-react';
 import { apiJson } from '../auth/types';
+import { useRouteSegment } from '../utils/routeSegment';
 import { AutoTasks } from './AutoTasks';
 import { AutoPlan } from './AutoPlan';
 import { AdminBuyerSegments } from './AdminBuyerSegments';
@@ -106,17 +107,22 @@ const QueueSection: React.FC<{ title: string; q: BackgroundInfo['autoQueues']['m
   </section>
 );
 
+const BG_TABS = ['manual', 'auto'] as const;
+const PAIR_TABS = ['pending', 'running', 'completed'] as const;
+
 export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => void }> = ({ onOpenGuide }) => {
-  const [bgTab, setBgTabRaw] = useState<'manual' | 'auto'>(() => { try { return localStorage.getItem('gmaps_bg_tab') === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; } });
-  const setBgTab = (v: 'manual' | 'auto') => { setBgTabRaw(v); try { localStorage.setItem('gmaps_bg_tab', v); } catch { /* bỏ qua */ } };
-  const [pairTab, setPairTabRaw] = useState<'pending' | 'running' | 'completed'>(() => {
+  const [routeBg, routeSetBg] = useRouteSegment<'manual' | 'auto'>('background', [], BG_TABS);
+  const bgTab: 'manual' | 'auto' = routeBg ?? (() => { try { return localStorage.getItem('gmaps_bg_tab') === 'auto' ? 'auto' : 'manual'; } catch { return 'manual'; } })();
+  const setBgTab = (v: 'manual' | 'auto') => { routeSetBg(v); try { localStorage.setItem('gmaps_bg_tab', v); } catch { /* bỏ qua */ } };
+  const [routePair, routeSetPair] = useRouteSegment<'pending' | 'running' | 'completed'>('background', [bgTab], PAIR_TABS);
+  const pairTab: 'pending' | 'running' | 'completed' = routePair ?? (() => {
     try {
       const saved = localStorage.getItem('gmaps_bg_pair_tab');
       return saved === 'running' || saved === 'completed' ? saved : 'pending';
     } catch { return 'pending'; }
-  });
+  })();
   const setPairTab = (v: 'pending' | 'running' | 'completed') => {
-    setPairTabRaw(v);
+    routeSetPair(v);
     try { localStorage.setItem('gmaps_bg_pair_tab', v); } catch { /* bỏ qua */ }
   };
   const [info, setInfo] = useState<BackgroundInfo | null>(null);

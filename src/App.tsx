@@ -1,3 +1,4 @@
+import { navigatePath } from './utils/routeSegment';
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { lazyReload } from './utils/lazyReload';
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary';
@@ -53,7 +54,7 @@ interface AppProps {
 }
 
 export const TAB_SLUGS: Record<ActiveTab, string> = {
-  leads: 'leads', map: 'map', jobs: 'jobs', analytics: 'analytics', api: 'api', admin: 'admin-users', background: 'background',
+  leads: 'leads', map: 'map', jobs: 'jobs', analytics: 'analytics', api: 'api-docs', admin: 'admin-users', background: 'background',
   customs: 'customs-data', aiconfig: 'ai-config', marketconfig: 'market-config', billingconfig: 'billing-config'
 };
 
@@ -65,7 +66,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
   const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
   const tabFromPath = (): ActiveTab | null => {
-    const slug = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const slug = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
     const tab = (Object.keys(TAB_SLUGS) as ActiveTab[]).find(t => TAB_SLUGS[t] === slug);
     return tab && TABS.includes(tab) ? tab : null;
   };
@@ -79,8 +80,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const setActiveTab = (t: ActiveTab) => {
     setActiveTabRaw(t);
     try { localStorage.setItem(keyTab, t); } catch (e) {}
-    const target = `/${TAB_SLUGS[t]}/`;
-    if (window.location.pathname !== target) window.history.pushState(null, '', target);
+    navigatePath([TAB_SLUGS[t]]);
   };
   useEffect(() => {
     if (!tabFromPath()) window.history.replaceState(null, '', `/${TAB_SLUGS[activeTab]}/${window.location.search}`);
