@@ -355,11 +355,17 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     });
   };
 
+  // Thống kê và Mẫu thư giới thiệu chỉ có ở gói Nâng cao (admin luôn dùng được)
+  const canUseAdvanced = user.role === 'admin' || quota?.plan === 'ADVANCED';
+  const openOutreach = (leads: ScrapedBusiness[]) => {
+    if (canUseAdvanced) setOutreachLeads(leads);
+    else { setNotice('Mẫu thư giới thiệu chỉ có ở gói Nâng cao.'); setBillingOpen(true); }
+  };
   const inLeads = activeTab === 'leads' || activeTab === 'map' || activeTab === 'analytics';
   const VIEWS: { id: ActiveTab; label: string }[] = [
     { id: 'leads', label: 'Bảng' },
     { id: 'map', label: 'Bản đồ' },
-    { id: 'analytics', label: 'Phân tích' }
+    { id: 'analytics', label: canUseAdvanced ? 'Phân tích' : 'Phân tích 🔒' }
   ];
   // Chỉ một thông báo chính tại một thời điểm: lỗi > đang chạy/hoàn tất > cảnh báo đồng bộ
   const infoNote = notice ? `⚠️ ${notice}` : dataNote ? `📦 ${dataNote}` : null;
@@ -452,7 +458,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           <DataTable
             businesses={shown}
             onSelectBusiness={(biz) => setSelectedBusiness(biz)}
-            onOpenOutreachModal={(selected) => setOutreachLeads(selected)}
+            onOpenOutreachModal={openOutreach}
           />
         )}
 
@@ -464,10 +470,18 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           />
         )}
 
-        {activeTab === 'analytics' && (
+        {activeTab === 'analytics' && !canUseAdvanced && (
+          <div className="max-w-md mx-auto my-16 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center space-y-3">
+            <div className="text-white font-semibold">Thống kê danh sách theo ngành và thành phố</div>
+            <p className="text-sm text-slate-400">Tính năng này chỉ có ở gói Nâng cao.</p>
+            <button type="button" onClick={() => setBillingOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-md">Xem gói Nâng cao</button>
+          </div>
+        )}
+
+        {activeTab === 'analytics' && canUseAdvanced && (
           <AnalyticsView
             businesses={shown}
-            onOpenOutreachModal={(leads) => setOutreachLeads(leads)}
+            onOpenOutreachModal={openOutreach}
             onOpenGuide={(guideId) => setActiveGuideId(guideId)}
           />
         )}
@@ -500,7 +514,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         onClose={() => setSelectedBusiness(null)}
         onOpenOutreach={(biz) => {
           setSelectedBusiness(null);
-          setOutreachLeads([biz]);
+          openOutreach([biz]);
         }}
         onOpenGuide={(guideId) => setActiveGuideId(guideId)}
       />

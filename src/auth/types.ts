@@ -15,6 +15,7 @@ export interface Quota {
   maxConcurrentSearches?: number;
   maxCountries?: number;
   countries?: string[];
+  plan?: 'BASIC' | 'ADVANCED' | null; // gói đang dùng; Thống kê và Mẫu thư chỉ mở cho ADVANCED (và admin)
   hasPlan?: boolean; // true khi tài khoản có gói: không hiển thị hạn mức địa điểm mới/lượt quét mới
 }
 
