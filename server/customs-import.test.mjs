@@ -57,3 +57,24 @@ test('imports shipments, rankings, directory entries; dedupes repeats and keeps 
   assert.equal(api.buyers({ q: "%' OR 1=1 --" }).total, 0);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('country-count tables and product-description cells do not become buyer rankings', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  book(dir, '03.52WMB/Banana/Banana_Import Country.xlsx', { S: [['Buyer country', 'Transactions', 'Percent', 'weight', 'qty', 'amount', 'buyer', 'seller'], ['china', 11262, 0.37, 1, 2, 175648739, 88, 88], ['singapore', 5464, 0.18, 1, 2, 24959158, 5, 8]] });
+  const names = [['Buyer', 'Products'], ['UNIQLO CO.,LTD', '36323#&Áo thun nam#&VN @'], ['BEREG LLC', 'K90A#&Bộ quần áo#&VN @'], ['OLD NAVY,LLC', 'Quần short'], ['GAP INC', 'Áo']];
+  book(dir, '03.52WMB/02. HS Code 52WMB Buyer/4603.xlsx', { S: names });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM customs_rankings WHERE name GLOB \'[0-9]*\'').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM customs_market').get().n, 2);
+  assert.equal(db.prepare('SELECT MAX(transactions) m FROM customs_rankings').get().m, null);
+});
+
+test('supplier list with a "buyer" count column ranks by supplier name', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  book(dir, '03.52WMB/Coconut-Supplier list.xlsx', { S: [['Supplier', 'Transactions', 'Percent', 'weight', 'qty', 'amount', 'buyer', 'URL'], ['van minh co', 33, 0.15, 0, 15282, 117982, 1, 'u1'], ['hanla co', 2, 0.01, 0, 1220, 12200, 1, 'u2']] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const rows = db.prepare('SELECT role, name FROM customs_rankings ORDER BY name').all();
+  assert.deepEqual(rows.map(r => [r.role, r.name]), [['supplier', 'hanla co'], ['supplier', 'van minh co']]);
+});

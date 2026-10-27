@@ -97,7 +97,9 @@ export function parseSheet(sheet, rel, sheetName) {
     const role = /supplier|nhà cung cấp|exporter/i.test(`${base} ${sheetName}`) ? 'supplier' : 'buyer';
     for (const r of list) {
       if (/^(importer|buyer|lọc|countries|company|name|list of|potential)/i.test(text(r[0]))) continue;
-      out.rankings.push({ role, name: text(r[0]), country: country0 || toCountry(sheetName), hs: hs0, product, transactions: num(r[1]), usd: null, qty: null, weight: null, share: null, url: '' });
+      // Cột 2 chỉ là số lô hàng khi là số thật; "100100064770#&Quần áo…" là mô tả hàng, không parseFloat.
+      const c2 = typeof r[1] === 'number' ? r[1] : /^[\d.,]+$/.test(text(r[1])) ? num(r[1]) : null;
+      out.rankings.push({ role, name: text(r[0]), country: country0 || toCountry(sheetName), hs: hs0, product: c2 === null && text(r[1]) ? text(r[1]).split('#&').pop().replace(/\s*@$/, '').slice(0, 200) || product : product, transactions: c2, usd: null, qty: null, weight: null, share: null, url: '' });
     }
     return out;
   }
@@ -132,8 +134,9 @@ export function parseSheet(sheet, rel, sheetName) {
   }
 
   // 2) bảng thống kê thị trường: quốc gia/cảng/HS
-  const marketCol = ['Quốc gia', 'Cảng dỡ hàng', 'Buyer country', 'Countries'].find(n => has(k, n));
-  if (marketCol && !has(k, 'Buyer') && !has(k, 'Supplier')) {
+  const marketCol = ['Quốc gia', 'Cảng dỡ hàng', 'Buyer country', 'Supplier country', 'Countries'].find(n => has(k, n));
+  // "Buyer country list" của 52WMB có cột buyer/seller = SỐ buyer/seller của nước đó, không phải tên công ty.
+  if (marketCol && (/ country$/i.test(marketCol) || !has(k, 'Buyer') && !has(k, 'Supplier'))) {
     const kind = /cảng/i.test(marketCol) ? 'port' : 'country';
     for (const r of rows) {
       const name = text(r[keyOf(marketCol)]);
@@ -144,7 +147,9 @@ export function parseSheet(sheet, rel, sheetName) {
   }
 
   // 3) bảng xếp hạng buyer/supplier (52WMB, Datatradepro, Tên công ty/Nhà nhập khẩu)
-  const nameCol = ['Buyer', 'Supplier', 'Tên công ty', 'Nhà nhập khẩu', 'Importer'].find(n => has(k, n));
+  // Cột tên là cột đứng đầu trong tiêu đề; file Supplier list còn có cột "buyer" = số buyer, không được lấy làm tên.
+  const nameCands = ['Buyer', 'Supplier', 'Tên công ty', 'Nhà nhập khẩu', 'Importer'];
+  const nameCol = nameCands.filter(n => has(k, n)).sort((a, b) => k.indexOf(keyOf(a)) - k.indexOf(keyOf(b)))[0];
   const trans = ['Transactions', 'lô hàng', 'Shipment', 'Percentage'].find(n => has(k, n));
   if (nameCol && trans) {
     const role = nameCol === 'Supplier' || /nhà cung cấp|supplier/i.test(base) ? 'supplier' : 'buyer';
