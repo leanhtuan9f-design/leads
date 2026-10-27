@@ -1,4 +1,3 @@
-import { BUYER_SEGMENTS, classifyBuyerSegment } from '../../shared/buyer-segments.mjs';
 import React, { useState } from 'react';
 import { 
   X, 
@@ -124,7 +123,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-slate-300"><strong>{BUYER_SEGMENTS.find(segment => segment.id === classifyBuyerSegment(business))?.name}</strong><p className="mt-2 text-slate-400">Phân tệp dựa trên nhãn ngành chính/phụ. Chưa xác minh hoạt động nhập khẩu hoặc nhu cầu mua. Điểm hồ sơ phản ánh thông tin liên hệ, đánh giá và trạng thái hồ sơ; không phải điểm phù hợp nhập khẩu.</p></div>
+          <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-slate-300"><p className="text-slate-400">Điểm hồ sơ phản ánh thông tin liên hệ, đánh giá và trạng thái hồ sơ; không phải điểm phù hợp nhập khẩu.</p></div>
           {/* Primary Action Buttons */}
           <div className="flex items-center gap-2">
             <button

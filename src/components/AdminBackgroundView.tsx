@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Mail, MailX, Phone, Search, X } from 'lucide
 import { apiJson } from '../auth/types';
 import { AutoTasks } from './AutoTasks';
 import { AutoPlan } from './AutoPlan';
+import { AdminBuyerSegments } from './AdminBuyerSegments';
 import { HelpButton } from './HelpButton';
 
 interface JobRow {
@@ -256,6 +257,8 @@ export const AdminBackgroundView: React.FC<{ onOpenGuide?: (guideId: string) => 
         Dữ liệu trong kho quá {info.ttlDays} ngày sẽ được cào lại bằng tối đa {workerCount} luồng nền (tối đa {info.bgPerHour} truy vấn/giờ), không tính hạn mức của ai.
         Kho: {info.cache.queries} truy vấn, {info.cache.hits} lượt dùng lại.
       </p>
+
+      <AdminBuyerSegments />
 
       {cacheFilter && (
         <section className={card}>

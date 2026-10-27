@@ -47,3 +47,10 @@ Prompt bắt buộc ưu tiên importer đúng sản phẩm, tiếp theo nhà ph�
 Homepage giữ top nhãn ngành gốc và thêm phân tệp; không gọi tổng kho là tổng nhà nhập khẩu. Drawer ghi rõ vai trò sơ bộ và chưa xác minh. Điểm hồ sơ/hot/warm chỉ là heuristic từ liên hệ, rating, review, claimed; không phải xác suất nhập khẩu/mua hàng.
 
 Nguồn định nghĩa: UNSD ISIC Rev.4 Division 46 https://unstats.un.org/unsd/classifications/Econ/Detail/EN/27/46 — bán buôn bao gồm cả thương mại nội địa và quốc tế, vì vậy bán buôn không tự đồng nghĩa nhập khẩu.
+
+
+## Cập nhật hiển thị theo yêu cầu user — 2026-10-27
+
+Phân tệp chuyển hoàn toàn sang Admin → Chạy ngầm → phần Kho. API `/api/admin/cache/segments` có requireAdmin; frontend AdminBuyerSegments hiển thị để admin rà soát/xử lý sau, chưa có thao tác duyệt/sửa. Public stats không trả segments và homepage/Drawer không hiển thị vai trò sơ bộ.
+
+Homepage thay top nhãn ngành bằng top nhóm sản phẩm theo mã HS đã gắn ở `auto_tasks.plan_group` (`HS|tên sản phẩm`), nối `auto_runs.qkey → query_places → places`. Chỉ đếm DISTINCT place_id còn tồn tại trong từng mã HS, gộp các task/run trùng mã. Nhiều tên sản phẩm cùng HS lấy tên sắp thứ tự đầu tiên; mã HS 2/4/6/8 chữ số được chấp nhận, không tự gộp mã con vào mã cha. Tên lấy từ nhóm sản phẩm tác vụ đã cấu hình, không suy từ nhãn ngành doanh nghiệp. Hồ sơ chưa có liên kết HS không đưa vào top sản phẩm; một hồ sơ có thể thuộc nhiều nhóm. Đây là phân nhóm theo nguồn thu thập, không xác nhận doanh nghiệp kinh doanh/nhập khẩu đúng sản phẩm hoặc phân loại hải quan cuối cùng. Không ghi mã HS giả vào hồ sơ.

@@ -1,6 +1,6 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
-import { createWarehouseStats } from './warehouse-stats.mjs';
+import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
 import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
@@ -1148,6 +1148,16 @@ app.get('/api/public/warehouse-stats', (_req, res) => {
   catch (error) {
     console.error('Warehouse statistics failed:', error.message);
     res.status(503).json({ error: 'Chưa tải được thống kê dữ liệu.' });
+  }
+});
+
+const warehouseSegments = createWarehouseSegments(db);
+app.get('/api/admin/cache/segments', requireAdmin, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { res.json(warehouseSegments()); }
+  catch (error) {
+    console.error('Warehouse segmentation failed:', error.message);
+    res.status(503).json({ error: 'Chưa tải được phân tệp dữ liệu.' });
   }
 });
 
