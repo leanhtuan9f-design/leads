@@ -8,7 +8,7 @@ type Cycle = 'MONTHLY' | 'ANNUAL';
 interface Catalog { plans: Record<PlanKey, { dailyNew: number; dailyRefresh: number }>; prices?: Record<PlanKey, Record<Cycle, number>> }
 export function LandingPricing() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [cycle, setCycle] = useState<Cycle>('MONTHLY');
+  const [cycle, setCycle] = useState<Cycle>('ANNUAL');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -23,7 +23,7 @@ export function LandingPricing() {
     return () => controller.abort();
   }, [attempt]);
   return <section className="export-section export-pricing" id="bang-gia" aria-labelledby="pricing-title"><div className="export-container">
-    <div className="export-pricing-heading"><p className="export-kicker">ĐẦU TƯ CHO THỊ TRƯỜNG TIẾP THEO</p><h2 id="pricing-title">Bắt đầu phù hợp.<br />Mở rộng khi bạn sẵn sàng.</h2><p>Trải nghiệm dữ liệu trước khi chọn gói cho đội ngũ của bạn.</p><div className="export-cycle" role="group" aria-label="Chu kỳ thanh toán"><button type="button" aria-pressed={cycle === 'MONTHLY'} onClick={() => setCycle('MONTHLY')}>Hàng tháng</button><button type="button" aria-pressed={cycle === 'ANNUAL'} onClick={() => setCycle('ANNUAL')}>Hàng năm</button></div></div>
+    <div className="export-pricing-heading"><p className="export-kicker">ĐẦU TƯ CHO THỊ TRƯỜNG TIẾP THEO</p><h2 id="pricing-title">Bắt đầu phù hợp.<br />Mở rộng khi bạn sẵn sàng.</h2><p>Trải nghiệm dữ liệu trước khi chọn gói cho đội ngũ của bạn.</p><div className="export-cycle" role="group" aria-label="Chu kỳ thanh toán"><button type="button" aria-pressed={cycle === 'MONTHLY'} onClick={() => setCycle('MONTHLY')}>Hàng tháng</button><button type="button" aria-pressed={cycle === 'ANNUAL'} onClick={() => setCycle('ANNUAL')}>Hàng năm <em className="export-cycle-badge">Khuyến khích</em></button></div></div>
     {status === 'error' ? <div className="export-catalog-error" role="status">Chưa tải được giá hiện hành. Bạn có thể xem gói trong ứng dụng.<button type="button" onClick={() => setAttempt(value => value+1)}><RefreshCw size={14} />Thử lại</button></div> : null}
     <div className="export-plan-grid"><article className="export-plan"><span className="export-plan-tag">KHÁM PHÁ SẢN PHẨM</span><h3>Dùng thử</h3><p>Đánh giá dữ liệu với ngành hàng của bạn.</p><div className="export-plan-price">Miễn phí<small>để bắt đầu</small></div><a className="export-button export-button-outline" href="/app">Trải nghiệm ngay <ArrowRight size={17}/></a><ul><li><Check size={17}/>Xem thông tin doanh nghiệp và liên hệ khi có</li><li><Check size={17}/>Tìm doanh nghiệp theo thị trường</li><li><Check size={17}/>Xem và lọc dữ liệu kết quả</li><li><Check size={17}/>Chưa cần thông tin thanh toán</li></ul></article>
       {(['BASIC','ADVANCED'] as const).map(key => {

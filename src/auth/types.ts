@@ -9,6 +9,12 @@ export interface Quota {
   newLimit: number;
   refreshUsed: number;
   refreshLimit: number;
+  // Giới hạn theo gói (0 = không giới hạn); chỉ có khi tài khoản có gói thanh toán
+  searchUsed?: number;
+  searchLimit?: number;
+  maxConcurrentSearches?: number;
+  maxCountries?: number;
+  countries?: string[];
 }
 
 export interface AdminUserRow {
@@ -20,6 +26,9 @@ export interface AdminUserRow {
   disabled: boolean;
   newUsed: number;
   refreshUsed: number;
+  plan?: 'BASIC' | 'ADVANCED' | null;
+  maxCountries?: number;
+  countries?: string[];
 }
 
 export async function apiJson<T>(path: string, method = 'GET', body?: unknown): Promise<T> {

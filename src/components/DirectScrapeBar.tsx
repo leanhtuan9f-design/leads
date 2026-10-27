@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { COUNTRIES } from '../data/countries';
 import { Search, MapPin, Briefcase, ChevronRight, Sparkles, Globe, Package } from 'lucide-react';
 import { ScraperOptions, ScrapedBusiness } from '../types/scraper';
 import { Quota, apiJson } from '../auth/types';
@@ -40,8 +41,6 @@ interface AiState {
   stale: boolean;
 }
 
-// Quốc gia thường gặp cho nhà xuất khẩu (tên tiếng Anh, khớp cách AI gợi ý); vẫn nhập tay được
-const COUNTRIES = ['United States', 'Japan', 'South Korea', 'China', 'Germany', 'France', 'United Kingdom', 'Netherlands', 'Italy', 'Spain', 'Poland', 'Russia', 'Australia', 'New Zealand', 'Canada', 'Singapore', 'Malaysia', 'Thailand', 'Indonesia', 'Philippines', 'India', 'United Arab Emirates', 'Saudi Arabia', 'Turkey', 'Taiwan', 'Hong Kong', 'Mexico', 'Brazil', 'South Africa'];
 const escRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Giá trị đặc biệt của ô "Số lượng": lấy tối đa có thể (chế độ exhaustive)
@@ -137,6 +136,9 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
     return remaining > 0 ? remaining : 100;
   }, [category, fullLocation, existingBusinesses]);
 
+  // Gói giới hạn 1 quốc gia: nước đã khoá lúc mua gói thì cố định, không đổi trên ô nhập
+  const lockedCountry = (quota?.maxCountries === 1 && quota.countries?.length === 1) ? quota.countries[0] : '';
+  useEffect(() => { if (lockedCountry && country !== lockedCountry) setCountry(lockedCountry); }, [lockedCountry, country]);
   const quotaFull = quota ? quota.newUsed >= quota.newLimit : false;
   const canSubmit = !isRunning && category.trim() !== '' && fullLocation !== '';
 
@@ -149,6 +151,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
       query: `${category.trim()} tại ${fullLocation}`,
       category: category.trim(),
       location: fullLocation,
+      country: country.trim(),
       maxResults: isFull ? fullTarget : maxResults,
       extractEmails: true,
       skipWithoutPhone,
@@ -212,6 +215,8 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
             type="text"
             list="country-list"
             value={country}
+            readOnly={Boolean(lockedCountry)}
+            title={lockedCountry ? 'Gói Căn bản chỉ tìm trong 1 quốc gia đã chọn khi mua. Nâng cấp gói Nâng cao để tìm nhiều nước.' : undefined}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="Quốc gia"
             aria-label="Quốc gia"

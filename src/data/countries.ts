@@ -1,0 +1,2 @@
+// Quốc gia thường gặp cho nhà xuất khẩu (tên tiếng Anh, khớp cách AI gợi ý); thanh tìm kiếm vẫn cho nhập tay.
+export const COUNTRIES = ['United States', 'Japan', 'South Korea', 'China', 'Germany', 'France', 'United Kingdom', 'Netherlands', 'Italy', 'Spain', 'Poland', 'Russia', 'Australia', 'New Zealand', 'Canada', 'Singapore', 'Malaysia', 'Thailand', 'Indonesia', 'Philippines', 'India', 'United Arab Emirates', 'Saudi Arabia', 'Turkey', 'Taiwan', 'Hong Kong', 'Mexico', 'Brazil', 'South Africa'];

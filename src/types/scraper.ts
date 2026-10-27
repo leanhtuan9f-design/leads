@@ -41,6 +41,7 @@ export interface ScraperOptions {
   query: string;
   category?: string;
   location?: string;
+  country?: string; // quốc gia đang tìm; gói giới hạn quốc gia bắt buộc có
   city?: string;
   maxResults: number;
   extractEmails: boolean;

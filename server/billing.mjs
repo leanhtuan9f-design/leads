@@ -62,7 +62,16 @@ export function ensureBillingSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_billing_orders_email ON billing_orders(email);
   `);
+  // Quốc gia được phép tìm kiếm: chọn lúc mua (billing_orders.country) rồi khoá vào user_plans.countries (JSON mảng tên nước).
+  for (const [table, column] of [['billing_orders', 'country'], ['user_plans', 'countries']]) {
+    if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+  }
 }
+
+export const parseCountries = (value) => {
+  try { const list = JSON.parse(value || '[]'); return Array.isArray(list) ? list.map((c) => text(c, 100)).filter(Boolean) : []; } catch { return []; }
+};
+export const normCountry = (value) => text(String(value ?? ''), 100).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
 
 export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuotas = {} }) {
   const initialSourceKey = text(crm.sourceKey || process.env.CRM_SOURCE_KEY, 120);
@@ -74,16 +83,17 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
   const paymentConfigKey = text(crm.paymentConfigKey || process.env.CRM_PAYMENT_CONFIG_KEY, 160);
   const envSkus = Object.fromEntries(['BASIC_MONTHLY', 'BASIC_ANNUAL', 'ADVANCED_MONTHLY', 'ADVANCED_ANNUAL'].map((key) => [key, text(process.env[`CRM_SKU_${key}`], 160)]));
   const defaultQuotas = {
-    BASIC: { dailyNew: 500, dailyRefresh: 10, ...(planQuotas.BASIC || {}) },
-    ADVANCED: { dailyNew: 2000, dailyRefresh: 50, ...(planQuotas.ADVANCED || {}) },
+    // maxCountries / maxConcurrentSearches / dailySearches: 0 = không giới hạn. Admin chỉnh từng trường trong cấu hình gói.
+    BASIC: { dailyNew: 500, dailyRefresh: 10, maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, ...(planQuotas.BASIC || {}) },
+    ADVANCED: { dailyNew: 2000, dailyRefresh: 50, maxCountries: 0, maxConcurrentSearches: 0, dailySearches: 0, ...(planQuotas.ADVANCED || {}) },
   };
   const defaultPrices = {
     BASIC: { MONTHLY: 2000, ANNUAL: 4000 },
     ADVANCED: { MONTHLY: 4000, ANNUAL: 8000 },
   };
   const defaultFeatures = {
-    BASIC: ['Tìm kiếm dữ liệu Google Maps', 'Lưu và xuất dữ liệu lead', 'Hỗ trợ 500 địa điểm mới/ngày', 'Hỗ trợ 10 lượt refresh/ngày'],
-    ADVANCED: ['Tất cả tính năng Basic', 'Hỗ trợ 2.000 địa điểm mới/ngày', 'Hỗ trợ 50 lượt refresh/ngày', 'Tự động hóa và phân tích nâng cao'],
+    BASIC: ['Tìm kiếm dữ liệu Google Maps', 'Lưu và xuất dữ liệu lead', 'Chọn 1 quốc gia', '1 tìm kiếm chạy cùng lúc', 'Không giới hạn lượt tìm kiếm'],
+    ADVANCED: ['Tất cả tính năng Basic', 'Không giới hạn quốc gia', 'Không giới hạn lượt tìm kiếm', 'Tự động hóa và phân tích nâng cao'],
   };
   const readConfig = () => {
     const row = db.prepare("SELECT value FROM app_settings WHERE key = 'billing'").get();
@@ -137,13 +147,17 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
   };
 
   const inflightCheckouts = new Map();
-  const createCheckoutOnce = async ({ name, emailAddress, phone, password, plan, billingCycle, trialId, existingUser }) => {
+  const createCheckoutOnce = async ({ name, emailAddress, phone, password, plan, billingCycle, trialId, existingUser, country }) => {
     const config = readConfig();
     const customerEmail = existingUser?.email || email(emailAddress);
     const normalizedPlan = text(plan, 20).toUpperCase();
     const cycle = text(billingCycle, 20).toUpperCase();
     if (!['BASIC', 'ADVANCED'].includes(normalizedPlan) || !['MONTHLY', 'ANNUAL'].includes(cycle)) throw Object.assign(new Error('Gói thanh toán không hợp lệ'), { statusCode: 422 });
     if (!existingUser && (typeof password !== 'string' || password.length < 10 || password.length > 200)) throw Object.assign(new Error('Mật khẩu phải có từ 10 ký tự'), { statusCode: 422 });
+    // Gói giới hạn số quốc gia: người mua chọn nước ngay lúc thanh toán (khoá sau khi thanh toán, admin đổi được).
+    const chosenCountry = text(String(country ?? '').replace(/\s+/g, ' '), 100);
+    if ((config.plans[normalizedPlan]?.maxCountries || 0) > 0 && !chosenCountry) throw Object.assign(new Error('Hãy chọn quốc gia sử dụng cho gói này'), { statusCode: 422, code: 'COUNTRY_REQUIRED' });
+    const orderCountry = (config.plans[normalizedPlan]?.maxCountries || 0) > 0 ? chosenCountry : '';
     const productSku = text(config.skus[`${normalizedPlan}_${cycle}`], 160);
     if (!productSku) throw Object.assign(new Error('SKU sản phẩm CRM chưa được cấu hình'), { statusCode: 503 });
     const now = Date.now();
@@ -155,6 +169,7 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
         const live = body?.data || body;
         if (live?.status === 'PENDING' && live.paymentSessionId === recent.crm_session_id) {
           db.prepare('UPDATE billing_pending_accounts SET customer_name = ?, pass = ? WHERE order_id = ?').run(text(name, 255) || customerEmail, hashPassword(password), recent.order_id);
+          db.prepare('UPDATE billing_orders SET country = ? WHERE order_id = ?').run(orderCountry || null, recent.order_id);
           return { orderId: recent.order_id, status: 'PENDING_PAYMENT', session: live, reused: true };
         }
       } catch { /* fall through and create a fresh session */ }
@@ -170,8 +185,8 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     if (!session?.paymentSessionId || session.externalOrderId !== orderId || (returnedSourceKey && returnedSourceKey !== config.sourceKey) || text(session.product?.sku, 160).toUpperCase() !== productSku.toUpperCase()) throw Object.assign(new Error('Central CRM trả về payment session không khớp'), { statusCode: 502, code: 'CRM_SESSION_MISMATCH' });
     const amount = Number(session.amount?.value);
     const currency = text(session.amount?.currency, 12).toUpperCase();
-    db.prepare(`INSERT INTO billing_orders (order_id, crm_session_id, email, customer_name, product_sku, plan, billing_cycle, amount, currency, status, created_at, updated_at, trial_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(orderId, session.paymentSessionId, customerEmail, stored.customerName, productSku, normalizedPlan, cycle, Number.isSafeInteger(amount) ? amount : null, currency || null, 'PENDING_PAYMENT', now, now, stored.trialId);
+    db.prepare(`INSERT INTO billing_orders (order_id, crm_session_id, email, customer_name, product_sku, plan, billing_cycle, amount, currency, status, created_at, updated_at, trial_id, country) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(orderId, session.paymentSessionId, customerEmail, stored.customerName, productSku, normalizedPlan, cycle, Number.isSafeInteger(amount) ? amount : null, currency || null, 'PENDING_PAYMENT', now, now, stored.trialId, orderCountry || null);
     db.prepare('INSERT INTO billing_pending_accounts (order_id, email, customer_name, pass, created_at) VALUES (?,?,?,?,?)').run(orderId, customerEmail, stored.customerName, existingUser?.pass || hashPassword(password), now);
     const customer = { fullName: stored.customerName, email: customerEmail, ...(text(phone, 40) ? { phone: text(phone, 40) } : {}) };
     const item = { productSku, name: session.product?.name || productSku, quantity: 1, unitPrice: Number.isFinite(amount) ? amount : 0 };
@@ -184,7 +199,7 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
   };
 
   const createCheckout = (input) => {
-    const key = `${input.existingUser?.email || email(input.emailAddress)}|${text(input.plan, 20).toUpperCase()}|${text(input.billingCycle, 20).toUpperCase()}`;
+    const key = `${input.existingUser?.email || email(input.emailAddress)}|${text(input.plan, 20).toUpperCase()}|${text(input.billingCycle, 20).toUpperCase()}|${normCountry(input.country)}`;
     const running = inflightCheckouts.get(key);
     if (running) return running;
     const promise = createCheckoutOnce(input).finally(() => inflightCheckouts.delete(key));
@@ -249,6 +264,9 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
         const userId = user?.id || db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?,?,?,?,?,?)').run(pending.email, pending.pass, 'user', quota.dailyNew, quota.dailyRefresh, Date.now()).lastInsertRowid;
         db.prepare('UPDATE users SET daily_new=?, daily_refresh=?, disabled=0 WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
         db.prepare(`INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET plan=excluded.plan, billing_cycle=excluded.billing_cycle, order_id=excluded.order_id, effective_from=excluded.effective_from`).run(userId, order.plan, order.billing_cycle, orderId, Date.now());
+        const prevCountries = parseCountries(db.prepare('SELECT countries FROM user_plans WHERE user_id=?').get(userId)?.countries);
+        const lockedCountries = (quota.maxCountries || 0) > 0 ? (order.country ? [order.country] : prevCountries.slice(0, quota.maxCountries)) : [];
+        db.prepare('UPDATE user_plans SET countries=? WHERE user_id=?').run(JSON.stringify(lockedCountries), userId);
         db.prepare('INSERT INTO billing_events (event_id, order_id, payload_hash, created_at) VALUES (?,?,?,?)').run(eventId, orderId, fingerprint, Date.now());
         db.prepare("UPDATE billing_orders SET status='FULFILLED', updated_at=? WHERE order_id=?").run(Date.now(), orderId);
         db.prepare('DELETE FROM billing_pending_accounts WHERE order_id=?').run(orderId);
@@ -259,5 +277,18 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     return { acknowledged: true, duplicate: false, fulfillment: result };
   };
 
-  return { getConfig: readConfig, createCheckout, status, applyEntitlement };
+  // Giới hạn tìm kiếm của người dùng theo gói đang dùng; null = không có gói (admin/trial/tài khoản thủ công) → không áp giới hạn này.
+  const limitsFor = (userId) => {
+    const row = db.prepare('SELECT plan, billing_cycle, countries FROM user_plans WHERE user_id = ?').get(userId);
+    const plan = row && readConfig().plans[row.plan];
+    if (!plan) return null;
+    return { plan: row.plan, maxCountries: plan.maxCountries || 0, maxConcurrentSearches: plan.maxConcurrentSearches || 0, dailySearches: plan.dailySearches || 0, countries: parseCountries(row.countries) };
+  };
+  const setCountries = (userId, countries) => {
+    const seen = new Set();
+    const list = (countries || []).map((c) => text(String(c).replace(/\s+/g, ' '), 100)).filter((c) => c && !seen.has(normCountry(c)) && seen.add(normCountry(c))).slice(0, 50);
+    return db.prepare('UPDATE user_plans SET countries = ? WHERE user_id = ?').run(JSON.stringify(list), userId).changes > 0;
+  };
+
+  return { getConfig: readConfig, createCheckout, status, applyEntitlement, limitsFor, setCountries };
 }

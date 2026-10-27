@@ -298,6 +298,7 @@ export async function executeScrapingJob(
       maxResults: targetCount,
       extractEmails: options.extractEmails,
       lang: options.language || 'vi',
+      country: options.country?.trim() || undefined,
       proxies: options.proxies && options.proxies.length ? options.proxies : undefined,
       refresh: options.forceRefresh || undefined
     })

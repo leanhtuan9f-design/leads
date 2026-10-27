@@ -141,6 +141,7 @@
 .export-pricing-heading>p:not(.export-kicker) { font-size: 14px; color: var(--color-muted); margin-top: 18px; }
 .export-cycle { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid #d5cab9; border-radius: 6px; background: #e7dfd2; margin-top: 28px; }
 .export-cycle button { border: 0; border-radius: 4px; padding: 10px 24px; min-height: 44px; font-size: 12px; background: transparent; color: #52534f; }
+.export-cycle-badge { margin-left: 6px; padding: 2px 6px; border-radius: 4px; background: #d8ecdc; color: #1d6b34; font-size: 10px; font-style: normal; font-weight: 700; letter-spacing: .02em; }
 .export-cycle button[aria-pressed=true] { background: #fff; color: var(--color-ink); box-shadow: 0 1px 4px #48371c19; }
 .export-plan-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 42px; }
 .export-plan { padding: 30px 27px; background: #fffdf9; border: 1px solid #d6cab8; border-radius: 8px; }

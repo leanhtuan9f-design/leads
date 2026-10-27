@@ -23,9 +23,11 @@ export function ensureAuthSchema(db) {
       day TEXT NOT NULL,
       new_places INTEGER NOT NULL DEFAULT 0,
       refreshes INTEGER NOT NULL DEFAULT 0,
+      searches INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (user_id, day)
     );
   `);
+  if (!db.prepare('PRAGMA table_info(usage)').all().some((c) => c.name === 'searches')) db.exec('ALTER TABLE usage ADD COLUMN searches INTEGER NOT NULL DEFAULT 0');
 }
 
 export function hashPassword(pw) {

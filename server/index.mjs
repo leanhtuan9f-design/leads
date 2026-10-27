@@ -16,7 +16,7 @@ import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, rando
 import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
 import { ensureLogisticsSchema, loadLogisticsConfig, logisticsView, normalizeLogisticsPoint } from './logistics-config.mjs';
-import { ensureBillingSchema, createBillingService } from './billing.mjs';
+import { ensureBillingSchema, createBillingService, normCountry, parseCountries } from './billing.mjs';
 import { isKey, fetchKeyProxy } from './key-proxy.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -255,7 +255,8 @@ const stmt = {
   delUserSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
   delOtherSessions: db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?'),
   purgeSessions: db.prepare('DELETE FROM sessions WHERE expires_at < ?'),
-  getUsage: db.prepare('SELECT new_places, refreshes FROM usage WHERE user_id = ? AND day = ?'),
+  getUsage: db.prepare('SELECT new_places, refreshes, searches FROM usage WHERE user_id = ? AND day = ?'),
+  addSearch: db.prepare(`INSERT INTO usage (user_id, day, searches) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET searches = searches + 1`),
   addNew: db.prepare(`INSERT INTO usage (user_id, day, new_places) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET new_places = new_places + 1`),
   addRefresh: db.prepare(`INSERT INTO usage (user_id, day, refreshes) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET refreshes = refreshes + 1`),
   purgeUsage: db.prepare('DELETE FROM usage WHERE day < ?'),
@@ -377,7 +378,12 @@ app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
   const rawPrices = req.body?.prices || {};
   const rawFeatures = req.body?.features || {};
   const skus = Object.fromEntries(['BASIC_MONTHLY', 'BASIC_ANNUAL', 'ADVANCED_MONTHLY', 'ADVANCED_ANNUAL'].map((key) => [key, String(rawSkus[key] || '').trim().slice(0, 160)]));
-  const plans = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, { dailyNew: Math.max(0, Math.min(1000000, Number(rawPlans[key]?.dailyNew) || 0)), dailyRefresh: Math.max(0, Math.min(100000, Number(rawPlans[key]?.dailyRefresh) || 0)) }]));
+  const clampInt = (value, max) => Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
+  // maxCountries / maxConcurrentSearches / dailySearches: 0 = không giới hạn
+  const plans = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, {
+    dailyNew: clampInt(rawPlans[key]?.dailyNew, 1000000), dailyRefresh: clampInt(rawPlans[key]?.dailyRefresh, 100000),
+    maxCountries: clampInt(rawPlans[key]?.maxCountries, 300), maxConcurrentSearches: clampInt(rawPlans[key]?.maxConcurrentSearches, 100), dailySearches: clampInt(rawPlans[key]?.dailySearches, 1000000),
+  }]));
   const prices = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, { MONTHLY: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.MONTHLY) || 0)), ANNUAL: Math.max(0, Math.min(1000000000, Number(rawPrices[key]?.ANNUAL) || 0)) }]));
   const features = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, Array.isArray(rawFeatures[key]) ? rawFeatures[key].map((item) => String(item).trim().slice(0, 200)).filter(Boolean).slice(0, 12) : []]));
   if (!sourceKey || Object.values(skus).some((sku) => !sku)) return res.status(422).json({ error: 'Cần nhập Source key và đủ 4 SKU hiện có trong CRM' });
@@ -387,7 +393,7 @@ app.put('/api/admin/billing-config', requireAdmin, (req, res) => {
 app.post('/api/billing/checkout', async (req, res) => {
   try {
     const existingUser = req.user && req.user.role !== 'trial' ? { id: req.user.id, email: req.user.email, pass: req.user.pass } : undefined;
-    const result = await billing.createCheckout({ name: req.body?.name, emailAddress: req.body?.email, phone: req.body?.phone, password: req.body?.password, plan: req.body?.plan, billingCycle: req.body?.billingCycle, trialId: req.body?.trialId, existingUser });
+    const result = await billing.createCheckout({ name: req.body?.name, emailAddress: req.body?.email, phone: req.body?.phone, password: req.body?.password, plan: req.body?.plan, billingCycle: req.body?.billingCycle, trialId: req.body?.trialId, existingUser, country: req.body?.country });
     res.status(201).json(result);
   } catch (error) {
     res.status(Number(error?.statusCode) || 502).json({ code: error?.code || 'CHECKOUT_FAILED', error: error?.message || 'Không tạo được đơn thanh toán' });
@@ -522,8 +528,13 @@ app.put('/api/state/:key', (req, res) => {
 
 const publicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
 function quotaOf(u) {
-  const use = stmt.getUsage.get(u.id, vnDay()) || { new_places: 0, refreshes: 0 };
-  return { newUsed: use.new_places, newLimit: u.daily_new, refreshUsed: use.refreshes, refreshLimit: u.daily_refresh };
+  const use = stmt.getUsage.get(u.id, vnDay()) || { new_places: 0, refreshes: 0, searches: 0 };
+  const limits = billing.limitsFor(u.id); // null khi không có gói (admin/trial): không giới hạn quốc gia/số search
+  return {
+    newUsed: use.new_places, newLimit: u.daily_new, refreshUsed: use.refreshes, refreshLimit: u.daily_refresh,
+    searchUsed: use.searches || 0, searchLimit: limits?.dailySearches || 0, maxConcurrentSearches: limits?.maxConcurrentSearches || 0,
+    maxCountries: limits?.maxCountries || 0, countries: limits?.countries || [],
+  };
 }
 
 const loginFails = new Map(); // key -> { n, until }
@@ -599,7 +610,8 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
   const day = vnDay();
   res.json({ users: stmt.allUsers.all().map((u) => {
     const use = stmt.getUsage.get(u.id, day) || { new_places: 0, refreshes: 0 };
-    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes };
+    const limits = billing.limitsFor(u.id);
+    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, plan: limits?.plan ?? null, maxCountries: limits?.maxCountries ?? 0, countries: limits?.countries ?? [] };
   }) });
 });
 app.post('/api/admin/users', requireAdmin, (req, res) => {
@@ -623,6 +635,7 @@ app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
   db.prepare('UPDATE users SET daily_new = ?, daily_refresh = ?, disabled = ?, role = ? WHERE id = ?').run(
     toInt(b.dailyNew, u.daily_new), toInt(b.dailyRefresh, u.daily_refresh, 1000),
     b.disabled === undefined ? u.disabled : (b.disabled ? 1 : 0), b.role === 'admin' || b.role === 'user' ? b.role : u.role, id);
+  if (Array.isArray(b.countries)) billing.setCountries(id, b.countries); // admin đổi quốc gia đã khoá của người dùng có gói
   if (b.disabled) stmt.delUserSessions.run(id);
   let newPassword;
   if (b.resetPassword) {
@@ -1076,11 +1089,37 @@ app.post('/api/jobs', async (req, res) => {
     return res.status(429).json({ error: `Hết lượt làm mới hôm nay (${user.daily_refresh} lần/ngày). Dữ liệu đã lưu vẫn dùng được.` });
   }
 
+  // Giới hạn theo gói (admin chỉnh ở cấu hình gói): số search/ngày, số search chạy cùng lúc, số quốc gia. 0 = không giới hạn.
+  const limits = user.role === 'admin' ? null : billing.limitsFor(user.id);
+  if (limits) {
+    if (limits.dailySearches > 0 && (usage.searches || 0) >= limits.dailySearches) {
+      return res.status(429).json({ error: `Gói của bạn có tối đa ${limits.dailySearches} lượt tìm kiếm mỗi ngày. Lượt đặt lại vào 0h (giờ Việt Nam).` });
+    }
+    if (limits.maxConcurrentSearches > 0) {
+      const active = [...jobs.values()].filter((j) => j.userId === user.id && !j.ended).length;
+      if (active >= limits.maxConcurrentSearches) {
+        return res.status(429).json({ error: `Gói của bạn chạy tối đa ${limits.maxConcurrentSearches} tìm kiếm cùng lúc. Hãy đợi tìm kiếm hiện tại xong hoặc hủy nó.`, code: 'SEARCH_IN_PROGRESS' });
+      }
+    }
+    if (limits.maxCountries > 0) {
+      const country = String(b.country || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+      if (!country) return res.status(422).json({ error: 'Hãy chọn quốc gia để tìm kiếm.', code: 'COUNTRY_REQUIRED' });
+      const allowed = limits.countries;
+      if (!allowed.some((c) => normCountry(c) === normCountry(country))) {
+        if (allowed.length >= limits.maxCountries) {
+          return res.status(403).json({ error: `Gói của bạn chỉ tìm kiếm trong ${limits.maxCountries} quốc gia${allowed.length ? ` (${allowed.join(', ')})` : ''}. Nâng cấp gói Nâng cao để tìm nhiều quốc gia.`, code: 'COUNTRY_LOCKED' });
+        }
+        billing.setCountries(user.id, [...allowed, country]); // tài khoản cũ chưa có nước đã khoá: nước đầu tiên được dùng sẽ được khoá
+      }
+    }
+  }
+
   const maxResults = Math.min(MAX_RESULTS, Math.max(1, Number(b.maxResults) || 25));
   const depth = neededDepth(maxResults, queries.length);
 
   if (queue.length >= MAX_QUEUE) return res.status(429).json({ error: 'Hàng đợi đầy, thử lại sau' });
   const job = new Job({ queries, geo, radius, depth, maxResults, extractEmails: Boolean(b.extractEmails), lang, proxies, force, background: false, userId: user.id });
+  stmt.addSearch.run(user.id, vnDay());
   job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();

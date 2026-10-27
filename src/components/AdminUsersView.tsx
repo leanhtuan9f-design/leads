@@ -83,6 +83,14 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     patch(u.id, { [field]: n });
   };
 
+  const editCountries = (u: AdminUserRow) => {
+    const v = window.prompt(`Quốc gia được phép tìm cho ${u.email} (tối đa ${u.maxCountries}; ngăn cách bằng dấu phẩy, tên tiếng Anh):`, (u.countries || []).join(', '));
+    if (v === null) return;
+    const list = v.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.length > (u.maxCountries || 0)) { setError(`Gói này chỉ cho tối đa ${u.maxCountries} quốc gia`); return; }
+    patch(u.id, { countries: list });
+  };
+
   const input = 'bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500';
 
   return (
@@ -129,7 +137,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
             <tr>
               <th className="p-2.5">Email</th><th className="p-2.5">Quyền</th>
               <th className="p-2.5">Địa điểm mới hôm nay</th><th className="p-2.5">Làm mới hôm nay</th>
-              <th className="p-2.5">Trạng thái</th><th className="p-2.5">Thao tác</th>
+              <th className="p-2.5">Gói · quốc gia</th><th className="p-2.5">Trạng thái</th><th className="p-2.5">Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -139,11 +147,13 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
                 <td className="p-2.5">{u.role === 'admin' ? 'Admin' : 'Người dùng'}</td>
                 <td className="p-2.5 font-mono">{u.newUsed} / {u.dailyNew}</td>
                 <td className="p-2.5 font-mono">{u.refreshUsed} / {u.dailyRefresh}</td>
+                <td className="p-2.5">{u.plan ? <>{u.plan === 'ADVANCED' ? 'Nâng cao' : 'Căn bản'} · {u.maxCountries ? (u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>) : 'mọi nước'}</> : <span className="text-slate-500">—</span>}</td>
                 <td className="p-2.5">{u.disabled ? <span className="text-red-300">Đã khóa</span> : <span className="text-emerald-300">Hoạt động</span>}</td>
                 <td className="p-2.5 space-x-2 whitespace-nowrap">
                   <button onClick={() => copyRow(u)} className="text-emerald-300 hover:text-emerald-200">{copiedId === u.id ? '✓ Đã sao chép' : 'Sao chép TT'}</button>
                   <button onClick={() => editLimit(u, 'dailyNew', 'Hạn mức địa điểm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi hạn mức</button>
                   <button onClick={() => editLimit(u, 'dailyRefresh', 'Số lần làm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi lượt làm mới</button>
+                  {u.plan && u.maxCountries ? <button onClick={() => editCountries(u)} className="text-blue-400 hover:text-blue-300">Đổi quốc gia</button> : null}
                   <button onClick={() => { if (window.confirm(`Đặt lại mật khẩu cho ${u.email}?`)) patch(u.id, { resetPassword: true }); }} className="text-amber-300 hover:text-amber-200">Đặt lại MK</button>
                   {u.id !== currentUserId && (
                     <button onClick={() => patch(u.id, { disabled: !u.disabled })} className={u.disabled ? 'text-emerald-300 hover:text-emerald-200' : 'text-red-300 hover:text-red-200'}>
