@@ -675,6 +675,25 @@ app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
   res.json({ ok: true, newPassword });
 });
 
+// Xoá tài khoản (một hoặc nhiều). Dọn phiên, hạn mức, gói, trạng thái và mục đã lưu; giữ billing_orders và nhật ký job/AI (chỉ lưu email) để đối soát.
+app.post('/api/admin/users/delete', requireAdmin, (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 500);
+  if (!ids.length) return res.status(400).json({ error: 'Chưa chọn tài khoản nào' });
+  if (ids.includes(req.user.id)) return res.status(400).json({ error: 'Không thể tự xóa tài khoản của mình' });
+  const targets = ids.map((id) => stmt.userById.get(id)).filter(Boolean);
+  const adminsLeft = stmt.allUsers.all().filter((u) => u.role === 'admin' && !targets.some((t) => t.id === u.id)).length;
+  if (!adminsLeft) return res.status(400).json({ error: 'Phải còn ít nhất một admin' });
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const t of targets) {
+      for (const table of ['sessions', 'usage', 'user_plans', 'user_state', 'user_items', 'ai_usage']) db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(t.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(t.id);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); return res.status(500).json({ error: 'Không xóa được: ' + e.message }); }
+  res.json({ ok: true, deleted: targets.length });
+});
+
 /** @type {Map<string, Job>} */
 const jobs = new Map();
 

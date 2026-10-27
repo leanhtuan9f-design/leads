@@ -86,6 +86,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const [filter, setFilter] = useState<GroupKey>('ALL');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +120,22 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     await copyText(`Đăng nhập: ${window.location.origin}\nEmail: ${u.email}`);
     setCopiedId(u.id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const remove = async (ids: number[]) => {
+    const names = users.filter(u => ids.includes(u.id)).map(u => u.email);
+    const list = names.slice(0, 5).join('\n') + (names.length > 5 ? `\n… và ${names.length - 5} tài khoản khác` : '');
+    if (!window.confirm(`Xóa vĩnh viễn ${ids.length} tài khoản?\n${list}\n\nPhiên đăng nhập, hạn mức, gói và dữ liệu đã lưu của họ sẽ bị xóa. Không thể hoàn tác.`)) return;
+    setError(''); setNotice(''); setCreds(null);
+    try {
+      const r = await apiJson<{ deleted: number }>('/admin/users/delete', 'POST', { ids });
+      setNotice(`Đã xóa ${r.deleted} tài khoản.`);
+      setSelected(new Set());
+      setEditing(null);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Lỗi');
+    }
   };
 
   const create = async (e: React.FormEvent) => {
@@ -158,6 +175,8 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const counts = users.reduce<Record<string, number>>((m, u) => { const g = groupOf(u); m[g] = (m[g] || 0) + 1; m.ALL = (m.ALL || 0) + 1; return m; }, {});
   const q = query.trim().toLowerCase();
   const shown = users.filter(u => (filter === 'ALL' || groupOf(u) === filter) && (!q || u.email.toLowerCase().includes(q)));
+  const toggle = (id: number) => setSelected(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectable = shown.filter(u => u.id !== currentUserId);
 
   return (
     <div className="space-y-5 text-xs">
@@ -214,11 +233,19 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
         ))}
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm email…" className={`${input} ml-auto w-48`} />
       </div>
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 p-2.5 bg-red-500/10 border border-red-500/40 rounded text-red-100">
+          <span>Đã chọn {selected.size} tài khoản</span>
+          <button onClick={() => remove([...selected])} className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-md">Xóa đã chọn</button>
+          <button onClick={() => setSelected(new Set())} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md">Bỏ chọn</button>
+        </div>
+      )}
       <p className="text-slate-500">∞ = không giới hạn. Mật khẩu chỉ lưu dạng băm nên không xem lại được; cần mật khẩu mới thì bấm "Đặt lại MK" rồi sao chép thông tin hiện ra.</p>
       <div className="bg-slate-950 border border-slate-800 rounded-lg overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-slate-900 text-slate-400">
             <tr>
+              <th className="p-2.5 w-8"><input type="checkbox" aria-label="Chọn tất cả đang hiện" checked={selectable.length > 0 && selectable.every(u => selected.has(u.id))} onChange={e => setSelected(e.target.checked ? new Set(selectable.map(u => u.id)) : new Set())} /></th>
               <th className="p-2.5">Email</th><th className="p-2.5">Gói</th><th className="p-2.5">Quốc gia</th>
               <th className="p-2.5">Search hôm nay</th><th className="p-2.5">Cùng lúc</th>
               <th className="p-2.5">Địa điểm mới</th><th className="p-2.5">Làm mới</th><th className="p-2.5">Trạng thái</th><th className="p-2.5">Thao tác</th>
@@ -230,6 +257,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
               return (
                 <React.Fragment key={u.id}>
                   <tr className="border-t border-slate-800 text-slate-200">
+                    <td className="p-2.5">{u.id !== currentUserId && <input type="checkbox" aria-label={`Chọn ${u.email}`} checked={selected.has(u.id)} onChange={() => toggle(u.id)} />}</td>
                     <td className="p-2.5 break-all">{u.email}{u.id === currentUserId && <span className="text-slate-500"> (bạn)</span>}</td>
                     <td className="p-2.5 whitespace-nowrap">
                       <span className={`px-2 py-0.5 rounded border ${g.badge}`}>{g.label}</span>
@@ -250,13 +278,14 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
                           {u.disabled ? 'Mở khóa' : 'Khóa'}
                         </button>
                       )}
+                      {u.id !== currentUserId && <button onClick={() => remove([u.id])} className="text-red-400 hover:text-red-300">Xóa</button>}
                     </td>
                   </tr>
-                  {editing === u.id && <tr><td colSpan={9} className="p-0"><Edit u={u} input={input} patch={patch} setError={setError} onClose={() => setEditing(null)} /></td></tr>}
+                  {editing === u.id && <tr><td colSpan={10} className="p-0"><Edit u={u} input={input} patch={patch} setError={setError} onClose={() => setEditing(null)} /></td></tr>}
                 </React.Fragment>
               );
             })}
-            {!shown.length && <tr><td colSpan={9} className="p-4 text-center text-slate-500">Không có tài khoản</td></tr>}
+            {!shown.length && <tr><td colSpan={10} className="p-4 text-center text-slate-500">Không có tài khoản</td></tr>}
           </tbody>
         </table>
       </div>
