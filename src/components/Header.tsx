@@ -7,7 +7,7 @@ import { AuthUser, Quota } from '../auth/types';
 
 // Nút ? mở hướng dẫn đúng với tab đang xem
 const GUIDE_BY_TAB: Partial<Record<ActiveTab, string>> = {
-  leads: 'data_table', map: 'map_view', jobs: 'jobs_runner', analytics: 'analytics', api: 'api_cli', background: 'admin_background'
+  leads: 'data_table', jobs: 'jobs_runner', analytics: 'analytics', api: 'api_cli', background: 'admin_background'
 };
 
 interface HeaderProps {
@@ -22,8 +22,8 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-// Lead gồm cả 2 chế độ xem phụ (bản đồ, phân tích) nên vẫn tính là đang ở "Lead"
-const LEAD_TABS: ActiveTab[] = ['leads', 'map', 'analytics'];
+// Lead gồm cả 2 chế độ xem phụ (phân tích, gồm Maps) nên vẫn tính là đang ở "Lead"
+const LEAD_TABS: ActiveTab[] = ['leads', 'analytics'];
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,

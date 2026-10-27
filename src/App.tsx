@@ -55,7 +55,7 @@ interface AppProps {
 }
 
 export const TAB_SLUGS: Record<ActiveTab, string> = {
-  leads: 'leads', map: 'map', jobs: 'jobs', analytics: 'analytics', api: 'api-docs', admin: 'admin-users', background: 'background',
+  leads: 'leads', jobs: 'jobs', analytics: 'analytics', api: 'api-docs', admin: 'admin-users', background: 'background',
   customs: 'customs-data', aiconfig: 'ai-config', marketconfig: 'market-config', billingconfig: 'billing-config'
 };
 
@@ -65,7 +65,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
-  const TABS: ActiveTab[] = ['leads', 'map', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
+  const TABS: ActiveTab[] = ['leads', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
   const tabFromPath = (): ActiveTab | null => {
     const slug = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
     const tab = (Object.keys(TAB_SLUGS) as ActiveTab[]).find(t => TAB_SLUGS[t] === slug);
@@ -362,11 +362,11 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
     if (canUseAdvanced) setOutreachLeads(leads);
     else { setNotice('Mẫu thư giới thiệu chỉ có ở gói Nâng cao.'); setBillingOpen(true); }
   };
-  const inLeads = activeTab === 'leads' || activeTab === 'map' || activeTab === 'analytics';
+  const [analyticsSub, setAnalyticsSub] = useState<'stats' | 'maps'>('stats');
+  const inLeads = activeTab === 'leads' || activeTab === 'analytics';
   const VIEWS: { id: ActiveTab; label: string }[] = [
     { id: 'leads', label: 'Bảng' },
-    { id: 'map', label: 'Bản đồ' },
-    { id: 'analytics', label: canUseAdvanced ? 'Phân tích' : 'Phân tích 🔒' }
+    { id: 'analytics', label: 'Phân tích' }
   ];
   // Chỉ một thông báo chính tại một thời điểm: lỗi > đang chạy/hoàn tất > cảnh báo đồng bộ
   const infoNote = notice ? `⚠️ ${notice}` : dataNote ? `📦 ${dataNote}` : null;
@@ -463,28 +463,36 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
           />
         )}
 
-        {activeTab === 'map' && (
-          <MapView
-            businesses={shown}
-            onSelectBusiness={(biz) => setSelectedBusiness(biz)}
-            onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-          />
-        )}
-
-        {activeTab === 'analytics' && !canUseAdvanced && (
-          <div className="max-w-md mx-auto my-16 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center space-y-3">
-            <div className="text-white font-semibold">Thống kê danh sách theo ngành và thành phố</div>
-            <p className="text-sm text-slate-400">Tính năng này chỉ có ở gói Nâng cao.</p>
-            <button type="button" onClick={() => setBillingOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-md">Xem gói Nâng cao</button>
-          </div>
-        )}
-
-        {activeTab === 'analytics' && canUseAdvanced && (
-          <AnalyticsView
-            businesses={shown}
-            onOpenOutreachModal={openOutreach}
-            onOpenGuide={(guideId) => setActiveGuideId(guideId)}
-          />
+        {activeTab === 'analytics' && (
+          <>
+            <div className="mb-3 flex items-center gap-1 p-0.5 bg-slate-900 rounded-md border border-slate-800 text-xs w-fit">
+              {([['stats', canUseAdvanced ? 'Thống kê' : 'Thống kê 🔒'], ['maps', 'Maps']] as const).map(([id, label]) => (
+                <button key={id} onClick={() => setAnalyticsSub(id)}
+                  className={`px-3 py-1 rounded transition-colors ${analyticsSub === id ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'}`}>{label}</button>
+              ))}
+            </div>
+            {analyticsSub === 'maps' && (
+              <MapView
+                businesses={shown}
+                onSelectBusiness={(biz) => setSelectedBusiness(biz)}
+                onOpenGuide={(guideId) => setActiveGuideId(guideId)}
+              />
+            )}
+            {analyticsSub === 'stats' && !canUseAdvanced && (
+              <div className="max-w-md mx-auto my-16 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center space-y-3">
+                <div className="text-white font-semibold">Thống kê danh sách theo ngành và thành phố</div>
+                <p className="text-sm text-slate-400">Tính năng này chỉ có ở gói Nâng cao.</p>
+                <button type="button" onClick={() => setBillingOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-md">Xem gói Nâng cao</button>
+              </div>
+            )}
+            {analyticsSub === 'stats' && canUseAdvanced && (
+              <AnalyticsView
+                businesses={shown}
+                onOpenOutreachModal={openOutreach}
+                onOpenGuide={(guideId) => setActiveGuideId(guideId)}
+              />
+            )}
+          </>
         )}
 
         {activeTab === 'jobs' && (

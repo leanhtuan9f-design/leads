@@ -87,4 +87,4 @@ export interface FilterOptions {
   leadStatus: 'all' | 'hot' | 'warm' | 'cold';
 }
 
-export type ActiveTab = 'leads' | 'map' | 'jobs' | 'analytics' | 'api' | 'admin' | 'background' | 'customs' | 'aiconfig' | 'marketconfig' | 'billingconfig';
+export type ActiveTab = 'leads' | 'jobs' | 'analytics' | 'api' | 'admin' | 'background' | 'customs' | 'aiconfig' | 'marketconfig' | 'billingconfig';
