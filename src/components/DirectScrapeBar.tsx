@@ -63,7 +63,7 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
   const [category, setCategory] = useState(() => (new URLSearchParams(window.location.search).get('keyword') || '').slice(0, 200));
   const [country, setCountry] = useState(() => (new URLSearchParams(window.location.search).get('country') || '').slice(0, 100));
   const [city, setCity] = useState(''); // thành phố / khu vực trong quốc gia
-  const [maxResults, setMaxResults] = useState(25);
+  const maxResults = FULL_BATCH; // không còn ô chọn số lượng: luôn tìm tối đa có thể (gói miễn phí vẫn chỉ xem 10 lead điểm cao nhất)
   const [showOptions, setShowOptions] = useState(false);
   const [skipWithoutPhone, setSkipWithoutPhone] = useState(false);
   const [skipWithoutWebsite, setSkipWithoutWebsite] = useState(false);
@@ -252,27 +252,10 @@ export const DirectScrapeBar: React.FC<DirectScrapeBarProps> = ({
           />
           <datalist id="city-list">{cityOptions.map(c => <option key={c} value={c} />)}</datalist>
         </div>
-
-        <div className="md:col-span-2">
-          <select
-            value={maxResults}
-            onChange={(e) => setMaxResults(Number(e.target.value))}
-            aria-label="Số lượng"
-            className={`${inputCls} px-2.5`}
-          >
-            <option value={10}>10 lead</option>
-            <option value={25}>25 lead</option>
-            <option value={50}>50 lead</option>
-            <option value={100}>100 lead</option>
-            <option value={150}>150 lead</option>
-            <option value={FULL_BATCH}>Tất cả có thể</option>
-          </select>
-        </div>
-
         <button
           type="submit"
           disabled={!canSubmit}
-          className="md:col-span-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+          className="md:col-span-4 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-800 disabled:text-slate-500 text-white font-semibold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
         >
           <Search className="w-4 h-4" />
           <span>{isRunning ? 'Đang tìm…' : 'Tìm lead'}</span>

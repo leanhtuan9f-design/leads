@@ -26,7 +26,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     steps: [
       'Bước 1: Tại thanh quét trực tiếp ở đầu trang, nhập ô thứ nhất: [Ngành nghề / Dịch vụ] (Ví dụ: "Nha khoa", "Quán cafe", "Thầu xây dựng", "Khách sạn").',
       'Bước 2: Nhập ô thứ hai: [Địa điểm / Tỉnh thành] (Ví dụ: "Hà Nội", "Quận 1 TP.HCM") hoặc [Tọa độ GPS] (Ví dụ: "21.0285, 105.8542").',
-      'Bước 3: Chọn số lượng địa điểm cần quét (10 đến 150, hoặc "Quét FULL" để lấy toàn bộ phần còn lại).',
+      'Bước 3: Hệ thống tự quét tối đa có thể, không cần chọn số lượng. Gói miễn phí chỉ xem 10 lead điểm cao nhất mỗi lượt.',
       'Bước 4: Nhấn nút màu xanh "⚡ Bắt đầu quét" và theo dõi dữ liệu được trích xuất và hiển thị trực tiếp lên bảng dữ liệu.'
     ],
     proTips: [
