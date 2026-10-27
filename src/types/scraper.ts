@@ -34,7 +34,7 @@ export interface ScrapedBusiness {
   leadScore: number; // 0-100 calculated score
   leadStatus: 'hot' | 'warm' | 'cold';
   scrapedAt: string;
-  hidden?: boolean; // gói miễn phí: ngoài 10 lead được xem, thông tin công ty bị ẩn
+  hidden?: boolean; // gói miễn phí: ngoài 10 lead được xem, thông tin công ty chỉ hiện một phần
   possiblyClosed?: boolean; // lần quét lại gần nhất không còn thấy cơ sở này
 }
 

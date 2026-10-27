@@ -51,12 +51,19 @@ export function pickVisibleIds(results, limit) {
   return list.map((p, i) => ({ p, i })).sort((a, b) => leadRank(b.p) - leadRank(a.p) || (b.p.reviewsCount || 0) - (a.p.reviewsCount || 0) || a.i - b.i).slice(0, limit).map(({ p }) => p.id);
 }
 
-// Lead nằm ngoài 10 lead được xem: giữ id/ngành/quốc gia để đếm và đồng bộ, bỏ mọi thông tin nhận diện công ty.
+// Mỗi từ của tên công ty chỉ giữ 3 chữ cái đầu: "Hamburg Coffee Company" → "Ham*** Cof*** Com***".
+export function maskName(name) {
+  return String(name || '').trim().split(/\s+/).filter(Boolean).map((w) => (w.length <= 3 ? `${w.slice(0, 1)}**` : `${w.slice(0, 3)}***`)).join(' ');
+}
+
+// Lead nằm ngoài 10 lead được xem: ẩn MỘT PHẦN thông tin công ty (tên rút gọn, bỏ địa chỉ chi tiết, liên hệ che nhiều hơn,
+// toạ độ làm tròn ~10km, không còn link Maps/placeId). Giữ ngành, thành phố, quốc gia, đánh giá để vẫn thấy quy mô thị trường.
 export function redactPlace(place) {
   return {
-    id: place.id, title: 'Công ty ẩn — nâng cấp để xem', category: place.category || '', subcategories: [], address: '', street: '', city: '', state: '', postalCode: '',
-    country: place.country || '', phone: '', website: '', email: '', additionalEmails: [], socials: {}, rating: 0, reviewsCount: 0, priceLevel: '',
-    isClaimed: false, isOpenNow: false, openHoursSummary: '', latitude: 0, longitude: 0, googleMapsUrl: '', placeId: '', photosCount: 0,
-    leadScore: place.leadScore || 0, leadStatus: place.leadStatus || 'cold', scrapedAt: place.scrapedAt || '', hidden: true,
+    ...maskTrialPlace(place),
+    title: maskName(place.title), address: place.city ? `${place.city}, ${place.country || ''}`.replace(/, $/, '') : '', street: '', postalCode: '',
+    socials: {}, openHoursSummary: '', googleMapsUrl: '', placeId: '', photosCount: 0,
+    latitude: Math.round((Number(place.latitude) || 0) * 10) / 10, longitude: Math.round((Number(place.longitude) || 0) * 10) / 10,
+    hidden: true,
   };
 }
