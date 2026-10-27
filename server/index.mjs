@@ -16,7 +16,8 @@ import { ensureAuthSchema, hashPassword, verifyPassword, sha256, newToken, rando
 import { buildMarketRecommendations, defaultLogisticsPoints } from './trade-recommend.mjs';
 import { ensureTradeSchema, rankTradeMarkets, rankAllExportMarkets, mergeAiWithTrade } from './trade-data.mjs';
 import { ensureLogisticsSchema, loadLogisticsConfig, logisticsView, normalizeLogisticsPoint } from './logistics-config.mjs';
-import { ensureBillingSchema, createBillingService, normCountry, parseCountries } from './billing.mjs';
+import { ensureBillingSchema, createBillingService } from './billing.mjs';
+import { checkSearchLimits } from './search-limits.mjs';
 import { isKey, fetchKeyProxy } from './key-proxy.mjs';
 
 // Nạp /opt/maps/.env (khóa AI...) nếu có; biến đã đặt trong môi trường được ưu tiên
@@ -1097,28 +1098,11 @@ app.post('/api/jobs', async (req, res) => {
 
   // Giới hạn theo gói (admin chỉnh ở cấu hình gói): số search/ngày, số search chạy cùng lúc, số quốc gia. 0 = không giới hạn.
   const limits = user.role === 'admin' ? null : billing.limitsFor(user.id);
-  if (limits) {
-    if (limits.dailySearches > 0 && (usage.searches || 0) >= limits.dailySearches) {
-      return res.status(429).json({ error: `Gói của bạn có tối đa ${limits.dailySearches} lượt tìm kiếm mỗi ngày. Lượt đặt lại vào 0h (giờ Việt Nam).` });
-    }
-    if (limits.maxConcurrentSearches > 0) {
-      const active = [...jobs.values()].filter((j) => j.userId === user.id && !j.ended).length;
-      if (active >= limits.maxConcurrentSearches) {
-        return res.status(429).json({ error: `Gói của bạn chạy tối đa ${limits.maxConcurrentSearches} tìm kiếm cùng lúc. Hãy đợi tìm kiếm hiện tại xong hoặc hủy nó.`, code: 'SEARCH_IN_PROGRESS' });
-      }
-    }
-    if (limits.maxCountries > 0) {
-      const country = String(b.country || '').replace(/\s+/g, ' ').trim().slice(0, 100);
-      if (!country) return res.status(422).json({ error: 'Hãy chọn quốc gia để tìm kiếm.', code: 'COUNTRY_REQUIRED' });
-      const allowed = limits.countries;
-      if (!allowed.some((c) => normCountry(c) === normCountry(country))) {
-        if (allowed.length >= limits.maxCountries) {
-          return res.status(403).json({ error: `Gói của bạn chỉ tìm kiếm trong ${limits.maxCountries} quốc gia${allowed.length ? ` (${allowed.join(', ')})` : ''}. Nâng cấp gói Nâng cao để tìm nhiều quốc gia.`, code: 'COUNTRY_LOCKED' });
-        }
-        billing.setCountries(user.id, [...allowed, country]); // tài khoản cũ chưa có nước đã khoá: nước đầu tiên được dùng sẽ được khoá
-      }
-    }
-  }
+  const verdict = checkSearchLimits({
+    limits, searchesToday: usage.searches || 0, country: b.country,
+    activeSearches: limits ? [...jobs.values()].filter((j) => j.userId === user.id && !j.ended).length : 0,
+  });
+  if (!verdict.ok) return res.status(verdict.status).json(verdict.body);
 
   const maxResults = Math.min(MAX_RESULTS, Math.max(1, Number(b.maxResults) || 25));
   const depth = neededDepth(maxResults, queries.length);
@@ -1126,6 +1110,7 @@ app.post('/api/jobs', async (req, res) => {
   if (queue.length >= MAX_QUEUE) return res.status(429).json({ error: 'Hàng đợi đầy, thử lại sau' });
   const job = new Job({ queries, geo, radius, depth, maxResults, extractEmails: Boolean(b.extractEmails), lang, proxies, force, background: false, userId: user.id });
   stmt.addSearch.run(user.id, vnDay());
+  if (verdict.lockCountry) billing.setCountries(user.id, [...limits.countries, verdict.lockCountry]); // tài khoản cũ chưa chọn đủ nước: nước đầu tiên được dùng sẽ được khoá
   job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
