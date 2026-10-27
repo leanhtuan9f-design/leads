@@ -24,12 +24,12 @@ import { isImportCandidate } from './buyer-segments.mjs';
 test('import candidate gate is role-based and industry-neutral', () => {
  const yes = [
   {category:'Nhà bán buôn cà phê'},{category:'Nhà nhập khẩu'},{category:'Công ty xuất nhập khẩu'},{category:'Textile wholesaler'},
-  {category:'Machinery distributor'},{category:'Cửa hàng bán buôn thực phẩm'},{category:'Cơ sở rang cà phê'},{category:'Food processor'},{category:'Nhà sản xuất đồ nội thất'},
+  {category:'Machinery distributor'},{category:'Cửa hàng bán thực phẩm đặc sản',title:'SUL Portugal Import GmbH',subcategories:['Siêu thị']},{category:'Cửa hàng cà phê',title:'EUROCA Rohkaffee-Import- Agentur GmbH'},{category:'Cửa hàng bán buôn thực phẩm'},{category:'Cơ sở rang cà phê'},{category:'Food processor'},{category:'Nhà sản xuất đồ nội thất'},
   {category:'Văn phòng công ty',title:'ABC Trading Co'},
  ];
  const no = [
   {category:'Quán cà phê'},{category:'Coffee shop'},{category:'Nhà hàng'},{category:'Hotel'},{category:'Cửa hàng tạp phẩm Ấn Độ'},
-  {category:'Cửa hàng bán thực phẩm đặc sản',title:'Adria Store'},{category:'Cửa hàng bán thực phẩm đặc sản',title:'SUL Portugal Import GmbH',subcategories:['Siêu thị']},{category:'Cửa hàng bán thực phẩm đặc sản',title:'Adria Store',subcategories:['Nhà bán buôn và nhập khẩu rượu']},{category:'Cửa hàng cà phê',title:'Coffee Import Agentur'},{category:'Quán cà phê',title:'Import Cafe'},{category:'Customs broker',title:'Freight Co'},{category:'Văn phòng công ty',title:'Neumann Gruppe'},
+  {category:'Cửa hàng bán thực phẩm đặc sản',title:'Adria Store'},{category:'Cửa hàng bán thực phẩm đặc sản',title:'Adria Store',subcategories:['Nhà bán buôn và nhập khẩu rượu']},{category:'Quán cà phê',title:'Import Cafe'},{category:'Customs broker',title:'Freight Co'},{category:'Văn phòng công ty',title:'Neumann Gruppe'},
  ];
  for (const r of yes) assert.equal(isImportCandidate(r), true, JSON.stringify(r));
  for (const r of no) assert.equal(isImportCandidate(r), false, JSON.stringify(r));

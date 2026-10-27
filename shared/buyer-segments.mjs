@@ -32,7 +32,11 @@ const RETAIL_PRIMARY = /\bcua hang\b|\bsieu thi\b|\bstore\b|\bshop\b|\bretail\b|
 const TRADE_PRIMARY = /\bban buon\b|\bwholesal|\bphan phoi\b|\bdistribut|\bnhap khau\b|\bimport|\bxuat khau\b|\bexport|\bsan xuat\b|\bmanufactur|\bfactory\b/;
 export function isImportCandidate(record = {}) {
   const primary = norm(record.category);
-  if (RETAIL_PRIMARY.test(primary) && !TRADE_PRIMARY.test(primary)) return false;
+  if (RETAIL_PRIMARY.test(primary) && !TRADE_PRIMARY.test(primary)) {
+    // Chỉ từ khoá thương mại trong TÊN (Import, Trading, Handel…) mới cứu được, và không bao giờ cứu nhãn tiêu dùng (quán, nhà hàng, khách sạn…).
+    const labels = [record.category, ...(Array.isArray(record.subcategories) ? record.subcategories : [])].filter(x => typeof x === 'string').map(norm);
+    return TRADE_NAME.test(norm(record.title)) && !labels.some(x => CONSUMER_FACING.test(x));
+  }
   const segment = classifyBuyerSegment(record);
   if (segment === 'import_signal' || segment === 'distribution' || segment === 'manufacturing') return true;
   const categories = [record.category, ...(Array.isArray(record.subcategories) ? record.subcategories : [])]
