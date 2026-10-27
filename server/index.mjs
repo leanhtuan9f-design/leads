@@ -1,6 +1,7 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
+import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
 import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
@@ -1160,6 +1161,22 @@ app.get('/api/admin/cache/segments', requireAdmin, (_req, res) => {
     res.status(503).json({ error: 'Chưa tải được phân tệp dữ liệu.' });
   }
 });
+
+// Customs Data (hải quan thật) và Danh bạ doanh nghiệp: DB riêng customs.db, chỉ admin, không đụng bảng places.
+let customsApi = null;
+try { customsApi = createCustomsApi(openCustomsDb()); }
+catch (error) { console.error('Customs DB unavailable:', error.message); }
+for (const name of ['summary', 'buyers', 'shipments', 'directory']) {
+  app.get(`/api/admin/customs/${name}`, requireAdmin, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!customsApi) return res.status(503).json({ error: 'Chưa mở được kho Customs Data.' });
+    try { res.json(customsApi[name](req.query)); }
+    catch (error) {
+      console.error(`Customs ${name} failed:`, error.message);
+      res.status(500).json({ error: 'Không đọc được Customs Data.' });
+    }
+  });
+}
 
 app.get('/api/cache/stats', requireAdmin, (_req, res) => {
   const s = stmt.stats.get();
