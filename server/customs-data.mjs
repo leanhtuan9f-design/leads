@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { PRODUCT_GROUPS, PRODUCT_LABELS, backfillProductGroups } from './customs-products.mjs';
+import { PRODUCT_GROUPS, PRODUCT_LABELS, backfillProductGroups, normalizeHs } from './customs-products.mjs';
 
 // Customs Data (vận đơn/hải quan thật) và Danh bạ doanh nghiệp nằm trong DB riêng, không dùng bảng `places` của kho.
 export const CUSTOMS_DB_PATH = process.env.CUSTOMS_DB_PATH || '/var/lib/maps-data/customs.db';
@@ -43,6 +43,17 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
   for (const t of ['customs_shipments', 'customs_rankings', 'customs_market']) {
     if (!db.prepare(`PRAGMA table_info(${t})`).all().some(c => c.name === 'product_group')) db.exec(`ALTER TABLE ${t} ADD COLUMN product_group TEXT`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_${t}_pg ON ${t}(product_group)`);
+  }
+  // Mã HS lưu dạng số làm mất số 0 đầu (8109094 → 08109094): chuẩn hoá một lần để lọc/gợi ý theo đầu mã đúng.
+  if (!db.prepare(`SELECT 1 FROM customs_files WHERE path = '__hs_normalized__'`).get()) {
+    for (const t of ['customs_shipments', 'customs_rankings']) {
+      const rows = db.prepare(`SELECT id, hs FROM ${t} WHERE hs <> ''`).all();
+      const set = db.prepare(`UPDATE ${t} SET hs = ? WHERE id = ?`);
+      db.exec('BEGIN');
+      for (const r of rows) { const h = normalizeHs(r.hs); if (h !== r.hs) set.run(h, r.id); }
+      db.exec('COMMIT');
+    }
+    db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__hs_normalized__', 'migration', 0, ?)`).run(Date.now());
   }
   backfillProductGroups(db);
   return db;
@@ -94,7 +105,7 @@ export function createCustomsApi(db) {
     const params = [];
     if (query.q) { where.push(`name_norm LIKE ? ESCAPE '\\'`); params.push(like(normalizeName(query.q))); }
     if (query.country) { where.push('country = ?'); params.push(String(query.country).toUpperCase()); }
-    if (query.hs) { where.push(`hs LIKE ? ESCAPE '\\'`); params.push(`${String(query.hs).replace(/[^0-9]/g, '')}%`); }
+    if (query.hs) { where.push(`(',' || hs) LIKE ? ESCAPE '\\'`); params.push(`%,${String(query.hs).replace(/[^0-9]/g, '')}%`); }
     if (productParam(query)) { where.push('product_group = ?'); params.push(productParam(query)); }
     const sql = `FROM (
       SELECT buyer_norm name_norm, MIN(buyer) name, buyer_country country, COUNT(*) transactions, SUM(usd) usd, MAX(date) lastDate,
@@ -138,5 +149,48 @@ export function createCustomsApi(db) {
     return { total, limit, offset, rows };
   }
 
-  return { summary, products, buyers, shipments, directory };
+  // Gợi ý khi gõ: field = name | hs | country; view quyết định bảng nguồn. Trả tối đa 8 mục (country: toàn bộ để lọc phía client).
+  function suggest(query) {
+    const field = String(query.field || '');
+    const view = ['buyers', 'shipments', 'directory'].includes(query.view) ? query.view : 'buyers';
+    const raw = String(query.q || '').trim();
+    if (field === 'country') {
+      const names = new Intl.DisplayNames(['en'], { type: 'region' });
+      const counts = {};
+      const add = sql => db.prepare(sql).all().forEach(r => { if (/^[A-Z]{2}$/.test(r.c)) counts[r.c] = (counts[r.c] || 0) + r.n; });
+      if (view === 'directory') add(`SELECT country c, COUNT(*) n FROM directory_entities GROUP BY country`);
+      else {
+        add(`SELECT buyer_country c, COUNT(*) n FROM customs_shipments GROUP BY buyer_country`);
+        if (view === 'buyers') add(`SELECT country c, COUNT(*) n FROM customs_rankings WHERE role = 'buyer' GROUP BY country`);
+      }
+      return { options: Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([code, n]) => { let label = code; try { label = names.of(code) || code; } catch { /* mã lạ */ } return { value: code, label, hint: n }; }) };
+    }
+    if (field === 'hs') {
+      const d = raw.replace(/\D/g, '');
+      if (d.length < 2) return { options: [] };
+      const len = d.length > 6 ? 8 : 6;
+      const rows = db.prepare(`SELECT code, product_group g, SUM(n) n FROM (
+          SELECT substr(hs,1,${len}) code, product_group, COUNT(*) n FROM customs_shipments WHERE hs LIKE ? GROUP BY 1, 2
+          UNION ALL SELECT substr(hs,1,${len}), product_group, COUNT(*) FROM customs_rankings WHERE hs LIKE ? GROUP BY 1, 2
+        ) GROUP BY code, g ORDER BY code, n DESC`).all(`${d}%`, `${d}%`);
+      const byCode = new Map();
+      for (const r of rows) { const e = byCode.get(r.code) || { total: 0, g: r.g }; e.total += r.n; byCode.set(r.code, e); }
+      return { options: [...byCode].sort((a, b) => b[1].total - a[1].total).slice(0, 8).map(([code, e]) => ({ value: code, label: PRODUCT_LABELS[e.g] || '', hint: e.total })) };
+    }
+    const n = normalizeName(raw);
+    if (n.length < 2) return { options: [] };
+    const any = like(n), pre = `${n.replace(/[\\%_]/g, '\\$&')}%`;
+    const legs = view === 'directory'
+      ? [`SELECT MIN(name) name, country, COUNT(*) n, name_norm nn, 'directory' role FROM directory_entities WHERE name_norm LIKE ? ESCAPE '\\' GROUP BY name_norm, country`]
+      : view === 'shipments'
+        ? [`SELECT MIN(buyer) name, buyer_country country, COUNT(*) n, buyer_norm nn, 'buyer' role FROM customs_shipments WHERE buyer_norm LIKE ? ESCAPE '\\' GROUP BY buyer_norm, buyer_country`,
+           `SELECT MIN(supplier), '', COUNT(*), supplier_norm, 'supplier' FROM customs_shipments WHERE supplier_norm LIKE ? ESCAPE '\\' GROUP BY supplier_norm`]
+        : [`SELECT MIN(buyer) name, buyer_country country, COUNT(*) n, buyer_norm nn, 'buyer' role FROM customs_shipments WHERE buyer_norm LIKE ? ESCAPE '\\' GROUP BY buyer_norm, buyer_country`,
+           `SELECT MIN(name), country, COUNT(*), name_norm, 'buyer' FROM customs_rankings WHERE role = 'buyer' AND name_norm LIKE ? ESCAPE '\\' GROUP BY name_norm, country`];
+    const rows = db.prepare(`SELECT MIN(name) name, country, role, SUM(n) n FROM (${legs.join(' UNION ALL ')})
+      GROUP BY nn, country, role ORDER BY (nn LIKE ? ESCAPE '\\') DESC, n DESC, name LIMIT 8`).all(...legs.map(() => any), pre);
+    return { options: rows.map(r => ({ value: r.name, label: [r.country, view === 'shipments' ? r.role : ''].filter(Boolean).join(' · '), hint: r.n })) };
+  }
+
+  return { summary, products, suggest, buyers, shipments, directory };
 }

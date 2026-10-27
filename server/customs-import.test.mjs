@@ -53,7 +53,7 @@ test('imports shipments, rankings, directory entries; dedupes repeats and keeps 
   assert.equal(api.buyers({ country: 'kr' }).total, 2);
   assert.equal(api.buyers({ q: 'al noor' }).rows[0].transactions, 1);
   assert.equal(api.directory({ hasEmail: '1' }).total, 1);
-  assert.equal(api.shipments({ hs: '8045' }).total, 1);
+  assert.equal(api.shipments({ hs: '0804' }).total, 1);
   assert.equal(api.buyers({ q: "%' OR 1=1 --" }).total, 0);
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -108,4 +108,21 @@ test('product groups: description beats wrong HS; HS padded; folder used for ran
   assert.equal(api.buyers({ product: 'nhan-vai' }).total, 1);
   assert.equal(api.buyers({}).total, 3);
   assert.ok(api.summary().products.some(p => p.key === 'xoai' && p.rankings === 2));
+});
+
+test('suggest: names, HS prefixes (zero-padded) and countries; buyers HS filter matches any code in the list', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  const bolHeader = ['Total amount(USD)', 'Product Description', 'Date', 'Bill of Lading Number', 'Supplier Address', "Buyer's address", 'HS code', 'Qty', 'quantity unit', 'importing country', 'Destination country', 'Buyer', 'Supplier'];
+  const row = (hs, buyer, desc) => [1000, desc, 45297, 'N/A', 'HCM', '1 Main St, Dubai, AE', hs, 10, 'Bag', 'VN', 'Vietnam', buyer, 'VN Exporter Co'];
+  book(dir, '03.52WMB/BL.xlsx', { S: [bolHeader, row(8109094, 'Al Noor Trading LLC', 'Fresh dragon fruit'), row(8039010, 'Al Noor Trading LLC', 'Fresh banana'), row(8039010, 'Bravo Foods', 'Fresh banana')] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const api = createCustomsApi(db);
+  assert.equal(api.suggest({ field: 'name', view: 'buyers', q: 'al no' }).options[0].value, 'Al Noor Trading LLC');
+  assert.deepEqual(api.suggest({ field: 'name', view: 'buyers', q: 'a' }).options, []);
+  const hs = api.suggest({ field: 'hs', view: 'shipments', q: '0810' }).options;
+  assert.deepEqual(hs.map(o => [o.value, o.label, o.hint]), [['081090', 'Dragon fruit', 1]]);
+  assert.equal(api.suggest({ field: 'country', view: 'shipments', q: '' }).options[0].value, 'AE');
+  assert.equal(api.buyers({ hs: '0803' }).total, 2);
+  assert.equal(api.buyers({ hs: '0810' }).rows[0].name, 'Al Noor Trading LLC');
 });

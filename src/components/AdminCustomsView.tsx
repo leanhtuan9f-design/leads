@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { apiJson } from '../auth/types';
 import { useRouteSegment } from '../utils/routeSegment';
 
@@ -27,17 +27,81 @@ const COLUMNS: Record<Exclude<View, 'overview'>, [string, string][]> = {
 const fmt = (v: unknown) => Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v ?? '');
 const input = 'rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 placeholder:text-slate-500';
 
+type Opt = { value: string; label?: string; hint?: number | string };
+
+// Ô nhập có gợi ý: `source` trả danh sách theo chữ đang gõ (đồng bộ hoặc gọi API); ↑/↓ chọn, Enter nhận, Esc đóng.
+function Combo({ value, onChange, onPick, source, placeholder, label, width, minChars = 0 }: {
+  value: string; onChange: (v: string) => void; onPick?: (o: Opt) => void; source: (text: string, signal: AbortSignal) => Opt[] | Promise<Opt[]>;
+  placeholder: string; label: string; width: string; minChars?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [opts, setOpts] = useState<Opt[]>([]);
+  const [active, setActive] = useState(-1);
+  const id = useId();
+  const picked = useRef(false);
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+  useEffect(() => {
+    if (!open || value.trim().length < minChars) { setOpts([]); return; }
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
+      try { const r = await sourceRef.current(value, ctl.signal); if (!ctl.signal.aborted) { setOpts(r.slice(0, 8)); setActive(-1); } }
+      catch { if (!ctl.signal.aborted) setOpts([]); }
+    }, 150);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [value, open, minChars, source]);
+  const pick = (o: Opt) => { picked.current = true; onChange(o.value); onPick?.(o); setOpen(false); };
+  const shown = open && opts.length > 0;
+  return <div className={`relative ${width}`}>
+    <input className={`${input} w-full`} placeholder={placeholder} value={value} aria-label={label} role="combobox" aria-expanded={shown} aria-controls={`${id}-list`} aria-autocomplete="list"
+      aria-activedescendant={active >= 0 ? `${id}-${active}` : undefined} autoComplete="off"
+      onChange={e => { picked.current = false; onChange(e.target.value); setOpen(true); }}
+      onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 120)}
+      onKeyDown={e => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive(a => Math.min(a + 1, opts.length - 1)); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
+        else if (e.key === 'Enter' && shown && active >= 0) { e.preventDefault(); pick(opts[active]); }
+        else if (e.key === 'Escape') setOpen(false);
+      }} />
+    {shown && <ul id={`${id}-list`} role="listbox" className="absolute left-0 z-20 mt-1 max-h-72 min-w-full w-max max-w-[28rem] overflow-auto rounded border border-slate-700 bg-slate-900 py-1 shadow-lg">
+      {opts.map((o, i) => <li key={`${o.value}-${i}`} id={`${id}-${i}`} role="option" aria-selected={i === active}
+        onMouseDown={e => { e.preventDefault(); pick(o); }} onMouseEnter={() => setActive(i)}
+        className={`flex cursor-pointer items-baseline gap-2 px-2 py-1 ${i === active ? 'bg-slate-700 text-white' : 'text-slate-200'}`}>
+        <span className="truncate">{o.value}</span>
+        {o.label && <span className="truncate text-[10px] text-slate-400">{o.label}</span>}
+        {o.hint != null && <span className="ml-auto pl-2 font-mono text-[10px] text-slate-500">{typeof o.hint === 'number' ? o.hint.toLocaleString('vi-VN') : o.hint}</span>}
+      </li>)}
+    </ul>}
+  </div>;
+}
+
+const suggestUrl = (field: string, view: string, q = '') => `/api/admin/customs/suggest?${new URLSearchParams({ field, view, q })}`;
+async function fetchOptions(field: string, view: string, q: string, signal: AbortSignal): Promise<Opt[]> {
+  const res = await fetch(suggestUrl(field, view, q), { credentials: 'same-origin', signal });
+  if (!res.ok) return [];
+  return ((await res.json()) as { options: Opt[] }).options;
+}
+const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
 function Table({ view, products, initialProduct = '', onProductChange }: { view: Exclude<View, 'overview'>; products: ProductStat[]; initialProduct?: string; onProductChange?: (key: string) => void }) {
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
+  const [countryText, setCountryText] = useState('');
+  const [countries, setCountries] = useState<Opt[]>([]);
   const [hs, setHs] = useState('');
   const [product, setProduct] = useState(initialProduct);
+  const [productText, setProductText] = useState(() => products.find(p => p.key === initialProduct)?.label ?? '');
   const [type, setType] = useState('');
   const [hasEmail, setHasEmail] = useState(false);
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<Paged<Row> | null>(null);
   const [error, setError] = useState('');
   const limit = 50;
+  useEffect(() => {
+    const ctl = new AbortController();
+    fetchOptions('country', view, '', ctl.signal).then(setCountries).catch(() => {});
+    return () => ctl.abort();
+  }, [view]);
   useEffect(() => { setOffset(0); }, [q, country, hs, type, hasEmail, product, view]);
   useEffect(() => {
     const ctl = new AbortController();
@@ -60,10 +124,16 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
   }, [q, country, hs, type, hasEmail, product, offset, view]);
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2">
-      <input className={`${input} w-56`} placeholder="Tìm theo tên" value={q} onChange={e => setQ(e.target.value)} aria-label="Tìm theo tên" />
-      <input className={`${input} w-24`} placeholder="Nước (US)" maxLength={2} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} aria-label="Mã nước" />
-      {view !== 'directory' && <select className={input} value={product} onChange={e => { setProduct(e.target.value); onProductChange?.(e.target.value); }} aria-label="Sản phẩm"><option value="">Mọi sản phẩm</option>{products.map(p => <option key={p.key} value={p.key}>{p.label} ({(view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments).toLocaleString('vi-VN')})</option>)}</select>}
-      {view !== 'directory' && <input className={`${input} w-28`} placeholder="Mã HS" value={hs} onChange={e => setHs(e.target.value)} aria-label="Mã HS" />}
+      <Combo width="w-64" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm theo tên (gõ để gợi ý)" label="Tìm theo tên" />
+      <Combo width="w-40" value={countryText} placeholder="Nước (US / Vietnam)" label="Nước"
+        onChange={t => { setCountryText(t); const k = norm(t); setCountry(countries.find(c => norm(c.value) === k || norm(c.label ?? '') === k)?.value ?? ''); }}
+        onPick={o => { setCountry(o.value); setCountryText(o.label ? `${o.value} · ${o.label}` : o.value); }}
+        source={t => { const k = norm(t.split('·')[0]); return countries.filter(c => !k || norm(c.value).startsWith(k) || norm(c.label ?? '').includes(k)); }} />
+      {view !== 'directory' && <Combo width="w-52" value={productText} placeholder="Sản phẩm (gõ: mango, coconut…)" label="Sản phẩm"
+        onChange={t => { setProductText(t); const k = norm(t); const hit = products.find(p => norm(p.label) === k); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
+        onPick={o => { const hit = products.find(p => p.label === o.value); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
+        source={t => { const k = norm(t); return products.filter(p => !k || norm(p.label).includes(k)).map(p => ({ value: p.label, hint: view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments })); }} />}
+      {view !== 'directory' && <Combo width="w-52" value={hs} onChange={setHs} source={(t, sig) => fetchOptions('hs', view, t, sig)} minChars={2} placeholder="Mã HS (gõ 0810, 0803…)" label="Mã HS" />}
       {view === 'directory' && <select className={input} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
       {view === 'directory' && <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
       {data && <span className="text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} kết quả</span>}
