@@ -1,4 +1,5 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
+import { maskTrialPlace } from './trial-mask.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
 import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
@@ -793,7 +794,7 @@ class Job {
     for (const p of picked) {
       this.count++;
       if (p.fromCache) this.source.cache++; else { this.source.live++; this.quotaLeft--; stmt.addNew.run(this.userId, vnDay()); }
-      this.emit('place', p);
+      this.emit('place', maskTrialPlace(p)); // dùng thử: chỉ thấy liên hệ đã che một phần
     }
     return buf.length;
   }
@@ -801,7 +802,7 @@ class Job {
     if (this.ended) return;
     if (this.trialBuf && status !== 'failed' && status !== 'cancelled') {
       const found = this.flushTrial();
-      if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead đầy đủ thông tin nhất. Nâng cấp để xem toàn bộ.`;
+      if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead đầy đủ thông tin nhất, số điện thoại và email được ẩn một phần. Nâng cấp để xem toàn bộ.`;
     }
     this.emit('end', {
       status, count: this.count, message,
