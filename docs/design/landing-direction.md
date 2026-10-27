@@ -17,3 +17,11 @@ Người dùng đã yêu cầu rõ thiết kế lại sau khi không chấp nh�
 LandingPage: header/hero/form/workflow/FAQ/footer. PartnerPreview: bộ ví dụ rõ là giả lập, chi tiết doanh nghiệp, tải CSV. LandingPricing: catalog public, trạng thái tải/lỗi, chọn tháng/năm, liên kết billing thật.
 
 Before/After và aria snapshot: `.playwright-cli/maps-redesign/`. Kiểm tra desktop 1440, tablet 768, mobile 375; demo/filter/detail/download, form validation, truyền query, CTA billing, keyboard/focus, axe, không tràn ngang. Không gửi yêu cầu scrape hoặc thanh toán thật trong QA.
+
+## Selected direction — concept 1 (2026-10-27)
+
+User selected displayed image 1, unambiguously mapped to `concepts/landing-01-orange-trade.png`. Implemented warm ivory/orange export composition with existing Lead Finder identity. Product Design image-to-code/design-qa applied. User authorized Playwright checks explicitly. Icon library: Tabler (`@tabler/icons-react`), selected for the target's fine architectural outline icons. New asset made by built-in Image Gen: `public/landing/trade-hero-orange.png`; transparent revision consumed by homepage: `public/landing/trade-hero-orange-cutout.png`.
+
+Asset prompt summary: reproduce the selected right-side hero only, navy ship, orange containers, blue trade-route globe, distant cranes/plane, foreground coffee sacks and fruit crates, warm ivory environment; no UI/headline. Revision removed only outer ivory into genuine alpha, preserving scene and lighting. Original and transparent revision retained locally in public/landing. No screenshot raster used as the live page.
+
+Homepage uses real HTML text, functional search form and sample controls; pricing API and /app flow unchanged. See project-root `design-qa.md` for same-size source/implementation comparison and verification.

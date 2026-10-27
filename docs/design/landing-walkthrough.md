@@ -32,3 +32,9 @@ Limits: no NVDA/VoiceOver run, no Firefox/Safari verification. Automated axe and
 ## Deployment
 
 Frontend built directly to `/opt/maps/dist` served by existing nginx. No backend restart or infrastructure edits; no GitHub push authorization. `deploy.sh` not run because it pulls remote and restarts scraper for a frontend-only task; existing project memory documents this deployment path.
+
+## Selected concept 1 — deployed 2026-10-27
+
+Supersedes the cobalt/navy visual direction described above. Exact source: `concepts/landing-01-orange-trade.png`. Live homepage uses orange/ivory, generated trade hero with transparency, Tabler icons, floating search and compact table preview. Existing /app and billing remain integrated.
+
+Evidence: `.playwright-cli/maps-orange/`; project-root `design-qa.md` contains the source/implementation comparison, fixes and passing result. Verified five widths 1484/1024/768/375/320 with no page overflow or axe violations; all demo/form/menu/FAQ/CSV/pricing interactions pass. Production form and Advanced/Annual modal pass; JavaScript errors zero and observed CLS zero in one Chromium run. No job/checkout submitted. Frontend build only; backend unchanged, no scraper restart or GitHub push.

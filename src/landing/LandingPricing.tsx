@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Check, RefreshCw } from 'lucide-react';
+import { IconArrowRight as ArrowRight, IconCheck as Check, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 type PlanKey = 'BASIC' | 'ADVANCED';
 type Cycle = 'MONTHLY' | 'ANNUAL';
