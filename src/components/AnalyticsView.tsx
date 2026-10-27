@@ -133,7 +133,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-xs font-bold text-white uppercase tracking-wider">Phân loại Chất lượng Khách hàng</h3>
-                  <HelpButton guideId="analytics" onOpenGuide={onOpenGuide} tooltipText="Xem cách phân loại Hot/Warm Leads" />
+                  <HelpButton guideId="analytics" onOpenGuide={onOpenGuide} tooltipText="Xem cách tính điểm hồ sơ, không phải nhu cầu mua" />
                 </div>
                 <p className="text-[11px] text-slate-400">Đánh giá theo mức độ đầy đủ của SĐT, Email, Website và cơ hội tối ưu hóa</p>
               </div>
@@ -142,14 +142,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               onClick={() => onOpenOutreachModal(businesses.filter(b => b.leadStatus === 'hot'))}
               className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold"
             >
-              Tiếp cận Hot Leads →
+              Xem hồ sơ điểm cao →
             </button>
           </div>
 
           <div className="space-y-3">
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-slate-300 font-medium">Khách hàng Rất tiềm năng (Điểm 85–100)</span>
+                <span className="text-slate-300 font-medium">Hồ sơ điểm cao (85–100), chưa xác minh người mua</span>
                 <span className="font-mono text-white tabular-nums">{stats.hotLeads} ({Math.round((stats.hotLeads / stats.total) * 100)}%)</span>
               </div>
               <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">
@@ -162,7 +162,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-slate-300 font-medium">Khách hàng Tiềm năng (Điểm 65–84)</span>
+                <span className="text-slate-300 font-medium">Hồ sơ điểm trung bình (65–84), chưa xác minh người mua</span>
                 <span className="font-mono text-white tabular-nums">{stats.warmLeads} ({Math.round((stats.warmLeads / stats.total) * 100)}%)</span>
               </div>
               <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden">

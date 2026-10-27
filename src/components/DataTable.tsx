@@ -389,8 +389,8 @@ export const DataTable: React.FC<DataTableProps> = ({
                     <td className="py-2.5 px-3 text-right">
                       <div className="font-mono font-semibold tabular-nums text-slate-100">{biz.leadScore}</div>
                       <div className="text-[10px] font-medium">
-                        {biz.leadStatus === 'hot' && <span className="text-rose-400">Tiềm năng cao</span>}
-                        {biz.leadStatus === 'warm' && <span className="text-amber-400">Tiềm năng</span>}
+                        {biz.leadStatus === 'hot' && <span className="text-rose-400">Điểm hồ sơ cao</span>}
+                        {biz.leadStatus === 'warm' && <span className="text-amber-400">Điểm trung bình</span>}
                         {biz.leadStatus === 'cold' && <span className="text-slate-500">Bình thường</span>}
                       </div>
                     </td>

@@ -15,6 +15,8 @@ test('warehouse rankings count unique stored records, omit unknown fields and re
   const read = createWarehouseStats(db, { now: () => time, cacheMs: 100 });
   const first = read();
   assert.equal(first.total, 10);
+  assert.equal(first.segments.reduce((sum, row) => sum + row.count, 0), first.total);
+  assert.equal(first.importerVerification, "not_assessed");
   assert.equal(first.lastUpdatedAt, 202);
   assert.equal(first.countries.length, 5);
   assert.deepEqual({...first.countries[0]}, {name:'C1',count:2});

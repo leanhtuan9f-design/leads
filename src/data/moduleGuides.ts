@@ -113,13 +113,13 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     tag: 'Quản lý Lead',
     logicExplanation: [
       'Hiển thị toàn bộ hơn 33 trường dữ liệu bóc tách từ Google Maps dưới dạng lưới dữ liệu tốc độ cao.',
-      'Điểm tiềm năng (Lead Score 0-100): Được tính tự động dựa trên: Có số điện thoại (+15đ), Có website (+15đ), Có email (+15đ), Có mạng xã hội (+5đ), Đánh giá trên 4.5 sao (+5đ), Lượng review dồi dào (+5đ), và Listing Chưa xác minh / Unclaimed (+10đ cơ hội bán dịch vụ).',
+      'Điểm hồ sơ (Lead Score 0-100): Được tính tự động dựa trên: Có số điện thoại (+15đ), Có website (+15đ), Có email (+15đ), Có mạng xã hội (+5đ), Đánh giá trên 4.5 sao (+5đ), Lượng review dồi dào (+5đ), và Listing Chưa xác minh / Unclaimed (+10đ cơ hội bán dịch vụ). Đây là điểm thông tin/liên hệ, không đánh giá mức phù hợp nhập khẩu hoặc nhu cầu mua.',
       'Trạng thái "Chưa xác minh" (Unclaimed Listing): Đây là các doanh nghiệp chưa sở hữu hồ sơ Google Business Profile chính thức. Đối với các Agency Marketing, SEO và phần mềm, đây là "mỏ vàng" để liên hệ cung cấp dịch vụ xác minh hồ sơ và tối ưu SEO địa phương.'
     ],
     steps: [
       'Bước 1: Sử dụng ô tìm kiếm nhanh để tra cứu theo tên doanh nghiệp, số điện thoại, thành phố hoặc email.',
-      'Bước 2: Sử dụng các nút lọc phân khúc nhanh: "Có Email", "Có Số điện thoại", "Chưa xác minh (Unclaimed)", hoặc "Tiềm năng cao (Hot Leads)".',
-      'Bước 3: Nhấp vào tiêu đề cột để sắp xếp theo Điểm tiềm năng (Lead Score), Số lượng đánh giá (Reviews), hoặc Điểm sao (Rating).',
+      'Bước 2: Sử dụng các nút lọc phân khúc nhanh: "Có Email", "Có Số điện thoại", "Chưa xác minh (Unclaimed)", hoặc "Điểm hồ sơ cao".',
+      'Bước 3: Nhấp vào tiêu đề cột để sắp xếp theo Điểm hồ sơ (Lead Score), Số lượng đánh giá (Reviews), hoặc Điểm sao (Rating).',
       'Bước 4: Tích chọn các ô vuông bên trái để gửi Email tiếp cận hàng loạt hoặc xuất riêng các dòng đã chọn ra file CSV/TSV.'
     ],
     proTips: [
@@ -245,7 +245,7 @@ export const MODULE_GUIDES: Record<string, ModuleGuide> = {
     steps: [
       'Bước 1: Xem tổng quan 4 chỉ số KPI quan trọng ở hàng trên cùng.',
       'Bước 2: Xem biểu đồ phân loại chất lượng khách hàng (Hot / Warm / Cold).',
-      'Bước 3: Nhấp nút "Liên hệ nhóm Hot Leads" để mở ngay trình soạn email cho nhóm khách hàng có khả năng chuyển đổi cao nhất.',
+      'Bước 3: Nhấp nút "Liên hệ nhóm Hot Leads" để mở ngay trình soạn email cho nhóm hồ sơ điểm cao; điểm này không chứng minh hoạt động nhập khẩu hoặc nhu cầu mua.',
       'Bước 4: Theo dõi bảng xếp hạng các ngành nghề và địa phương có nhiều doanh nghiệp nhất.'
     ],
     proTips: [

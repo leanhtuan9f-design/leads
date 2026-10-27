@@ -1260,7 +1260,7 @@ app.delete('/api/admin/market-config/products/:alias', requireAdmin, (req, res) 
 app.use('/api/suggest', requireAuth);
 const aiInFlight = new Set();
 const profileOf = (uid) => { const r = stmt.getState.get(uid, 'profile'); return r ? cleanProfile(JSON.parse(r.value)) : null; };
-const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt, 'v2'])); // đổi prompt thì gợi ý cũ hết hiệu lực
+const profileHash = (p) => sha256(JSON.stringify([p.offer, p.customers, p.area, p.notes, getAiConfig().systemPrompt, 'buyer-targeting-v3'])); // đổi prompt thì gợi ý cũ hết hiệu lực
 // Sản phẩm gõ trực tiếp ở ô tìm (ưu tiên) hoặc lấy từ Hồ sơ
 const subjectOf = (uid, product) => {
   const t = typeof product === 'string' ? product.trim().slice(0, 600) : '';

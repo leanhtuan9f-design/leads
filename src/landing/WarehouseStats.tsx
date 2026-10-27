@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { IconBuildingSkyscraper, IconWorld, IconChartBar } from '@tabler/icons-react';
 
 type Entry = { name: string; count: number };
-type Stats = { total: number; lastUpdatedAt: number | null; generatedAt: number; countries: Entry[]; industries: Entry[] };
+type Stats = { total: number; lastUpdatedAt: number | null; generatedAt: number; segments?: { id: string; name: string; description: string; count: number }[]; countries: Entry[]; industries: Entry[] };
 const number = (value: number) => value.toLocaleString('vi-VN');
 const countryNames = new Intl.DisplayNames(['vi'], { type: 'region' });
 function countryLabel(name: string) {
@@ -39,7 +39,7 @@ export function WarehouseStats() {
 
   const ranking = (title: string, entries: Entry[], countries: boolean) => <article className="export-stock-card">
     <h3>{countries ? <IconWorld size={23}/> : <IconChartBar size={23}/>} {title}</h3>
-    <p className="export-stock-caption">Theo số hồ sơ doanh nghiệp trong kho</p>
+    <p className="export-stock-caption">{countries ? 'Theo số hồ sơ trong kho, chưa xác minh vai trò nhập khẩu' : 'Nhãn ngành từ nguồn, không phải phân loại người mua'}</p>
     {entries.length ? <ol>{entries.map((entry, index) => <li key={entry.name}>
       <span className="export-stock-rank">{index + 1}</span>
       <span className="export-stock-label">{countries ? countryLabel(entry.name) : entry.name}<span className="export-stock-track" aria-hidden="true"><span style={{ width: `${entry.count / entries[0].count * 100}%` }}/></span></span>
@@ -48,11 +48,11 @@ export function WarehouseStats() {
   </article>;
 
   return <section id="du-lieu" className="export-section export-container export-stock" aria-labelledby="stock-title">
-    <div className="export-stock-heading"><div><p className="export-kicker">DỮ LIỆU HIỆN CÓ</p><h2 id="stock-title">Khám phá kho doanh nghiệp.</h2><p>Top 5 quốc gia và ngành có nhiều hồ sơ doanh nghiệp nhất, cập nhật tự động từ kho dữ liệu.</p></div>
+    <div className="export-stock-heading"><div><p className="export-kicker">DỮ LIỆU HIỆN CÓ</p><h2 id="stock-title">Khám phá kho doanh nghiệp.</h2><p>Thống kê hồ sơ và vai trò kinh doanh theo dữ liệu hiện có. Số hồ sơ không đồng nghĩa với số nhà nhập khẩu đã xác minh.</p></div>
       {stats && <div className="export-stock-total"><IconBuildingSkyscraper size={25}/><strong>{number(stats.total)}</strong><span>hồ sơ doanh nghiệp trong kho</span></div>}
     </div>
     {failed ? <div className="export-stock-status" role="status">{stats ? 'Tạm thời chưa làm mới được. Đang hiển thị số liệu lần tải gần nhất.' : 'Chưa tải được thống kê dữ liệu.'} <button type="button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button></div> : !stats ? <p className="export-stock-status" role="status">Đang tải thống kê từ kho dữ liệu…</p> : null}
-    {stats && <><div className="export-stock-grid">{ranking('Top 5 quốc gia', stats.countries, true)}{ranking('Top 5 ngành', stats.industries, false)}</div>
+    {stats && <>{stats.segments && <div className="export-audience"><h3>Phân tệp theo dấu hiệu trong hồ sơ</h3><p>Chưa xác minh hoạt động nhập khẩu, sản phẩm cần mua hoặc nhu cầu mua hiện tại của từng đơn vị.</p><div className="export-audience-grid">{stats.segments.map(segment => <article key={segment.id}><strong>{number(segment.count)}</strong><h4>{segment.name}</h4><p>{segment.description}</p></article>)}</div><details><summary>Thế nào là khách hàng nhập khẩu phù hợp?</summary><p>Cần xác định được pháp nhân mua hàng, sản phẩm phù hợp và bằng chứng nhập khẩu có nguồn, ngày kiểm tra; nhu cầu mua hiện tại phải được xác nhận riêng. Nhãn ngành, từ khóa tìm kiếm, email và điểm hồ sơ không thay thế các bước này. Các nhóm dưới đây là dấu hiệu sơ bộ, mỗi hồ sơ được xếp vào một nhóm.</p></details></div>}<div className="export-stock-grid">{ranking('Top 5 quốc gia', stats.countries, true)}{ranking('Top 5 nhãn ngành trong kho', stats.industries, false)}</div>
       <p className="export-stock-note">{stats.lastUpdatedAt ? <>Dữ liệu cập nhật: <time dateTime={new Date(stats.lastUpdatedAt).toISOString()}>{new Date(stats.lastUpdatedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</time> (giờ Việt Nam). </> : ''}Tự làm mới mỗi 30 giây. Xếp hạng chỉ tính hồ sơ có thông tin quốc gia hoặc ngành tương ứng.</p></>}
   </section>;
 }
