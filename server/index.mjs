@@ -532,15 +532,17 @@ app.put('/api/state/:key', (req, res) => {
 });
 
 // Dùng thử có tối đa TRIAL_DAILY_SEARCHES lượt/ngày, mỗi lượt tối đa TRIAL_LEAD_LIMIT lead: nâng hạn mức địa điểm mới của các tài khoản dùng thử cũ (10) để lượt thứ hai trở đi vẫn có kết quả
-db.prepare("UPDATE users SET daily_new = ? WHERE role = 'trial' AND daily_new < ?").run(TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT, TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT);
+db.prepare("UPDATE users SET daily_new = ? WHERE (role = 'trial' OR (role = 'user' AND id NOT IN (SELECT user_id FROM user_plans))) AND daily_new < ?").run(TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT, TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT);
 
 const publicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
+// Chưa có gói (không phải admin) = gói miễn phí: dùng chung luật với dùng thử (10 lượt/ngày, 10 lead che liên hệ)
+const isFree = (u, limits) => u.role !== 'admin' && !limits;
 function quotaOf(u) {
   const use = stmt.getUsage.get(u.id, vnDay()) || { new_places: 0, refreshes: 0, searches: 0 };
   const limits = billing.limitsFor(u.id); // null khi không có gói (admin/trial): không giới hạn quốc gia/số search
   return {
     newUsed: use.new_places, newLimit: u.daily_new, refreshUsed: use.refreshes, refreshLimit: u.daily_refresh,
-    searchUsed: use.searches || 0, searchLimit: limits?.dailySearches || (u.role === 'trial' ? TRIAL_DAILY_SEARCHES : 0), maxConcurrentSearches: limits?.maxConcurrentSearches || 0,
+    searchUsed: use.searches || 0, searchLimit: limits?.dailySearches || (isFree(u, limits) ? TRIAL_DAILY_SEARCHES : 0), maxConcurrentSearches: limits?.maxConcurrentSearches || 0,
     maxCountries: limits?.maxCountries || 0, countries: limits?.countries || [], hasPlan: !!limits,
   };
 }
@@ -1190,8 +1192,9 @@ app.post('/api/jobs', async (req, res) => {
     activeSearches: limits ? [...jobs.values()].filter((j) => j.userId === user.id && !j.ended).length : 0,
   });
   if (!verdict.ok) return res.status(verdict.status).json(verdict.body);
-  if (user.role === 'trial' && (usage.searches || 0) >= TRIAL_DAILY_SEARCHES) {
-    return res.status(429).json({ error: `Bản dùng thử có tối đa ${TRIAL_DAILY_SEARCHES} lượt tìm kiếm mỗi ngày. Lượt đặt lại vào 0h (giờ Việt Nam); nâng cấp để tìm không giới hạn và xem đủ dữ liệu.`, code: 'TRIAL_DAILY_SEARCHES' });
+  const free = isFree(user, limits);
+  if (free && (usage.searches || 0) >= TRIAL_DAILY_SEARCHES) {
+    return res.status(429).json({ error: `Gói miễn phí có tối đa ${TRIAL_DAILY_SEARCHES} lượt tìm kiếm mỗi ngày. Lượt đặt lại vào 0h (giờ Việt Nam); nâng cấp để tìm không giới hạn và xem đủ dữ liệu.`, code: 'TRIAL_DAILY_SEARCHES' });
   }
 
   const maxResults = Math.min(MAX_RESULTS, Math.max(1, Number(b.maxResults) || 25));
@@ -1202,7 +1205,7 @@ app.post('/api/jobs', async (req, res) => {
   stmt.addSearch.run(user.id, vnDay());
   if (verdict.lockCountry) billing.setCountries(user.id, [...limits.countries, verdict.lockCountry]); // tài khoản cũ chưa chọn đủ nước: nước đầu tiên được dùng sẽ được khoá
   job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
-  if (user.role === 'trial') job.trialBuf = [];
+  if (free) job.trialBuf = [];
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
   job.live = prepareCached(job); // dữ liệu có sẵn được đẩy ngay, không chờ hàng đợi
