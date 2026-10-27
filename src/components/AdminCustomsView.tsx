@@ -26,7 +26,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 const COLUMNS: Record<TableView, [string, string][]> = {
   buyers: [['name', 'Buyer'], ['country', 'Nước'], ['transactions', 'Giao dịch'], ['usd', 'USD'], ['lastDate', 'Gần nhất'], ['products', 'Sản phẩm'], ['hs', 'HS'], ['sources', 'Nguồn']],
-  shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portOut', 'Cảng đi'], ['portIn', 'Cảng đến']],
+  shipments: [['date', 'Ngày'], ['blNo', 'Mã vận đơn'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portOut', 'Cảng đi'], ['portIn', 'Cảng đến']],
   directory: [['name', 'Tên'], ['type', 'Loại'], ['country', 'Nước'], ['city', 'Thành phố'], ['email', 'Email'], ['emailClass', 'Loại email'], ['phone', 'Điện thoại'], ['website', 'Website'], ['activity', 'Ngành / ghi chú']]
 };
 const fmt = (v: unknown) => Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v ?? '');

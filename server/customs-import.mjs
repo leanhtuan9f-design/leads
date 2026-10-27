@@ -130,6 +130,7 @@ export function parseSheet(sheet, rel, sheetName) {
       else s = { date: toDate(pick(r, 'Date')), buyer: text(pick(r, 'Importer')), buyerCountry: buyerCountry(pick(r, 'Importer Address'), pick(r, 'Destination Country')), buyerAddress: clean(pick(r, 'Importer Address')),
         supplier: text(pick(r, 'Exporter')), supplierAddress: clean(pick(r, 'Exporter Address')), supplierPhone: clean(pick(r, 'Exporter Contact')), hs: text(pick(r, 'HS Code')), product: text(pick(r, 'Description')),
         usd: num(pick(r, 'Value(USD)')), qty: num(pick(r, 'Quantity')), unit: text(pick(r, 'Quantity Unit')), weight: null, portIn: clean(pick(r, 'Destination Port')), portOut: clean(pick(r, 'Origin Port')), mode: clean(pick(r, 'Mode of Transportation')), incoterms: clean(pick(r, 'incoterms')) };
+      s.blNo = clean(pick(r, 'Bill of Lading Number', 'B/L Number', 'B/L Number Or AWB Number', 'Bill of lading No', 'Master Bill Number', 'House Bill Number', 'Bill of Lading'));
       if (!s.buyer && !s.supplier) continue;
       if (/^\d{5,6}$/.test(String(pick(r, 'Date')))) s.date = toDate(Number(pick(r, 'Date')));
       s.hs = s.hs.replace(/\D/g, '');
@@ -260,6 +261,7 @@ export function importAll(root, { db, docs = false } = {}) {
   const stats = { files: 0, errors: 0, shipments: 0, rankings: 0, market: 0, directory: 0, docFiles: 0, perKind: {} };
   const insS = db.prepare(`INSERT OR IGNORE INTO customs_shipments (dedupe_key,file,date,buyer,buyer_norm,buyer_country,buyer_address,supplier,supplier_norm,supplier_address,supplier_phone,hs,product,usd,qty,unit,weight,port_in,port_out,mode,incoterms,direction)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'export')`);
+  const setBl = db.prepare(`UPDATE customs_shipments SET bl_no = ? WHERE dedupe_key = ? AND bl_no = ''`);
   const insR = db.prepare('INSERT OR IGNORE INTO customs_rankings (dedupe_key,file,role,name,name_norm,country,hs,product,transactions,usd,qty,weight,share,url) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
   const insM = db.prepare('INSERT OR IGNORE INTO customs_market (dedupe_key,file,kind,name,shipments,usd,qty,weight,product) VALUES (?,?,?,?,?,?,?,?,?)');
   const insD = db.prepare('INSERT OR IGNORE INTO directory_entities (dedupe_key,file,entity_type,name,name_norm,country,city,address,email,phone,website,contact_person,activity,confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
@@ -291,7 +293,7 @@ export function importAll(root, { db, docs = false } = {}) {
       for (const s of res.shipments) {
         const bn = normalizeName(s.buyer), sn2 = normalizeName(s.supplier);
         stats.shipments++; kinds.add('shipments');
-        if (apply) insS.run(sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')), rel, s.date, formatCompanyName(s.buyer), bn, s.buyerCountry, s.buyerAddress, formatCompanyName(s.supplier), sn2, s.supplierAddress, s.supplierPhone, normalizeHs(s.hs), s.product.slice(0, 300), shipmentUsd(s.usd), s.qty, s.unit, s.weight, cleanPort(s.portIn), cleanPort(s.portOut), s.mode, s.incoterms);
+        if (apply) { const dk = sha([s.date, bn, sn2, s.hs, s.usd, s.qty, s.portIn, s.product.slice(0, 80), s.buyerCountry].join('|')); insS.run(dk, rel, s.date, formatCompanyName(s.buyer), bn, s.buyerCountry, s.buyerAddress, formatCompanyName(s.supplier), sn2, s.supplierAddress, s.supplierPhone, normalizeHs(s.hs), s.product.slice(0, 300), shipmentUsd(s.usd), s.qty, s.unit, s.weight, cleanPort(s.portIn), cleanPort(s.portOut), s.mode, s.incoterms); if (s.blNo) setBl.run(s.blNo.slice(0, 60), dk); }
       }
       res.rankings.forEach((r, i) => {
         const norm = normalizeName(r.name); if (!norm) return;

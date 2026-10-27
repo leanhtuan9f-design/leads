@@ -39,6 +39,7 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_de_name ON directory_entities(name_norm, country);
     CREATE INDEX IF NOT EXISTS idx_de_type ON directory_entities(entity_type, country);
   `);
+  if (!db.prepare('PRAGMA table_info(customs_shipments)').all().some(c => c.name === 'bl_no')) db.exec(`ALTER TABLE customs_shipments ADD COLUMN bl_no TEXT NOT NULL DEFAULT ''`);
   if (!db.prepare('PRAGMA table_info(customs_rankings)').all().some(c => c.name === 'product_inferred')) db.exec('ALTER TABLE customs_rankings ADD COLUMN product_inferred INTEGER NOT NULL DEFAULT 0');
   // Cột product_group thêm sau: migrate DB cũ, tạo chỉ mục, điền các dòng còn trống.
   for (const t of ['customs_shipments', 'customs_rankings', 'customs_market']) {
@@ -244,11 +245,12 @@ export function createCustomsApi(db) {
     if (query.country) { where.push('buyer_country = ?'); params.push(String(query.country).toUpperCase()); }
     if (query.hs) { where.push(`hs LIKE ? ESCAPE '\\'`); params.push(`${String(query.hs).replace(/[^0-9]/g, '')}%`); }
     if (productParam(query)) { where.push('product_group = ?'); params.push(productParam(query)); }
+    if (query.blNo) { where.push(`bl_no LIKE ? ESCAPE '\\'`); params.push(like(String(query.blNo).trim())); }
     if (query.portOut) { where.push(`port_out LIKE ? ESCAPE '\\'`); params.push(like(String(query.portOut).trim())); }
     if (query.portIn) { where.push(`port_in LIKE ? ESCAPE '\\'`); params.push(like(String(query.portIn).trim())); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = one(`SELECT COUNT(*) n FROM customs_shipments ${w}`, ...params).n;
-    const rows = db.prepare(`SELECT date, buyer, buyer_country buyerCountry, supplier, hs, product, product_group productKey, usd, qty, unit, port_out portOut, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    const rows = db.prepare(`SELECT date, bl_no blNo, buyer, buyer_country buyerCountry, supplier, hs, product, product_group productKey, usd, qty, unit, port_out portOut, port_in portIn, incoterms FROM customs_shipments ${w} ORDER BY date DESC, id DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
     return { total, limit, offset, rows: rows.map(({ productKey, ...r }) => ({ ...r, group: PRODUCT_LABELS[productKey] || '' })) };
   }
 
