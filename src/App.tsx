@@ -358,6 +358,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
   // Thống kê và Mẫu thư giới thiệu chỉ có ở gói Nâng cao (admin luôn dùng được)
   const canUseAdvanced = user.role === 'admin' || quota?.plan === 'ADVANCED';
+  const canUseMaps = user.role === 'admin' || !!quota?.plan;
   const openOutreach = (leads: ScrapedBusiness[]) => {
     if (canUseAdvanced) setOutreachLeads(leads);
     else { setNotice('Mẫu thư giới thiệu chỉ có ở gói Nâng cao.'); setBillingOpen(true); }
@@ -466,12 +467,19 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
         {activeTab === 'analytics' && (
           <>
             <div className="mb-3 flex items-center gap-1 p-0.5 bg-slate-900 rounded-md border border-slate-800 text-xs w-fit">
-              {([['stats', canUseAdvanced ? 'Thống kê' : 'Thống kê 🔒'], ['maps', 'Maps']] as const).map(([id, label]) => (
+              {([['stats', canUseAdvanced ? 'Thống kê' : 'Thống kê 🔒'], ['maps', canUseMaps ? 'Maps' : 'Maps 🔒']] as const).map(([id, label]) => (
                 <button key={id} onClick={() => setAnalyticsSub(id)}
                   className={`px-3 py-1 rounded transition-colors ${analyticsSub === id ? 'bg-slate-700 text-white font-medium' : 'text-slate-400 hover:text-slate-200'}`}>{label}</button>
               ))}
             </div>
-            {analyticsSub === 'maps' && (
+            {analyticsSub === 'maps' && !canUseMaps && (
+              <div className="max-w-md mx-auto my-16 rounded-lg border border-slate-800 bg-slate-900 p-6 text-center space-y-3">
+                <div className="text-white font-semibold">Bản đồ lead</div>
+                <p className="text-sm text-slate-400">Tính năng này chỉ có ở gói trả phí.</p>
+                <button type="button" onClick={() => setBillingOpen(true)} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-md">Xem các gói</button>
+              </div>
+            )}
+            {analyticsSub === 'maps' && canUseMaps && (
               <MapView
                 businesses={shown}
                 onSelectBusiness={(biz) => setSelectedBusiness(biz)}
