@@ -126,22 +126,22 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
     return () => { clearTimeout(t); ctl.abort(); };
   }, [q, country, hs, portOut, portIn, type, hasEmail, product, offset, view]);
   return <div className="mt-3">
-    <div className="flex flex-wrap items-center gap-2">
-      <Combo width="w-64" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm theo tên (gõ để gợi ý)" label="Tìm theo tên" />
-      <Combo width="w-40" value={countryText} placeholder="Nước (US / Vietnam)" label="Nước"
+    <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
+      <Combo width="min-w-[8rem] flex-[2] basis-40" value={q} onChange={setQ} source={(t, sig) => fetchOptions('name', view, t, sig)} minChars={2} placeholder="Tìm tên…" label="Tìm theo tên" />
+      <Combo width="min-w-[6rem] flex-1 basis-24" value={countryText} placeholder="Nước" label="Nước"
         onChange={t => { setCountryText(t); const k = norm(t); setCountry(countries.find(c => norm(c.value) === k || norm(c.label ?? '') === k)?.value ?? ''); }}
         onPick={o => { setCountry(o.value); setCountryText(o.label ? `${o.value} · ${o.label}` : o.value); }}
         source={t => { const k = norm(t.split('·')[0]); return countries.filter(c => !k || norm(c.value).startsWith(k) || norm(c.label ?? '').includes(k)); }} />
-      {view !== 'directory' && <Combo width="w-52" value={productText} placeholder="Sản phẩm (gõ: mango, coconut…)" label="Sản phẩm"
+      {view !== 'directory' && <Combo width="min-w-[7rem] flex-1 basis-28" value={productText} placeholder="Sản phẩm" label="Sản phẩm"
         onChange={t => { setProductText(t); const k = norm(t); const hit = products.find(p => norm(p.label) === k); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
         onPick={o => { const hit = products.find(p => p.label === o.value); setProduct(hit?.key ?? ''); onProductChange?.(hit?.key ?? ''); }}
         source={t => { const k = norm(t); return products.filter(p => !k || norm(p.label).includes(k)).map(p => ({ value: p.label, hint: view === 'buyers' ? p.shipmentBuyers + p.rankings : p.shipments })); }} />}
-      {view !== 'directory' && <Combo width="w-52" value={hs} onChange={setHs} source={(t, sig) => fetchOptions('hs', view, t, sig)} minChars={2} placeholder="Mã HS (gõ 0810, 0803…)" label="Mã HS" />}
-      {view === 'shipments' && <Combo width="w-44" value={portOut} onChange={setPortOut} source={(t, sig) => fetchOptions('port_out', view, t, sig)} placeholder="Cảng đi (Cat Lai…)" label="Cảng đi" />}
-      {view === 'shipments' && <Combo width="w-44" value={portIn} onChange={setPortIn} source={(t, sig) => fetchOptions('port_in', view, t, sig)} placeholder="Cảng đến (Singapore…)" label="Cảng đến" />}
-      {view === 'directory' && <select className={input} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
+      {view !== 'directory' && <Combo width="min-w-[6rem] flex-1 basis-24" value={hs} onChange={setHs} source={(t, sig) => fetchOptions('hs', view, t, sig)} minChars={2} placeholder="Mã HS" label="Mã HS" />}
+      {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portOut} onChange={setPortOut} source={(t, sig) => fetchOptions('port_out', view, t, sig)} placeholder="Cảng đi" label="Cảng đi" />}
+      {view === 'shipments' && <Combo width="min-w-[6rem] flex-1 basis-24" value={portIn} onChange={setPortIn} source={(t, sig) => fetchOptions('port_in', view, t, sig)} placeholder="Cảng đến" label="Cảng đến" />}
+      {view === 'directory' && <select className={`${input} min-w-0 flex-1`} value={type} onChange={e => setType(e.target.value)} aria-label="Loại"><option value="">Mọi loại</option>{Object.entries(TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
       {view === 'directory' && <label className="flex items-center gap-1 text-slate-300"><input type="checkbox" checked={hasEmail} onChange={e => setHasEmail(e.target.checked)} />Có email</label>}
-      {data && <span className="text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} kết quả</span>}
+      {data && <span className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} kết quả</span>}
     </div>
     {error && <p className="mt-3 text-amber-300" role="status">{error}</p>}
     {!data && !error && <p className="mt-3 text-slate-400" role="status">Đang tải…</p>}

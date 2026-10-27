@@ -56,6 +56,18 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     }
     db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__hs_normalized__', 'migration', 0, ?)`).run(Date.now());
   }
+  if (!db.prepare(`SELECT 1 FROM customs_files WHERE path = '__names_formatted__'`).get()) {
+    const cache = new Map();
+    const fmt = v => { let f = cache.get(v); if (f === undefined) { f = formatCompanyName(v); cache.set(v, f); } return f; };
+    for (const [table, cols] of [['customs_shipments', ['buyer', 'supplier']], ['customs_rankings', ['name']], ['directory_entities', ['name']]]) {
+      const rows = db.prepare(`SELECT id, ${cols.join(', ')} FROM ${table}`).all();
+      const set = db.prepare(`UPDATE ${table} SET ${cols.map(c => `${c} = ?`).join(', ')} WHERE id = ?`);
+      db.exec('BEGIN');
+      for (const r of rows) { const next = cols.map(c => fmt(r[c] ?? '')); if (cols.some((c, i) => next[i] !== r[c])) set.run(...next, r.id); }
+      db.exec('COMMIT');
+    }
+    db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__names_formatted__', 'migration', 0, ?)`).run(Date.now());
+  }
   if (!db.prepare(`SELECT 1 FROM customs_files WHERE path = '__ports_cleaned__'`).get()) {
     const rows = db.prepare(`SELECT id, port_in, port_out FROM customs_shipments WHERE port_in <> '' OR port_out <> ''`).all();
     const set = db.prepare('UPDATE customs_shipments SET port_in = ?, port_out = ? WHERE id = ?');
@@ -73,6 +85,26 @@ const SUFFIX = /\b(co|ltd|inc|llc|l l c|corp|corporation|limited|company|pvt|pri
 export function normalizeName(value) {
   return String(value ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^\p{L}\p{N} ]+/gu, ' ').replace(SUFFIX, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// Chuẩn hoá tên doanh nghiệp để hiển thị: "UNIQLO CO.,LTD" → "Uniqlo Co., Ltd", "cong ty tnhh abc" → "Cong Ty TNHH Abc".
+// Viết hoa chữ cái đầu mỗi từ; tên đã có chữ hoa/thường lẫn lộn giữ nguyên phần còn lại; giữ HOA các viết tắt pháp lý (LLC, TNHH, JSC…).
+const NAME_UPPER = new Set(['TNHH', 'MTV', 'CP', 'SX', 'TM', 'DV', 'XNK', 'JSC', 'LLC', 'LLP', 'LP', 'PLC', 'FZE', 'FZCO', 'FZC', 'DMCC', 'USA', 'UAE', 'UK', 'VN', 'HCM', 'HCMC', 'PT', 'CV', 'BV', 'NV', 'SA', 'SRL', 'SPA', 'AG', 'KG', 'AS', 'AB', 'OY', 'OOO', 'OJSC', 'CJSC', 'PJSC', 'SAS', 'SARL', 'SAL', 'WLL', 'QSC', 'II', 'III', 'IV', 'MS', 'LTDA', 'GMBH']);
+const NAME_SPECIAL = { GMBH: 'GmbH' };
+export function formatCompanyName(value) {
+  let t = String(value ?? '').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim();
+  t = t.replace(/\s+Tel\b(?=.*\b(?:Fax|Email)\b).*$/i, '').replace(/^[\s\-–,.;:]+|[\s,;:]+$/g, '');
+  if (!t || !/\p{L}/u.test(t)) return t;
+  t = t.replace(/(^|[^\p{L}])L\.?\s?L\.?\s?C\.?(?![\p{L}])/giu, '$1LLC').replace(/\s*,\s*/g, ', ').replace(/\.,(?=\p{L})/gu, '., ');
+  const flat = t === t.toUpperCase() || t === t.toLowerCase();
+  return t.replace(/[\p{L}\p{N}]+/gu, (w, off) => {
+    const up = w.toUpperCase();
+    if (/\d/.test(w)) return up;
+    if (NAME_SPECIAL[up] && flat) return NAME_SPECIAL[up];
+    if (NAME_UPPER.has(up) && (flat || w === up)) return up;
+    if (t[off - 1] === "'" && (t.slice(0, off - 1).match(/\p{L}+$/u)?.[0].length ?? 0) > 1) return w.toLowerCase();
+    return flat ? up[0] + w.slice(1).toLowerCase() : up[0] + w.slice(1);
+  });
 }
 
 // Tên cảng trong nguồn lẫn rác ("Not Available", "undefined") và nhiều cách viết cho cùng một cảng: làm sạch + gộp alias chính.

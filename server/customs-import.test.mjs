@@ -41,7 +41,7 @@ test('imports shipments, rankings, directory entries; dedupes repeats and keeps 
   const s = db.prepare('SELECT * FROM customs_shipments').get();
   assert.equal(s.buyer_country, 'AE');
   assert.equal(s.date, '2024-01-06');
-  const r = db.prepare("SELECT * FROM customs_rankings WHERE name = 'jin won trading corp'").get();
+  const r = db.prepare("SELECT * FROM customs_rankings WHERE name = 'Jin Won Trading Corp'").get();
   assert.equal(r.country, 'KR');
   assert.equal(r.hs, '080719');
   const d = db.prepare("SELECT * FROM directory_entities WHERE name = 'Doha Fruits WLL'").get();
@@ -76,7 +76,7 @@ test('supplier list with a "buyer" count column ranks by supplier name', () => {
   const db = openCustomsDb(':memory:');
   importAll(dir, { db });
   const rows = db.prepare('SELECT role, name FROM customs_rankings ORDER BY name').all();
-  assert.deepEqual(rows.map(r => [r.role, r.name]), [['supplier', 'hanla co'], ['supplier', 'van minh co']]);
+  assert.deepEqual(rows.map(r => [r.role, r.name]), [['supplier', 'Hanla Co'], ['supplier', 'Van Minh Co']]);
 });
 
 test('implausible USD values are hidden but rows are kept', () => {
@@ -85,7 +85,7 @@ test('implausible USD values are hidden but rows are kept', () => {
   const db = openCustomsDb(':memory:');
   importAll(dir, { db });
   const rows = db.prepare('SELECT name, usd FROM customs_rankings ORDER BY name').all();
-  assert.deepEqual(rows.map(r => [r.name, r.usd]), [['daisy fruit llc', null], ['ok trading', 5000]]);
+  assert.deepEqual(rows.map(r => [r.name, r.usd]), [['Daisy Fruit LLC', null], ['Ok Trading', 5000]]);
 });
 
 test('product groups: description beats wrong HS; HS padded; folder used for rankings; API filters by product', async () => {
@@ -104,7 +104,7 @@ test('product groups: description beats wrong HS; HS padded; folder used for ran
   const db = openCustomsDb(':memory:');
   importAll(dir, { db });
   const api = createCustomsApi(db);
-  assert.deepEqual(api.buyers({ product: 'xoai' }).rows.map(r => r.name).sort(), ['al noor llc', 'b trading']);
+  assert.deepEqual(api.buyers({ product: 'xoai' }).rows.map(r => r.name).sort(), ['Al Noor LLC', 'B Trading']);
   assert.equal(api.buyers({ product: 'nhan-vai' }).total, 1);
   assert.equal(api.buyers({}).total, 3);
   assert.ok(api.summary().products.some(p => p.key === 'xoai' && p.rankings === 2));
@@ -140,8 +140,8 @@ test('mixed-file rankings get a product from the buyer\'s own shipments; flowers
   const db = openCustomsDb(':memory:');
   importAll(dir, { db });
   const get = n => db.prepare('SELECT product_group g, product_inferred i FROM customs_rankings WHERE name = ?').get(n);
-  assert.deepEqual({ ...get('mixed buyer ltd') }, { g: 'thanh-long', i: 1 });
-  assert.deepEqual({ ...get('nobody known inc') }, { g: 'khac', i: 0 });
+  assert.deepEqual({ ...get('Mixed Buyer Ltd') }, { g: 'thanh-long', i: 1 });
+  assert.deepEqual({ ...get('Nobody Known Inc') }, { g: 'khac', i: 0 });
   assert.deepEqual(inferRankingProducts(db), { buyer: 0, supplier: 0 });
 });
 
@@ -165,4 +165,22 @@ test('ports: junk values dropped, aliases merged, filters and suggestions work',
   assert.equal(api.shipments({ portIn: 'jebel' }).total, 2);
   assert.equal(api.shipments({ portOut: 'cat' , portIn: 'ali'}).total, 2);
   assert.deepEqual(api.suggest({ field: 'port_out', view: 'shipments', q: 'cat' }).options, [{ value: 'Cat Lai', hint: 2 }]);
+});
+
+test('formatCompanyName capitalizes words and keeps legal abbreviations', async () => {
+  const { formatCompanyName: f } = await import('./customs-data.mjs');
+  assert.equal(f('UNIQLO CO.,LTD'), 'Uniqlo Co., Ltd');
+  assert.equal(f('daisy fruit trading co llc'), 'Daisy Fruit Trading Co LLC');
+  assert.equal(f('INNOVATECH TECHNOLOGY SOLUTIONS L.L.C'), 'Innovatech Technology Solutions LLC');
+  assert.equal(f('CÔNG TY TNHH THƯƠNG MẠI DỊCH VỤ ÁNH DƯƠNG SAO'), 'Công Ty TNHH Thương Mại Dịch Vụ Ánh Dương Sao');
+  assert.equal(f('Cong Ty TNHH Thuong Mai Dich Vu anh Duong Sao'), 'Cong Ty TNHH Thuong Mai Dich Vu Anh Duong Sao');
+  assert.equal(f('Voelkel GmbH'), 'Voelkel GmbH');
+  assert.equal(f('VOELKEL GMBH'), 'Voelkel GmbH');
+  assert.equal(f("FRESH D'OR S.L"), "Fresh D'Or S.L");
+  assert.equal(f("WOMEN'S CLUB"), "Women's Club");
+  assert.equal(f('3J FOODS CORPORATION'), '3J Foods Corporation');
+  assert.equal(f('branch vietnam tourism&amp;consulting co.ltd'), 'Branch Vietnam Tourism&Consulting Co.Ltd');
+  assert.equal(f('ASIA EXPRESS FOOD KAMPEN, NETHERLANDS Tel -/ Fax- Email - Web- Attn -NEW'), 'Asia Express Food Kampen, Netherlands');
+  assert.equal(f('M/S. T. S. Corporation'), 'M/S. T. S. Corporation');
+  assert.equal(f(''), '');
 });
