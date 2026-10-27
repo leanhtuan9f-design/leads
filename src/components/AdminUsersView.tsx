@@ -99,6 +99,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const [notice, setNotice] = useState('');
   const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [formCountries, setFormCountries] = useState<string[]>([]);
   const [form, setForm] = useState({ email: '', password: '', plan: 'BASIC', billingCycle: 'MONTHLY', role: 'user' });
   const [filter, setFilter] = useState<GroupKey>('ALL');
@@ -200,34 +201,40 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   return (
     <div className="space-y-5 text-xs">
       <div className="bg-slate-950 border border-slate-800 rounded-lg p-4">
-        <h2 className="text-sm font-bold text-white mb-3">Tạo tài khoản mới</h2>
-        <form onSubmit={create} className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
-          <label className="col-span-2 text-slate-400">Email
-            <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={`${input} w-full mt-1`} />
-          </label>
-          <label className="col-span-2 text-slate-400">Mật khẩu (để trống = tự sinh)
-            <input type="text" minLength={10} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`${input} w-full mt-1`} />
-          </label>
-          <label className="text-slate-400">Quyền
-            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className={`${input} w-full mt-1`}>
-              <option value="user">Người dùng</option><option value="admin">Admin</option>
-            </select>
-          </label>
-          <label className="text-slate-400">Gói
-            <select disabled={form.role !== 'user'} value={form.plan} onChange={e => setForm({ ...form, plan: e.target.value })} className={`${input} w-full mt-1`}>
-              <option value="BASIC">Căn bản</option><option value="ADVANCED">Nâng cao</option><option value="NONE">Chưa có gói</option>
-            </select>
-          </label>
-          <label className="text-slate-400">Chu kỳ
-            <select disabled={form.role !== 'user' || form.plan === 'NONE'} value={form.billingCycle} onChange={e => setForm({ ...form, billingCycle: e.target.value })} className={`${input} w-full mt-1`}>
-              <option value="MONTHLY">Tháng</option><option value="ANNUAL">Năm</option>
-            </select>
-          </label>
-          {form.role === 'user' && form.plan === 'BASIC' && <div className="col-span-2 md:col-span-4 text-slate-400">Quốc gia được dùng <span className="text-amber-300">(bắt buộc với gói Căn bản)</span> <span className="text-slate-500">({formCountries.length} đã chọn)</span>
-            <CountryPicker value={formCountries} onChange={setFormCountries} /></div>}
-          <p className="col-span-2 md:col-span-4 text-slate-500">Hạn mức ngày và giới hạn search lấy theo cấu hình gói (tab Cấu hình thanh toán); tài khoản gán tay không qua thanh toán.</p>
-          <button type="submit" className="col-span-2 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo tài khoản</button>
-        </form>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-white">Tạo tài khoản mới</h2>
+          <button type="button" onClick={() => setCreating(v => !v)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md">{creating ? 'Thu gọn' : '+ Tạo tài khoản'}</button>
+        </div>
+        {creating && (
+          <form onSubmit={create} className="mt-3 flex flex-wrap items-end gap-2" title="Hạn mức ngày và giới hạn search lấy theo cấu hình gói; tài khoản gán tay không qua thanh toán.">
+            <label className="text-slate-400 flex-1 min-w-[12rem]">Email
+              <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className={`${input} w-full mt-1`} />
+            </label>
+            <label className="text-slate-400 w-44">Mật khẩu (trống = tự sinh)
+              <input type="text" minLength={10} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`${input} w-full mt-1`} />
+            </label>
+            <label className="text-slate-400">Quyền
+              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className={`${input} block mt-1`}>
+                <option value="user">Người dùng</option><option value="admin">Admin</option>
+              </select>
+            </label>
+            {form.role === 'user' && <>
+              <label className="text-slate-400">Gói
+                <select value={form.plan} onChange={e => setForm({ ...form, plan: e.target.value })} className={`${input} block mt-1`}>
+                  <option value="BASIC">Căn bản</option><option value="ADVANCED">Nâng cao</option><option value="NONE">Chưa có gói</option>
+                </select>
+              </label>
+              {form.plan !== 'NONE' && <label className="text-slate-400">Chu kỳ
+                <select value={form.billingCycle} onChange={e => setForm({ ...form, billingCycle: e.target.value })} className={`${input} block mt-1`}>
+                  <option value="MONTHLY">Tháng</option><option value="ANNUAL">Năm</option>
+                </select>
+              </label>}
+            </>}
+            <button type="submit" className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo</button>
+            {form.role === 'user' && form.plan === 'BASIC' && <div className="basis-full text-slate-400">Quốc gia được dùng <span className="text-amber-300">(bắt buộc)</span> <span className="text-slate-500">({formCountries.length} đã chọn)</span>
+              <CountryPicker value={formCountries} onChange={setFormCountries} /></div>}
+          </form>
+        )}
         {notice && (
           <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/40 rounded text-emerald-200 space-y-2">
             <div>{notice}</div>
