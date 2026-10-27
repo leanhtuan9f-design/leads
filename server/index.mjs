@@ -32,6 +32,7 @@ const MAX_QUERIES = 12;
 const JOB_TIMEOUT_MS = 20 * 60 * 1000;
 const AUTO_TIMEOUT_MS = Number(process.env.AUTO_TIMEOUT_MS ?? 30 * 60 * 1000);
 const MAX_QUEUE = 3;
+const TRIAL_LEAD_LIMIT = 10; // dùng thử: vẫn tìm đủ nhưng chỉ hiển thị ngần này lead, ưu tiên lead đầy đủ thông tin
 const MAX_PROXIES = 10;
 const DB_PATH = process.env.DB_PATH || '/var/lib/maps-data/cache.db';
 const TRADE_TIMER_OVERRIDE = '/etc/systemd/system/maps-trade-refresh.timer.d/override.conf';
@@ -557,7 +558,7 @@ app.post('/api/trial/start', (req, res) => {
   }
   const trialId = newToken();
   const trialEmail = `trial_${trialId.slice(0, 24)}@trial.local`;
-  const userId = stmt.insertUser.run(trialEmail, hashPassword(randomPassword()), 'trial', 20, 3, Date.now()).lastInsertRowid;
+  const userId = stmt.insertUser.run(trialEmail, hashPassword(randomPassword()), 'trial', TRIAL_LEAD_LIMIT, 3, Date.now()).lastInsertRowid;
   const token = newToken();
   stmt.insertSession.run(sha256(token), Number(userId), Date.now() + SESSION_MS);
   setCookie(res, token, SESSION_MS / 1000);
@@ -724,6 +725,11 @@ class Job {
   }
   emit(type, data) {
     if (this.ended) return;
+    if (type === 'place' && this.trialBuf) { // dùng thử: giữ lại, chỉ gửi 10 lead tốt nhất khi kết thúc
+      this.trialBuf.push(data);
+      if (this.trialBuf.length % 5 === 0) this.emit('status', { status: 'running', message: `Đã tìm thấy ${this.trialBuf.length} địa điểm, đang chọn lead đầy đủ thông tin nhất...` });
+      return;
+    }
     if (type === 'place') this.history.push(data);
     for (const res of this.clients) sseWrite(res, type, data);
   }
@@ -731,8 +737,32 @@ class Job {
     const { cache, live } = this.source;
     return cache && live ? 'mixed' : cache ? 'cache' : 'live';
   }
+  flushTrial() { // chọn tối đa TRIAL_LEAD_LIMIT lead đầy đủ thông tin nhất (ưu tiên email); lead cào mới chỉ lấy trong hạn mức còn lại
+    const buf = this.trialBuf;
+    this.trialBuf = null;
+    const score = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
+    const ranked = [...buf].sort((a, b) => score(b) - score(a) || (b.reviewsCount || 0) - (a.reviewsCount || 0));
+    const picked = [];
+    let liveLeft = this.quotaLeft;
+    for (const p of ranked) {
+      if (picked.length >= TRIAL_LEAD_LIMIT) break;
+      if (!p.fromCache) { if (liveLeft <= 0) continue; liveLeft--; }
+      picked.push(p);
+    }
+    this.count = 0; this.source.cache = 0; this.source.live = 0;
+    for (const p of picked) {
+      this.count++;
+      if (p.fromCache) this.source.cache++; else { this.source.live++; this.quotaLeft--; stmt.addNew.run(this.userId, vnDay()); }
+      this.emit('place', p);
+    }
+    return buf.length;
+  }
   endClients(status, message = '') {
     if (this.ended) return;
+    if (this.trialBuf && status !== 'failed' && status !== 'cancelled') {
+      const found = this.flushTrial();
+      if (!message && found > this.count) message = `Bản dùng thử hiển thị ${this.count}/${found} lead đầy đủ thông tin nhất. Nâng cấp để xem toàn bộ.`;
+    }
     this.emit('end', {
       status, count: this.count, message,
       source: this.sourceLabel(), oldestAt: this.source.oldestAt, refreshing: this.source.refreshing,
@@ -750,12 +780,17 @@ class Job {
   }
   deliverLive(place) { // địa điểm cào mới: tính vào hạn mức của người dùng
     if (this.detached || this.aborted) return;
-    if (this.userId) {
+    if (this.userId && !this.trialBuf) {
       if (this.quotaLeft <= 0) { this.detach('Đã hết hạn mức địa điểm mới hôm nay. Dữ liệu đã lưu vẫn xem được; hạn mức đặt lại vào 0h (giờ Việt Nam).'); return; }
       this.quotaLeft--;
       stmt.addNew.run(this.userId, vnDay());
     }
     this.count++; this.source.live++;
+    if (this.trialBuf) { // dùng thử: giữ lại; đủ chỉ tiêu tìm thì kết thúc và chọn lead hiển thị
+      this.emit('place', place);
+      if (this.count >= this.spec.maxResults) this.detach();
+      return;
+    }
     if (this.spec.auto) { try { stmt.autoRunProgress.run(this.count, this.source.live, this.spec.auto.runId); } catch { /* không để lỗi ghi tiến độ làm hỏng job */ } }
     this.emit('place', place);
   }
@@ -1119,6 +1154,7 @@ app.post('/api/jobs', async (req, res) => {
   stmt.addSearch.run(user.id, vnDay());
   if (verdict.lockCountry) billing.setCountries(user.id, [...limits.countries, verdict.lockCountry]); // tài khoản cũ chưa chọn đủ nước: nước đầu tiên được dùng sẽ được khoá
   job.quotaLeft = Math.max(0, user.daily_new - usage.new_places);
+  if (user.role === 'trial') job.trialBuf = [];
   jobs.set(job.id, job);
   setTimeout(() => jobs.delete(job.id), 60 * 60 * 1000).unref();
   job.live = prepareCached(job); // dữ liệu có sẵn được đẩy ngay, không chờ hàng đợi
