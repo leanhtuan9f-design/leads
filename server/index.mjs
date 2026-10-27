@@ -612,9 +612,14 @@ const toInt = (v, def, max = 1000000) => { const n = Number(v); return Number.is
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
   const day = vnDay();
   res.json({ users: stmt.allUsers.all().map((u) => {
-    const use = stmt.getUsage.get(u.id, day) || { new_places: 0, refreshes: 0 };
+    const use = stmt.getUsage.get(u.id, day) || { new_places: 0, refreshes: 0, searches: 0 };
     const limits = billing.limitsFor(u.id);
-    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, plan: limits?.plan ?? null, maxCountries: limits?.maxCountries ?? 0, planMaxCountries: limits?.planMaxCountries ?? 0, maxCountriesCustom: limits ? 'maxCountries' in limits.overrides : false, countries: limits?.countries ?? [] };
+    const has = (k) => (limits ? k in limits.overrides : false);
+    return { id: u.id, email: u.email, role: u.role, createdAt: u.created_at, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, searchUsed: use.searches || 0,
+      plan: limits?.plan ?? null, billingCycle: limits?.billingCycle ?? null, effectiveFrom: limits?.effectiveFrom ?? null, manualPlan: limits?.manual ?? false,
+      maxCountries: limits?.maxCountries ?? 0, planMaxCountries: limits?.planMaxCountries ?? 0, maxCountriesCustom: has('maxCountries'),
+      maxConcurrentSearches: limits?.maxConcurrentSearches ?? 0, planMaxConcurrentSearches: limits?.planMaxConcurrentSearches ?? 0, maxConcurrentCustom: has('maxConcurrentSearches'),
+      dailySearches: limits?.dailySearches ?? 0, planDailySearches: limits?.planDailySearches ?? 0, dailySearchesCustom: has('dailySearches'), countries: limits?.countries ?? [] };
   }) });
 });
 app.post('/api/admin/users', requireAdmin, (req, res) => {
@@ -626,6 +631,10 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
   try {
     stmt.insertUser.run(email, hashPassword(password), role, toInt(req.body?.dailyNew, 200), toInt(req.body?.dailyRefresh, 3, 1000), Date.now());
   } catch { return res.status(409).json({ error: 'Email đã tồn tại' }); }
+  if (req.body?.plan === 'BASIC' || req.body?.plan === 'ADVANCED') {
+    try { billing.assignPlan(stmt.userByEmail.get(email).id, req.body.plan, req.body?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY'); }
+    catch (e) { return res.status(e.statusCode || 500).json({ error: e.message }); }
+  }
   res.json({ email, password }); // mật khẩu chỉ hiện một lần
 });
 app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
@@ -638,6 +647,18 @@ app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
   db.prepare('UPDATE users SET daily_new = ?, daily_refresh = ?, disabled = ?, role = ? WHERE id = ?').run(
     toInt(b.dailyNew, u.daily_new), toInt(b.dailyRefresh, u.daily_refresh, 1000),
     b.disabled === undefined ? u.disabled : (b.disabled ? 1 : 0), b.role === 'admin' || b.role === 'user' ? b.role : u.role, id);
+  if (b.plan !== undefined) { // gán/đổi/gỡ gói thủ công; null hoặc 'NONE' = gỡ gói
+    if (u.role !== 'user') return res.status(409).json({ error: 'Chỉ gán gói cho tài khoản người dùng' });
+    const key = b.plan === null || b.plan === 'NONE' ? null : b.plan;
+    try { billing.assignPlan(id, key, b.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY'); }
+    catch (e) { return res.status(e.statusCode || 500).json({ error: e.message }); }
+  }
+  for (const k of ['maxConcurrentSearches', 'dailySearches']) {
+    if (b[k] === undefined) continue;
+    const n = b[k] === null ? null : Number(b[k]);
+    if (n !== null && !(Number.isInteger(n) && n >= 0 && n <= 100000)) return res.status(400).json({ error: 'Giá trị giới hạn không hợp lệ' });
+    if (!billing.setOverrides(id, { [k]: n })) return res.status(409).json({ error: 'Người dùng chưa có gói thanh toán' });
+  }
   if (b.maxCountries !== undefined) { // số quốc gia riêng cho người dùng này; null = theo gói; 0 = không giới hạn
     const n = b.maxCountries === null ? null : Number(b.maxCountries);
     if (n !== null && !(Number.isInteger(n) && n >= 0 && n <= 300)) return res.status(400).json({ error: 'Số quốc gia không hợp lệ (0–300)' });

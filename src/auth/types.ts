@@ -20,7 +20,8 @@ export interface Quota {
 export interface AdminUserRow {
   id: number;
   email: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'trial';
+  createdAt?: number;
   dailyNew: number;
   dailyRefresh: number;
   disabled: boolean;
@@ -31,6 +32,16 @@ export interface AdminUserRow {
   planMaxCountries?: number;
   maxCountriesCustom?: boolean;
   countries?: string[];
+  billingCycle?: 'MONTHLY' | 'ANNUAL' | null;
+  effectiveFrom?: number | null;
+  manualPlan?: boolean;
+  searchUsed?: number;
+  maxConcurrentSearches?: number;
+  planMaxConcurrentSearches?: number;
+  maxConcurrentCustom?: boolean;
+  dailySearches?: number;
+  planDailySearches?: number;
+  dailySearchesCustom?: boolean;
 }
 
 export async function apiJson<T>(path: string, method = 'GET', body?: unknown): Promise<T> {

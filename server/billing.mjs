@@ -317,12 +317,12 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
 
   // Giới hạn tìm kiếm của người dùng theo gói đang dùng; null = không có gói (admin/trial/tài khoản thủ công) → không áp giới hạn này.
   const limitsFor = (userId) => {
-    const row = db.prepare('SELECT plan, billing_cycle, countries, limit_overrides FROM user_plans WHERE user_id = ?').get(userId);
+    const row = db.prepare('SELECT plan, billing_cycle, countries, limit_overrides, effective_from, order_id FROM user_plans WHERE user_id = ?').get(userId);
     const plan = row && readConfig().plans[row.plan];
     if (!plan) return null;
     const overrides = parseOverrides(row.limit_overrides);
     const pick = (key) => overrides[key] ?? (plan[key] || 0);
-    return { plan: row.plan, maxCountries: pick('maxCountries'), maxConcurrentSearches: pick('maxConcurrentSearches'), dailySearches: pick('dailySearches'), countries: parseCountries(row.countries), planMaxCountries: plan.maxCountries || 0, overrides };
+    return { plan: row.plan, billingCycle: row.billing_cycle, effectiveFrom: row.effective_from, manual: row.order_id === 'ADMIN', maxCountries: pick('maxCountries'), maxConcurrentSearches: pick('maxConcurrentSearches'), dailySearches: pick('dailySearches'), countries: parseCountries(row.countries), planMaxCountries: plan.maxCountries || 0, planMaxConcurrentSearches: plan.maxConcurrentSearches || 0, planDailySearches: plan.dailySearches || 0, overrides };
   };
   // value null = bỏ ghi đè (theo gói). Trả false nếu người dùng chưa có gói.
   const setOverrides = (userId, patch) => {
@@ -336,11 +336,23 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     db.prepare('UPDATE user_plans SET limit_overrides = ? WHERE user_id = ?').run(Object.keys(next).length ? JSON.stringify(next) : null, userId);
     return true;
   };
+  // Admin gán/đổi/gỡ gói thủ công (không qua thanh toán). plan=null → gỡ gói. Đổi sang gói khác thì xoá ghi đè và nước đã khoá.
+  const assignPlan = (userId, planKey, cycle = 'MONTHLY') => {
+    if (planKey === null) { db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId); return true; }
+    const quota = readConfig().plans[planKey];
+    if (!quota || !['MONTHLY', 'ANNUAL'].includes(cycle)) throw Object.assign(new Error('Gói hoặc chu kỳ không hợp lệ'), { statusCode: 422 });
+    const prev = db.prepare('SELECT plan FROM user_plans WHERE user_id = ?').get(userId);
+    if (!prev) db.prepare('INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from) VALUES (?,?,?,?,?)').run(userId, planKey, cycle, 'ADMIN', Date.now());
+    else db.prepare('UPDATE user_plans SET plan=?, billing_cycle=? WHERE user_id=?').run(planKey, cycle, userId);
+    if (prev && prev.plan !== planKey) db.prepare('UPDATE user_plans SET limit_overrides=NULL, countries=NULL WHERE user_id=?').run(userId);
+    if (!prev || prev.plan !== planKey) db.prepare('UPDATE users SET daily_new=?, daily_refresh=? WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
+    return true;
+  };
   const setCountries = (userId, countries) => {
     const seen = new Set();
     const list = (countries || []).map((c) => text(String(c).replace(/\s+/g, ' '), 100)).filter((c) => c && !seen.has(normCountry(c)) && seen.add(normCountry(c))).slice(0, 50);
     return db.prepare('UPDATE user_plans SET countries = ? WHERE user_id = ?').run(JSON.stringify(list), userId).changes > 0;
   };
 
-  return { getConfig: readConfig, createCheckout, status, applyEntitlement, limitsFor, setCountries, setOverrides };
+  return { getConfig: readConfig, createCheckout, status, applyEntitlement, limitsFor, setCountries, setOverrides, assignPlan };
 }

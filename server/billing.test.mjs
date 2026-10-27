@@ -47,7 +47,10 @@ test('payment locks the chosen country for Basic; Advanced keeps none; limitsFor
   assert.equal(billing.limitsFor(999), null);
   paidOrder(db, billing, { orderId: 'o1', plan: 'BASIC', country: 'Japan' });
   const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
-  assert.deepEqual(billing.limitsFor(id), { plan: 'BASIC', maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, countries: ['Japan'], planMaxCountries: 1, overrides: {} });
+  const { billingCycle, effectiveFrom, manual, planMaxConcurrentSearches, planDailySearches, ...rest } = billing.limitsFor(id);
+  assert.deepEqual(rest, { plan: 'BASIC', maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, countries: ['Japan'], planMaxCountries: 1, overrides: {} });
+  assert.deepEqual([billingCycle, manual, planMaxConcurrentSearches, planDailySearches], ['ANNUAL', false, 1, 0]);
+  assert.ok(effectiveFrom > 0);
   // admin đổi nước
   assert.equal(billing.setCountries(id, ['Germany', 'germany', ' ']), true);
   assert.deepEqual(billing.limitsFor(id).countries, ['Germany']);
@@ -183,4 +186,24 @@ test('admin-managed benefits: trimmed, capped, empty lists omitted, legacy "feat
   assert.equal('ADVANCED' in benefits, false); // rỗng → giao diện dùng mặc định
   assert.equal('features' in billing.getConfig(), false);
   assert.deepEqual(setup().billing.getConfig().benefits, {});
+});
+
+test('admin assignPlan: creates, switches (clearing overrides and countries), removes; applies plan quotas', () => {
+  const { db, billing } = setup();
+  const id = Number(db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?,?,?,?,?,?)').run('m@b.com', 'p', 'user', 1, 1, 1).lastInsertRowid);
+  assert.equal(billing.limitsFor(id), null);
+  billing.assignPlan(id, 'BASIC', 'MONTHLY');
+  let l = billing.limitsFor(id);
+  assert.deepEqual([l.plan, l.billingCycle, l.manual, l.maxConcurrentSearches], ['BASIC', 'MONTHLY', true, 1]);
+  const quota = billing.getConfig().plans.BASIC;
+  const row = db.prepare('SELECT daily_new, daily_refresh FROM users WHERE id=?').get(id);
+  assert.deepEqual([row.daily_new, row.daily_refresh], [quota.dailyNew, quota.dailyRefresh]);
+  billing.setOverrides(id, { dailySearches: 5 });
+  billing.setCountries(id, ['Japan']);
+  billing.assignPlan(id, 'ADVANCED', 'ANNUAL');
+  l = billing.limitsFor(id);
+  assert.deepEqual([l.plan, l.billingCycle, l.overrides, l.countries, l.maxCountries], ['ADVANCED', 'ANNUAL', {}, [], 0]);
+  assert.throws(() => billing.assignPlan(id, 'GOLD'), /không hợp lệ/);
+  billing.assignPlan(id, null);
+  assert.equal(billing.limitsFor(id), null);
 });

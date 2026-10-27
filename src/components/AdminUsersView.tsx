@@ -1,13 +1,91 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson, AdminUserRow } from '../auth/types';
 
+type GroupKey = 'ALL' | 'BASIC' | 'ADVANCED' | 'NONE' | 'TRIAL' | 'ADMIN';
+const GROUPS: { key: GroupKey; label: string; badge: string }[] = [
+  { key: 'ALL', label: 'Tất cả', badge: '' },
+  { key: 'ADVANCED', label: 'Nâng cao', badge: 'bg-purple-500/15 text-purple-200 border-purple-500/40' },
+  { key: 'BASIC', label: 'Căn bản', badge: 'bg-blue-500/15 text-blue-200 border-blue-500/40' },
+  { key: 'NONE', label: 'Chưa có gói', badge: 'bg-slate-500/15 text-slate-300 border-slate-600' },
+  { key: 'TRIAL', label: 'Dùng thử', badge: 'bg-amber-500/15 text-amber-200 border-amber-500/40' },
+  { key: 'ADMIN', label: 'Admin', badge: 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40' }
+];
+const groupOf = (u: AdminUserRow): GroupKey => u.role === 'admin' ? 'ADMIN' : u.role === 'trial' ? 'TRIAL' : u.plan ?? 'NONE';
+const lim = (n?: number) => (n ? String(n) : '∞');
+const day = (t?: number | null) => (t ? new Date(t).toLocaleDateString('vi-VN') : '—');
+
+// Panel chỉnh sửa theo gói: đổi gói/chu kỳ, giới hạn riêng (trống = theo gói, 0 = không giới hạn), quốc gia, hạn mức ngày.
+const Edit: React.FC<{ u: AdminUserRow; input: string; patch: (id: number, body: Record<string, unknown>) => Promise<void>; setError: (m: string) => void; onClose: () => void }> = ({ u, input, patch, setError, onClose }) => {
+  const [plan, setPlan] = useState<string>(u.plan ?? 'NONE');
+  const [cycle, setCycle] = useState<string>(u.billingCycle ?? 'MONTHLY');
+  const opt = (custom: boolean | undefined, v?: number) => (custom ? String(v ?? 0) : '');
+  const [mc, setMc] = useState(opt(u.maxCountriesCustom, u.maxCountries));
+  const [cs, setCs] = useState(opt(u.maxConcurrentCustom, u.maxConcurrentSearches));
+  const [ds, setDs] = useState(opt(u.dailySearchesCustom, u.dailySearches));
+  const [countries, setCountries] = useState((u.countries || []).join(', '));
+  const [dn, setDn] = useState(String(u.dailyNew));
+  const [dr, setDr] = useState(String(u.dailyRefresh));
+  const num = (v: string) => (v.trim() === '' ? null : Number(v));
+  const save = async () => {
+    const body: Record<string, unknown> = { dailyNew: Number(dn), dailyRefresh: Number(dr) };
+    if ((u.role === 'user' && plan !== (u.plan ?? 'NONE')) || (u.role === 'user' && plan !== 'NONE' && cycle !== u.billingCycle)) { body.plan = plan === 'NONE' ? null : plan; body.billingCycle = cycle; }
+    const hasPlan = plan !== 'NONE' && u.role === 'user';
+    if (hasPlan && plan === u.plan) { // đổi gói sẽ xoá ghi đè nên chỉ gửi khi giữ nguyên gói
+      body.maxCountries = num(mc); body.maxConcurrentSearches = num(cs); body.dailySearches = num(ds);
+      const list = countries.split(',').map(c => c.trim()).filter(Boolean);
+      if (list.length || (u.countries || []).length) body.countries = list;
+    }
+    const bad = ['maxCountries', 'maxConcurrentSearches', 'dailySearches'].some(k => k in body && body[k] !== null && !(Number.isInteger(body[k]) && (body[k] as number) >= 0));
+    if (bad || !Number.isInteger(body.dailyNew) || !Number.isInteger(body.dailyRefresh)) { setError('Giá trị không hợp lệ'); return; }
+    await patch(u.id, body);
+    onClose();
+  };
+  const changed = u.role === 'user' && plan !== (u.plan ?? 'NONE');
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-slate-900/60 text-slate-400">
+      {u.role === 'user' && <>
+        <label>Gói
+          <select value={plan} onChange={e => setPlan(e.target.value)} className={`${input} w-full mt-1`}>
+            <option value="NONE">Chưa có gói</option><option value="BASIC">Căn bản</option><option value="ADVANCED">Nâng cao</option>
+          </select>
+        </label>
+        <label>Chu kỳ
+          <select value={cycle} disabled={plan === 'NONE'} onChange={e => setCycle(e.target.value)} className={`${input} w-full mt-1`}>
+            <option value="MONTHLY">Tháng</option><option value="ANNUAL">Năm</option>
+          </select>
+        </label>
+      </>}
+      <label>Địa điểm mới/ngày<input type="number" min={0} value={dn} onChange={e => setDn(e.target.value)} className={`${input} w-full mt-1`} /></label>
+      <label>Làm mới/ngày<input type="number" min={0} value={dr} onChange={e => setDr(e.target.value)} className={`${input} w-full mt-1`} /></label>
+      {u.plan && !changed && <>
+        <label>Số quốc gia tối đa <span className="text-slate-500">(gói: {lim(u.planMaxCountries)})</span>
+          <input type="number" min={0} max={300} placeholder="theo gói" value={mc} onChange={e => setMc(e.target.value)} className={`${input} w-full mt-1`} /></label>
+        <label>Search cùng lúc <span className="text-slate-500">(gói: {lim(u.planMaxConcurrentSearches)})</span>
+          <input type="number" min={0} placeholder="theo gói" value={cs} onChange={e => setCs(e.target.value)} className={`${input} w-full mt-1`} /></label>
+        <label>Lượt search/ngày <span className="text-slate-500">(gói: {lim(u.planDailySearches)})</span>
+          <input type="number" min={0} placeholder="theo gói" value={ds} onChange={e => setDs(e.target.value)} className={`${input} w-full mt-1`} /></label>
+        <label className="col-span-2 md:col-span-4">Quốc gia được tìm <span className="text-slate-500">(tên tiếng Anh, ngăn cách dấu phẩy)</span>
+          <input value={countries} onChange={e => setCountries(e.target.value)} className={`${input} w-full mt-1`} /></label>
+      </>}
+      {changed && <p className="col-span-2 md:col-span-4 text-amber-300">Đổi gói sẽ xoá giới hạn riêng và quốc gia đã khoá, đặt lại hạn mức ngày theo gói mới. Lưu rồi mở lại để chỉnh giới hạn riêng.</p>}
+      <div className="col-span-2 md:col-span-4 flex gap-2">
+        <button onClick={save} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Lưu</button>
+        <button onClick={() => onClose()} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md">Hủy</button>
+      </div>
+    </div>
+  );
+};
+
 export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUserId }) => {
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [form, setForm] = useState({ email: '', password: '', dailyNew: 200, dailyRefresh: 3, role: 'user' });
+  const [form, setForm] = useState({ email: '', password: '', plan: 'BASIC', billingCycle: 'MONTHLY', role: 'user' });
+  const [filter, setFilter] = useState<GroupKey>('ALL');
+  const [query, setQuery] = useState('');
+  const [editing, setEditing] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -49,7 +127,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     try {
       const r = await apiJson<{ email: string; password: string }>('/admin/users', 'POST', {
         email: form.email, password: form.password || undefined,
-        dailyNew: Number(form.dailyNew), dailyRefresh: Number(form.dailyRefresh), role: form.role
+        role: form.role, ...(form.role === 'user' && form.plan !== 'NONE' ? { plan: form.plan, billingCycle: form.billingCycle } : {})
       });
       setNotice(`Đã tạo tài khoản ${r.email}. Mật khẩu chỉ hiện một lần — hãy sao chép gửi cho người dùng.`);
       setCreds({ email: r.email, password: r.password });
@@ -60,7 +138,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     }
   };
 
-  const patch = async (id: number, body: Record<string, unknown>) => {
+  const patch = async (id: number, body: Record<string, unknown>): Promise<void> => {
     setError(''); setNotice(''); setCreds(null);
     try {
       const r = await apiJson<{ newPassword?: string }>(`/admin/users/${id}`, 'PATCH', body);
@@ -75,33 +153,11 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     }
   };
 
-  const editLimit = (u: AdminUserRow, field: 'dailyNew' | 'dailyRefresh', label: string) => {
-    const v = window.prompt(`${label} cho ${u.email}:`, String(u[field]));
-    if (v === null) return;
-    const n = Number(v);
-    if (!Number.isInteger(n) || n < 0) { setError('Giá trị không hợp lệ'); return; }
-    patch(u.id, { [field]: n });
-  };
-
-  // Số quốc gia riêng cho một người dùng có gói: để trống = theo cấu hình gói, 0 = không giới hạn.
-  const editMaxCountries = (u: AdminUserRow) => {
-    const v = window.prompt(`Số quốc gia được chọn cho ${u.email}\n(gói mặc định: ${u.planMaxCountries ? u.planMaxCountries : 'không giới hạn'}; 0 = không giới hạn; để trống = theo gói):`, u.maxCountriesCustom ? String(u.maxCountries ?? 0) : '');
-    if (v === null) return;
-    if (v.trim() === '') { patch(u.id, { maxCountries: null }); return; }
-    const n = Number(v);
-    if (!Number.isInteger(n) || n < 0 || n > 300) { setError('Số quốc gia không hợp lệ (0–300)'); return; }
-    patch(u.id, { maxCountries: n });
-  };
-
-  const editCountries = (u: AdminUserRow) => {
-    const v = window.prompt(`Quốc gia được phép tìm cho ${u.email} (tối đa ${u.maxCountries}; ngăn cách bằng dấu phẩy, tên tiếng Anh):`, (u.countries || []).join(', '));
-    if (v === null) return;
-    const list = v.split(',').map(c => c.trim()).filter(Boolean);
-    if (u.maxCountries && list.length > u.maxCountries) { setError(`Người dùng này chỉ được tối đa ${u.maxCountries} quốc gia (dùng "Đổi số quốc gia" để tăng)`); return; }
-    patch(u.id, { countries: list });
-  };
-
   const input = 'bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500';
+
+  const counts = users.reduce<Record<string, number>>((m, u) => { const g = groupOf(u); m[g] = (m[g] || 0) + 1; m.ALL = (m.ALL || 0) + 1; return m; }, {});
+  const q = query.trim().toLowerCase();
+  const shown = users.filter(u => (filter === 'ALL' || groupOf(u) === filter) && (!q || u.email.toLowerCase().includes(q)));
 
   return (
     <div className="space-y-5 text-xs">
@@ -114,13 +170,23 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
           <label className="col-span-2 text-slate-400">Mật khẩu (để trống = tự sinh)
             <input type="text" minLength={10} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} className={`${input} w-full mt-1`} />
           </label>
-          <label className="text-slate-400">Địa điểm mới/ngày
-            <input type="number" min={0} value={form.dailyNew} onChange={e => setForm({ ...form, dailyNew: Number(e.target.value) })} className={`${input} w-full mt-1`} />
+          <label className="text-slate-400">Quyền
+            <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className={`${input} w-full mt-1`}>
+              <option value="user">Người dùng</option><option value="admin">Admin</option>
+            </select>
           </label>
-          <label className="text-slate-400">Làm mới/ngày
-            <input type="number" min={0} value={form.dailyRefresh} onChange={e => setForm({ ...form, dailyRefresh: Number(e.target.value) })} className={`${input} w-full mt-1`} />
+          <label className="text-slate-400">Gói
+            <select disabled={form.role !== 'user'} value={form.plan} onChange={e => setForm({ ...form, plan: e.target.value })} className={`${input} w-full mt-1`}>
+              <option value="BASIC">Căn bản</option><option value="ADVANCED">Nâng cao</option><option value="NONE">Chưa có gói</option>
+            </select>
           </label>
-          <button type="submit" className="col-span-2 md:col-span-6 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo tài khoản</button>
+          <label className="text-slate-400">Chu kỳ
+            <select disabled={form.role !== 'user' || form.plan === 'NONE'} value={form.billingCycle} onChange={e => setForm({ ...form, billingCycle: e.target.value })} className={`${input} w-full mt-1`}>
+              <option value="MONTHLY">Tháng</option><option value="ANNUAL">Năm</option>
+            </select>
+          </label>
+          <p className="col-span-2 md:col-span-4 text-slate-500">Hạn mức ngày và giới hạn search lấy theo cấu hình gói (tab Cấu hình thanh toán); tài khoản gán tay không qua thanh toán.</p>
+          <button type="submit" className="col-span-2 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo tài khoản</button>
         </form>
         {notice && (
           <div className="mt-3 p-3 bg-emerald-500/10 border border-emerald-500/40 rounded text-emerald-200 space-y-2">
@@ -140,43 +206,61 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
         {error && <div className="mt-3 p-2 bg-red-500/10 border border-red-500/40 rounded text-red-200">{error}</div>}
       </div>
 
-      <p className="text-slate-500">Mật khẩu chỉ lưu dạng băm nên không thể xem lại. "Sao chép TT" chép link + email; cần mật khẩu mới thì bấm "Đặt lại MK" rồi sao chép thông tin hiện ra.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        {GROUPS.map(g => (
+          <button key={g.key} onClick={() => setFilter(g.key)} className={`px-3 py-1.5 rounded-md border ${filter === g.key ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600'}`}>
+            {g.label} <span className="font-mono opacity-80">{counts[g.key] || 0}</span>
+          </button>
+        ))}
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Tìm email…" className={`${input} ml-auto w-48`} />
+      </div>
+      <p className="text-slate-500">∞ = không giới hạn. Mật khẩu chỉ lưu dạng băm nên không xem lại được; cần mật khẩu mới thì bấm "Đặt lại MK" rồi sao chép thông tin hiện ra.</p>
       <div className="bg-slate-950 border border-slate-800 rounded-lg overflow-x-auto">
         <table className="w-full text-left">
           <thead className="bg-slate-900 text-slate-400">
             <tr>
-              <th className="p-2.5">Email</th><th className="p-2.5">Quyền</th>
-              <th className="p-2.5">Địa điểm mới hôm nay</th><th className="p-2.5">Làm mới hôm nay</th>
-              <th className="p-2.5">Gói · quốc gia</th><th className="p-2.5">Trạng thái</th><th className="p-2.5">Thao tác</th>
+              <th className="p-2.5">Email</th><th className="p-2.5">Gói</th><th className="p-2.5">Quốc gia</th>
+              <th className="p-2.5">Search hôm nay</th><th className="p-2.5">Cùng lúc</th>
+              <th className="p-2.5">Địa điểm mới</th><th className="p-2.5">Làm mới</th><th className="p-2.5">Trạng thái</th><th className="p-2.5">Thao tác</th>
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
-              <tr key={u.id} className="border-t border-slate-800 text-slate-200">
-                <td className="p-2.5 break-all">{u.email}{u.id === currentUserId && <span className="text-slate-500"> (bạn)</span>}</td>
-                <td className="p-2.5">{u.role === 'admin' ? 'Admin' : 'Người dùng'}</td>
-                <td className="p-2.5 font-mono">{u.newUsed} / {u.dailyNew}</td>
-                <td className="p-2.5 font-mono">{u.refreshUsed} / {u.dailyRefresh}</td>
-                <td className="p-2.5">{u.plan ? <>{u.plan === 'ADVANCED' ? 'Nâng cao' : 'Căn bản'} · {u.maxCountries ? <>{u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>} <span className="text-slate-500">(tối đa {u.maxCountries}{u.maxCountriesCustom ? ', tùy chỉnh' : ''})</span></> : <>mọi nước{u.maxCountriesCustom ? <span className="text-slate-500"> (tùy chỉnh)</span> : null}</>}</> : <span className="text-slate-500">—</span>}</td>
-                <td className="p-2.5">{u.disabled ? <span className="text-red-300">Đã khóa</span> : <span className="text-emerald-300">Hoạt động</span>}</td>
-                <td className="p-2.5 space-x-2 whitespace-nowrap">
-                  <button onClick={() => copyRow(u)} className="text-emerald-300 hover:text-emerald-200">{copiedId === u.id ? '✓ Đã sao chép' : 'Sao chép TT'}</button>
-                  <button onClick={() => editLimit(u, 'dailyNew', 'Hạn mức địa điểm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi hạn mức</button>
-                  <button onClick={() => editLimit(u, 'dailyRefresh', 'Số lần làm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi lượt làm mới</button>
-                  {u.plan ? <button onClick={() => editMaxCountries(u)} className="text-blue-400 hover:text-blue-300">Đổi số quốc gia</button> : null}
-                  {u.plan && u.maxCountries ? <button onClick={() => editCountries(u)} className="text-blue-400 hover:text-blue-300">Đổi quốc gia</button> : null}
-                  <button onClick={() => { if (window.confirm(`Đặt lại mật khẩu cho ${u.email}?`)) patch(u.id, { resetPassword: true }); }} className="text-amber-300 hover:text-amber-200">Đặt lại MK</button>
-                  {u.id !== currentUserId && (
-                    <button onClick={() => patch(u.id, { disabled: !u.disabled })} className={u.disabled ? 'text-emerald-300 hover:text-emerald-200' : 'text-red-300 hover:text-red-200'}>
-                      {u.disabled ? 'Mở khóa' : 'Khóa'}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {shown.map(u => {
+              const g = GROUPS.find(x => x.key === groupOf(u))!;
+              return (
+                <React.Fragment key={u.id}>
+                  <tr className="border-t border-slate-800 text-slate-200">
+                    <td className="p-2.5 break-all">{u.email}{u.id === currentUserId && <span className="text-slate-500"> (bạn)</span>}</td>
+                    <td className="p-2.5 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded border ${g.badge}`}>{g.label}</span>
+                      {u.plan && <span className="text-slate-500"> {u.billingCycle === 'ANNUAL' ? 'năm' : 'tháng'} · từ {day(u.effectiveFrom)}{u.manualPlan ? ' · gán tay' : ''}</span>}
+                    </td>
+                    <td className="p-2.5">{u.plan ? (u.maxCountries ? <>{u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>} <span className="text-slate-500">(tối đa {u.maxCountries}{u.maxCountriesCustom ? ', tùy chỉnh' : ''})</span></> : <>mọi nước{u.maxCountriesCustom ? <span className="text-slate-500"> (tùy chỉnh)</span> : null}</>) : <span className="text-slate-500">—</span>}</td>
+                    <td className="p-2.5 font-mono">{u.plan ? <>{u.searchUsed ?? 0} / {lim(u.dailySearches)}{u.dailySearchesCustom && <span className="text-slate-500"> *</span>}</> : <span className="text-slate-500">—</span>}</td>
+                    <td className="p-2.5 font-mono">{u.plan ? <>{lim(u.maxConcurrentSearches)}{u.maxConcurrentCustom && <span className="text-slate-500"> *</span>}</> : <span className="text-slate-500">—</span>}</td>
+                    <td className="p-2.5 font-mono">{u.newUsed} / {u.dailyNew}</td>
+                    <td className="p-2.5 font-mono">{u.refreshUsed} / {u.dailyRefresh}</td>
+                    <td className="p-2.5">{u.disabled ? <span className="text-red-300">Đã khóa</span> : <span className="text-emerald-300">Hoạt động</span>}</td>
+                    <td className="p-2.5 space-x-2 whitespace-nowrap">
+                      <button onClick={() => setEditing(editing === u.id ? null : u.id)} className="text-blue-400 hover:text-blue-300">{editing === u.id ? 'Đóng' : 'Chỉnh sửa'}</button>
+                      <button onClick={() => copyRow(u)} className="text-emerald-300 hover:text-emerald-200">{copiedId === u.id ? '✓ Đã sao chép' : 'Sao chép TT'}</button>
+                      <button onClick={() => { if (window.confirm(`Đặt lại mật khẩu cho ${u.email}?`)) patch(u.id, { resetPassword: true }); }} className="text-amber-300 hover:text-amber-200">Đặt lại MK</button>
+                      {u.id !== currentUserId && (
+                        <button onClick={() => patch(u.id, { disabled: !u.disabled })} className={u.disabled ? 'text-emerald-300 hover:text-emerald-200' : 'text-red-300 hover:text-red-200'}>
+                          {u.disabled ? 'Mở khóa' : 'Khóa'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {editing === u.id && <tr><td colSpan={9} className="p-0"><Edit u={u} input={input} patch={patch} setError={setError} onClose={() => setEditing(null)} /></td></tr>}
+                </React.Fragment>
+              );
+            })}
+            {!shown.length && <tr><td colSpan={9} className="p-4 text-center text-slate-500">Không có tài khoản</td></tr>}
           </tbody>
         </table>
       </div>
+      <p className="text-slate-500">* giới hạn riêng của người dùng, khác cấu hình gói.</p>
     </div>
   );
 };
