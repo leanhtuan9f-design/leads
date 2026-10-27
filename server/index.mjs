@@ -1,5 +1,6 @@
 // Backend cào Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
 import express from 'express';
+import { createWarehouseStats } from './warehouse-stats.mjs';
 import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
@@ -1137,6 +1138,17 @@ app.delete('/api/jobs/:id', (req, res) => {
   }
   if (req.query.graceful) job.detach(); else job.abort();
   res.json({ ok: true });
+});
+
+// Homepage statistics read directly from the shared warehouse, cached for 15 seconds.
+const warehouseStats = createWarehouseStats(db);
+app.get('/api/public/warehouse-stats', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { res.json(warehouseStats()); }
+  catch (error) {
+    console.error('Warehouse statistics failed:', error.message);
+    res.status(503).json({ error: 'Chưa tải được thống kê dữ liệu.' });
+  }
 });
 
 app.get('/api/cache/stats', requireAdmin, (_req, res) => {

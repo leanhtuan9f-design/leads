@@ -5,6 +5,7 @@ import {
   IconPlayerPlay, IconSearch, IconWorld, IconX,
 } from '@tabler/icons-react';
 import { PartnerPreview } from './PartnerPreview';
+import { WarehouseStats } from './WarehouseStats';
 import { LandingPricing } from './LandingPricing';
 import './landing.css';
 
@@ -48,6 +49,7 @@ export function LandingPage() {
       <PartnerPreview/>
       <section className="export-benefits export-container" id="cach-hoat-dong" aria-label="Cách hoạt động">{benefits.map(benefit => <article key={benefit.title}><span className="export-benefit-icon"><benefit.icon size={40} stroke={1.7}/></span><div><h2>{benefit.title}</h2><p>{benefit.body}</p></div></article>)}</section>
       <section className="export-market-note export-container"><IconWorld size={22}/><p><strong>Chủ động tìm kiếm. Kiểm tra trước khi kết nối.</strong> Dữ liệu từ Google Maps và website doanh nghiệp; thông tin liên hệ có thể không đầy đủ và chưa xác nhận nhu cầu mua hàng.</p><a href="/app">Mở công cụ <IconArrowUpRight size={17}/></a></section>
+      <WarehouseStats/>
       <LandingPricing/>
       <section className="export-section export-container export-faq" id="cau-hoi" aria-labelledby="faq-title"><div><p className="export-kicker">HIỂU RÕ TRƯỚC KHI BẮT ĐẦU</p><h2 id="faq-title">Bạn hỏi.<br/>Chúng tôi giải đáp.</h2><p>Dữ liệu là điểm bắt đầu.<br/>Mối quan hệ do bạn xây dựng.</p></div><div>{questions.map(([question,answer]) => <details key={question}><summary>{question}<IconChevronDown size={19}/></summary><p>{answer}</p></details>)}</div></section>
       <section className="export-final export-container"><div><p className="export-kicker">VIỆT NAM VƯƠN RA THẾ GIỚI</p><h2>Sản phẩm đã sẵn sàng.<br/><span>Đối tác tiếp theo ở đâu?</span></h2></div><div><a href="#bat-dau" className="export-button">Bắt đầu tìm đối tác <IconArrowRight size={20}/></a><p><IconCheck size={16}/> Dùng thử miễn phí, chưa cần thanh toán.</p></div></section>
