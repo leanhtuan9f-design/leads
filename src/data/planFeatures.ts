@@ -35,5 +35,8 @@ export function planLimitLines(plan: PlanLimits | undefined): string[] {
   return lines;
 }
 
-/** Toàn bộ quyền lợi hiển thị: dòng giới hạn theo cấu hình, rồi các chức năng. */
-export const planBenefits = (key: keyof typeof planFeatures, plan: PlanLimits | undefined): string[] => [...planLimitLines(plan), ...planFeatures[key]];
+/** Danh sách tính năng hiển thị: do admin soạn (`benefits`) hoặc mặc định `planFeatures` khi admin chưa soạn. */
+export const featureList = (key: keyof typeof planFeatures, custom?: readonly string[]): string[] => (custom && custom.length ? [...custom] : [...planFeatures[key]]);
+
+/** Toàn bộ quyền lợi hiển thị: dòng giới hạn theo cấu hình, rồi danh sách tính năng. */
+export const planBenefits = (key: keyof typeof planFeatures, plan: PlanLimits | undefined, custom?: readonly string[]): string[] => [...planLimitLines(plan), ...featureList(key, custom)];

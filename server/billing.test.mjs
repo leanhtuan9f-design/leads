@@ -172,3 +172,15 @@ test('paying for N countries locks exactly those countries and allows N; renewal
   l = billing.limitsFor(id);
   assert.deepEqual([l.maxCountries, l.countries, l.overrides], [1, ['Italy'], {}]);
 });
+
+test('admin-managed benefits: trimmed, capped, empty lists omitted, legacy "features" ignored', () => {
+  const long = 'x'.repeat(300);
+  const { billing } = setup({ features: { BASIC: ['Chọn 1 quốc gia (cũ)'] }, benefits: { BASIC: ['  Xuất CSV  ', '', long, ...Array.from({ length: 30 }, (_, i) => `Dòng ${i}`)], ADVANCED: ['  ', ''] } });
+  const { benefits } = billing.getConfig();
+  assert.equal(benefits.BASIC[0], 'Xuất CSV');
+  assert.equal(benefits.BASIC.length, 20);
+  assert.equal(benefits.BASIC[1].length, 200);
+  assert.equal('ADVANCED' in benefits, false); // rỗng → giao diện dùng mặc định
+  assert.equal('features' in billing.getConfig(), false);
+  assert.deepEqual(setup().billing.getConfig().benefits, {});
+});

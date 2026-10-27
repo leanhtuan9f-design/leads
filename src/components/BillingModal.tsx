@@ -8,8 +8,8 @@ type Props = { userEmail: string; trialId?: string; onClose: () => void; onActiv
 type Checkout = { orderId: string; session: { paymentSessionId: string; status: string; expiresAt?: string | null; instructions?: Record<string, unknown>; amount?: { value?: string; currency?: string } } };
 type PlanKey = 'BASIC' | 'ADVANCED';
 type Plan = { dailyNew: number; dailyRefresh: number; maxCountries?: number; maxConcurrentSearches?: number; dailySearches?: number };
-type BillingConfig = { plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> };
-type AccountPlan = { plan: { plan: PlanKey | 'TRIAL'; billingCycle: string | null; orderId?: string | null }; quota: { newLimit: number; refreshLimit: number; countries?: string[] }; plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> };
+type BillingConfig = { plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }>; benefits?: Partial<Record<PlanKey, string[]>> };
+type AccountPlan = { plan: { plan: PlanKey | 'TRIAL'; billingCycle: string | null; orderId?: string | null }; quota: { newLimit: number; refreshLimit: number; countries?: string[] }; plans: Record<PlanKey, Plan>; prices?: Record<PlanKey, { MONTHLY: number; ANNUAL: number }>; benefits?: Partial<Record<PlanKey, string[]>> };
 
 const str = (value: unknown) => typeof value === 'string' ? value.trim() : '';
 
@@ -28,7 +28,7 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
 
   useEffect(() => {
     apiJson<AccountPlan>('/account/plan').then((current) => {
-      setCatalog({ plans: current.plans, prices: current.prices });
+      setCatalog({ plans: current.plans, prices: current.prices, benefits: current.benefits });
       setAccountPlan(current);
       if (current.quota.countries?.length) setCountries(current.quota.countries); // đang dùng gói giới hạn nước: gợi ý sẵn các nước hiện có
       if (current.plan.plan === 'ADVANCED' && !new URLSearchParams(window.location.search).has('plan')) setForm(previous => ({ ...previous, plan: 'ADVANCED' }));
@@ -119,7 +119,7 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
               {plan === 'ADVANCED' && <span className="absolute -top-3 left-5 rounded-full bg-blue-500 px-3 py-1 text-[11px] font-bold text-white">ĐƯỢC CHỌN NHIỀU NHẤT</span>}
               <div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-bold text-white">{planLabel(plan)}</h3><p className="mt-1 text-xs text-slate-400">{plan === 'ADVANCED' ? 'Cho nhu cầu tìm kiếm ở nhiều thị trường' : 'Xây dựng danh sách khách hàng để tiếp cận'}</p></div>{isCurrent && <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold text-emerald-300">GÓI HIỆN TẠI</span>}</div>
               <div className="mt-4 flex items-end gap-2"><strong className="text-3xl font-black tracking-tight text-white">{formatPrice(price)}</strong><span className="pb-1 text-xs text-slate-400">/{form.billingCycle === 'ANNUAL' ? 'năm' : 'tháng'}</span></div>
-              <ul className="mt-4 flex-1 space-y-2 border-t border-white/10 pt-4">{planBenefits(plan, details).map((feature, index) => <li key={`${plan}-${index}`} className="flex gap-2 text-sm text-slate-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}</ul>
+              <ul className="mt-4 flex-1 space-y-2 border-t border-white/10 pt-4">{planBenefits(plan, details, catalog?.benefits?.[plan]).map((feature, index) => <li key={`${plan}-${index}`} className="flex gap-2 text-sm text-slate-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />{feature}</li>)}</ul>
               {needsCountry(plan) && <fieldset className="mt-4 text-xs text-slate-400"><legend>Chọn quốc gia sử dụng <span className="text-slate-500">(giá tính theo từng quốc gia, khoá sau khi thanh toán)</span></legend>
                 <div className="mt-2 grid max-h-40 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/60 p-2">{COUNTRIES.map(name => <label key={name} className="flex cursor-pointer items-center gap-1.5 text-slate-300"><input type="checkbox" checked={countries.includes(name)} onChange={() => toggleCountry(name)} />{name}</label>)}</div>
                 <p className="mt-1.5 text-slate-300">{countries.length ? <>{countries.length} quốc gia × {formatPrice(unitPriceFor(plan, form.billingCycle as 'MONTHLY' | 'ANNUAL'))} = <strong className="text-white">{formatPrice(price)}</strong></> : 'Chọn ít nhất 1 quốc gia'}</p></fieldset>}

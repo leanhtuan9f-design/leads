@@ -111,7 +111,10 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     let saved = {};
     try { saved = row?.value ? JSON.parse(row.value) : {}; } catch { /* dùng env */ }
     const prices = { BASIC: { ...defaultPrices.BASIC, ...(saved.prices?.BASIC || {}) }, ADVANCED: { ...defaultPrices.ADVANCED, ...(saved.prices?.ADVANCED || {}) } };
-    return { sourceKey: text(saved.sourceKey || initialSourceKey, 120), skus: { ...envSkus, ...(saved.skus || {}) }, plans: { BASIC: { ...defaultQuotas.BASIC, ...(saved.plans?.BASIC || {}) }, ADVANCED: { ...defaultQuotas.ADVANCED, ...(saved.plans?.ADVANCED || {}) } }, prices };
+    // Danh sách tính năng hiển thị cho khách do admin soạn (rỗng = dùng mặc định của giao diện). Khoá `benefits`, không dùng `features` cũ đã lỗi thời.
+    const benefitList = (value) => (Array.isArray(value) ? value.map((item) => text(item, 200)).filter(Boolean).slice(0, 20) : []);
+    const benefits = Object.fromEntries(['BASIC', 'ADVANCED'].map((key) => [key, benefitList(saved.benefits?.[key])]).filter(([, list]) => list.length));
+    return { sourceKey: text(saved.sourceKey || initialSourceKey, 120), skus: { ...envSkus, ...(saved.skus || {}) }, plans: { BASIC: { ...defaultQuotas.BASIC, ...(saved.plans?.BASIC || {}) }, ADVANCED: { ...defaultQuotas.ADVANCED, ...(saved.plans?.ADVANCED || {}) } }, prices, benefits };
   };
 
   const callCrm = async (path, init = {}, auth = true) => {
