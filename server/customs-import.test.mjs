@@ -126,3 +126,21 @@ test('suggest: names, HS prefixes (zero-padded) and countries; buyers HS filter 
   assert.equal(api.buyers({ hs: '0803' }).total, 2);
   assert.equal(api.buyers({ hs: '0810' }).rows[0].name, 'Al Noor Trading LLC');
 });
+
+test('mixed-file rankings get a product from the buyer\'s own shipments; flowers/mushrooms group exists', async () => {
+  const { productGroup, inferRankingProducts } = await import('./customs-products.mjs');
+  assert.equal(productGroup({ description: 'Fresh hydrangea #&VN', hs: '6031900' }), 'hoa-nam');
+  assert.equal(productGroup({ description: 'Fresh mushrooms 100 gr#&VN' }), 'hoa-nam');
+  assert.equal(productGroup({ description: 'unknown', hs: '7095990' }), 'hoa-nam');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  const bolHeader = ['Total amount(USD)', 'Product Description', 'Date', 'Bill of Lading Number', 'Supplier Address', "Buyer's address", 'HS code', 'Qty', 'quantity unit', 'importing country', 'Destination country', 'Buyer', 'Supplier'];
+  const row = (buyer, desc) => [1000, desc, 45297, 'N/A', 'HCM', '1 Main St, Dubai, AE', 8045020, 10, 'Bag', 'VN', 'Vietnam', buyer, 'VN Exporter Co'];
+  book(dir, '03.52WMB/BL.xlsx', { S: [bolHeader, row('Mixed Buyer Ltd', 'Fresh dragon fruit'), row('Mixed Buyer Ltd', 'Fresh dragon fruit 2'), row('Mixed Buyer Ltd', 'Fresh banana')] });
+  book(dir, '03.52WMB/Product_Fresh Air Exports/List of Air Buyer.xlsx', { S: [['Buyer', 'Transactions', 'Percent', 'seller', 'URL'], ['mixed buyer ltd', 3, 0.1, 1, 'u'], ['nobody known inc', 2, 0.1, 1, 'u']] });
+  const db = openCustomsDb(':memory:');
+  importAll(dir, { db });
+  const get = n => db.prepare('SELECT product_group g, product_inferred i FROM customs_rankings WHERE name = ?').get(n);
+  assert.deepEqual({ ...get('mixed buyer ltd') }, { g: 'thanh-long', i: 1 });
+  assert.deepEqual({ ...get('nobody known inc') }, { g: 'khac', i: 0 });
+  assert.deepEqual(inferRankingProducts(db), { buyer: 0, supplier: 0 });
+});

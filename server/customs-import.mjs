@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import XLSX from 'xlsx';
 import { openCustomsDb, normalizeName } from './customs-data.mjs';
-import { backfillProductGroups, normalizeHs } from './customs-products.mjs';
+import { backfillProductGroups, inferRankingProducts, normalizeHs } from './customs-products.mjs';
 
 // ---- chuẩn hóa chung ----
 const names = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -313,7 +313,7 @@ export function importAll(root, { db, docs = false } = {}) {
       if (apply) insF.run(rel, 'document', list.length, Date.now());
     }
   }
-  if (apply) { db.exec('COMMIT'); stats.productGroups = backfillProductGroups(db); }
+  if (apply) { db.exec('COMMIT'); stats.productGroups = backfillProductGroups(db); stats.inferred = inferRankingProducts(db); }
   return stats;
 }
 

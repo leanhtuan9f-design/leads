@@ -39,6 +39,7 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     CREATE INDEX IF NOT EXISTS idx_de_name ON directory_entities(name_norm, country);
     CREATE INDEX IF NOT EXISTS idx_de_type ON directory_entities(entity_type, country);
   `);
+  if (!db.prepare('PRAGMA table_info(customs_rankings)').all().some(c => c.name === 'product_inferred')) db.exec('ALTER TABLE customs_rankings ADD COLUMN product_inferred INTEGER NOT NULL DEFAULT 0');
   // Cột product_group thêm sau: migrate DB cũ, tạo chỉ mục, điền các dòng còn trống.
   for (const t of ['customs_shipments', 'customs_rankings', 'customs_market']) {
     if (!db.prepare(`PRAGMA table_info(${t})`).all().some(c => c.name === 'product_group')) db.exec(`ALTER TABLE ${t} ADD COLUMN product_group TEXT`);
