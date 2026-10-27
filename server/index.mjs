@@ -834,6 +834,13 @@ function startBackgroundRefresh() {
 }
 
 function next() {
+  // Người dùng bấm tìm/test phải chạy ngay: cặp tự động đang giữ luồng chính bị dừng, trả về hàng chờ và chạy lại sau.
+  if (running?.spec.auto && queue.length > 0 && !running.stopRequested) {
+    running.stopRequested = true;
+    running.abort();
+    return; // finally của job auto gọi next() → job người dùng vào luồng chính
+  }
+
   // Job người dùng luôn chiếm worker chính và được ưu tiên trước nền.
   if (!running && queue.length > 0) {
     const job = queue.shift();
