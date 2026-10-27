@@ -83,11 +83,21 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
     patch(u.id, { [field]: n });
   };
 
+  // Số quốc gia riêng cho một người dùng có gói: để trống = theo cấu hình gói, 0 = không giới hạn.
+  const editMaxCountries = (u: AdminUserRow) => {
+    const v = window.prompt(`Số quốc gia được chọn cho ${u.email}\n(gói mặc định: ${u.planMaxCountries ? u.planMaxCountries : 'không giới hạn'}; 0 = không giới hạn; để trống = theo gói):`, u.maxCountriesCustom ? String(u.maxCountries ?? 0) : '');
+    if (v === null) return;
+    if (v.trim() === '') { patch(u.id, { maxCountries: null }); return; }
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 300) { setError('Số quốc gia không hợp lệ (0–300)'); return; }
+    patch(u.id, { maxCountries: n });
+  };
+
   const editCountries = (u: AdminUserRow) => {
     const v = window.prompt(`Quốc gia được phép tìm cho ${u.email} (tối đa ${u.maxCountries}; ngăn cách bằng dấu phẩy, tên tiếng Anh):`, (u.countries || []).join(', '));
     if (v === null) return;
     const list = v.split(',').map(c => c.trim()).filter(Boolean);
-    if (list.length > (u.maxCountries || 0)) { setError(`Gói này chỉ cho tối đa ${u.maxCountries} quốc gia`); return; }
+    if (u.maxCountries && list.length > u.maxCountries) { setError(`Người dùng này chỉ được tối đa ${u.maxCountries} quốc gia (dùng "Đổi số quốc gia" để tăng)`); return; }
     patch(u.id, { countries: list });
   };
 
@@ -147,12 +157,13 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
                 <td className="p-2.5">{u.role === 'admin' ? 'Admin' : 'Người dùng'}</td>
                 <td className="p-2.5 font-mono">{u.newUsed} / {u.dailyNew}</td>
                 <td className="p-2.5 font-mono">{u.refreshUsed} / {u.dailyRefresh}</td>
-                <td className="p-2.5">{u.plan ? <>{u.plan === 'ADVANCED' ? 'Nâng cao' : 'Căn bản'} · {u.maxCountries ? (u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>) : 'mọi nước'}</> : <span className="text-slate-500">—</span>}</td>
+                <td className="p-2.5">{u.plan ? <>{u.plan === 'ADVANCED' ? 'Nâng cao' : 'Căn bản'} · {u.maxCountries ? <>{u.countries?.length ? u.countries.join(', ') : <span className="text-amber-300">chưa chọn nước</span>} <span className="text-slate-500">(tối đa {u.maxCountries}{u.maxCountriesCustom ? ', tùy chỉnh' : ''})</span></> : <>mọi nước{u.maxCountriesCustom ? <span className="text-slate-500"> (tùy chỉnh)</span> : null}</>}</> : <span className="text-slate-500">—</span>}</td>
                 <td className="p-2.5">{u.disabled ? <span className="text-red-300">Đã khóa</span> : <span className="text-emerald-300">Hoạt động</span>}</td>
                 <td className="p-2.5 space-x-2 whitespace-nowrap">
                   <button onClick={() => copyRow(u)} className="text-emerald-300 hover:text-emerald-200">{copiedId === u.id ? '✓ Đã sao chép' : 'Sao chép TT'}</button>
                   <button onClick={() => editLimit(u, 'dailyNew', 'Hạn mức địa điểm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi hạn mức</button>
                   <button onClick={() => editLimit(u, 'dailyRefresh', 'Số lần làm mới/ngày')} className="text-blue-400 hover:text-blue-300">Đổi lượt làm mới</button>
+                  {u.plan ? <button onClick={() => editMaxCountries(u)} className="text-blue-400 hover:text-blue-300">Đổi số quốc gia</button> : null}
                   {u.plan && u.maxCountries ? <button onClick={() => editCountries(u)} className="text-blue-400 hover:text-blue-300">Đổi quốc gia</button> : null}
                   <button onClick={() => { if (window.confirm(`Đặt lại mật khẩu cho ${u.email}?`)) patch(u.id, { resetPassword: true }); }} className="text-amber-300 hover:text-amber-200">Đặt lại MK</button>
                   {u.id !== currentUserId && (

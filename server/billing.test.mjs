@@ -46,7 +46,7 @@ test('payment locks the chosen country for Basic; Advanced keeps none; limitsFor
   assert.equal(billing.limitsFor(999), null);
   paidOrder(db, billing, { orderId: 'o1', plan: 'BASIC', country: 'Japan' });
   const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
-  assert.deepEqual(billing.limitsFor(id), { plan: 'BASIC', maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, countries: ['Japan'] });
+  assert.deepEqual(billing.limitsFor(id), { plan: 'BASIC', maxCountries: 1, maxConcurrentSearches: 1, dailySearches: 0, countries: ['Japan'], planMaxCountries: 1, overrides: {} });
   // admin đổi nước
   assert.equal(billing.setCountries(id, ['Germany', 'germany', ' ']), true);
   assert.deepEqual(billing.limitsFor(id).countries, ['Germany']);
@@ -63,4 +63,28 @@ test('country helpers', () => {
   assert.deepEqual(parseCountries('["Japan"," "]'), ['Japan']);
   assert.deepEqual(parseCountries('not json'), []);
   assert.deepEqual(parseCountries(null), []);
+});
+
+test('admin can override the number of countries per user; plan change resets it', () => {
+  const { db, billing } = setup();
+  paidOrder(db, billing, { orderId: 'o1', plan: 'BASIC', country: 'Japan' });
+  const id = db.prepare('SELECT id FROM users WHERE email = ?').get('a@b.com').id;
+  assert.equal(billing.limitsFor(id).maxCountries, 1);
+  assert.equal(billing.setOverrides(id, { maxCountries: 3 }), true);
+  let l = billing.limitsFor(id);
+  assert.deepEqual([l.maxCountries, l.planMaxCountries, l.overrides], [3, 1, { maxCountries: 3 }]);
+  assert.equal(l.maxConcurrentSearches, 1); // các trường khác vẫn theo gói
+  billing.setOverrides(id, { maxCountries: 0 }); // 0 = không giới hạn
+  assert.equal(billing.limitsFor(id).maxCountries, 0);
+  billing.setOverrides(id, { maxCountries: null }); // bỏ ghi đè
+  assert.deepEqual([billing.limitsFor(id).maxCountries, billing.limitsFor(id).overrides], [1, {}]);
+  assert.equal(billing.setOverrides(id, { maxCountries: -1 }) && billing.limitsFor(id).maxCountries, 1); // giá trị sai bị bỏ qua
+  assert.equal(billing.setOverrides(12345, { maxCountries: 2 }), false); // chưa có gói
+  // gia hạn cùng gói giữ ghi đè và nước đã khoá; đổi gói thì xoá ghi đè
+  billing.setOverrides(id, { maxCountries: 2 });
+  paidOrder(db, billing, { orderId: 'o2', plan: 'BASIC' });
+  l = billing.limitsFor(id);
+  assert.deepEqual([l.maxCountries, l.countries], [2, ['Japan']]);
+  paidOrder(db, billing, { orderId: 'o3', plan: 'ADVANCED' });
+  assert.deepEqual([billing.limitsFor(id).overrides, billing.limitsFor(id).maxCountries], [{}, 0]);
 });

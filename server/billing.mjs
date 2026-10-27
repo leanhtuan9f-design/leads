@@ -63,13 +63,21 @@ export function ensureBillingSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_billing_orders_email ON billing_orders(email);
   `);
   // Quốc gia được phép tìm kiếm: chọn lúc mua (billing_orders.country) rồi khoá vào user_plans.countries (JSON mảng tên nước).
-  for (const [table, column] of [['billing_orders', 'country'], ['user_plans', 'countries']]) {
+  for (const [table, column] of [['billing_orders', 'country'], ['user_plans', 'countries'], ['user_plans', 'limit_overrides']]) {
     if (!db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
   }
 }
 
 export const parseCountries = (value) => {
   try { const list = JSON.parse(value || '[]'); return Array.isArray(list) ? list.map((c) => text(c, 100)).filter(Boolean) : []; } catch { return []; }
+};
+// Admin ghi đè giới hạn theo từng người dùng (user_plans.limit_overrides, JSON); khoá vắng = theo cấu hình gói.
+export const OVERRIDE_KEYS = ['maxCountries', 'maxConcurrentSearches', 'dailySearches'];
+export const parseOverrides = (value) => {
+  try {
+    const raw = JSON.parse(value || '{}');
+    return Object.fromEntries(OVERRIDE_KEYS.filter((k) => Number.isInteger(raw?.[k]) && raw[k] >= 0).map((k) => [k, raw[k]]));
+  } catch { return {}; }
 };
 export const normCountry = (value) => text(String(value ?? ''), 100).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ');
 
@@ -263,9 +271,12 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
         const user = stmt.userByEmail.get(pending.email);
         const userId = user?.id || db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?,?,?,?,?,?)').run(pending.email, pending.pass, 'user', quota.dailyNew, quota.dailyRefresh, Date.now()).lastInsertRowid;
         db.prepare('UPDATE users SET daily_new=?, daily_refresh=?, disabled=0 WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
+        const prevPlan = db.prepare('SELECT plan FROM user_plans WHERE user_id=?').get(userId)?.plan;
         db.prepare(`INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET plan=excluded.plan, billing_cycle=excluded.billing_cycle, order_id=excluded.order_id, effective_from=excluded.effective_from`).run(userId, order.plan, order.billing_cycle, orderId, Date.now());
-        const prevCountries = parseCountries(db.prepare('SELECT countries FROM user_plans WHERE user_id=?').get(userId)?.countries);
-        const lockedCountries = (quota.maxCountries || 0) > 0 ? (order.country ? [order.country] : prevCountries.slice(0, quota.maxCountries)) : [];
+        if (prevPlan !== order.plan) db.prepare('UPDATE user_plans SET limit_overrides=NULL WHERE user_id=?').run(userId); // đổi gói: bỏ ghi đè của admin
+        const kept = db.prepare('SELECT countries, limit_overrides FROM user_plans WHERE user_id=?').get(userId);
+        const maxCountries = parseOverrides(kept?.limit_overrides).maxCountries ?? (quota.maxCountries || 0);
+        const lockedCountries = maxCountries > 0 ? (order.country ? [order.country] : parseCountries(kept?.countries).slice(0, maxCountries)) : [];
         db.prepare('UPDATE user_plans SET countries=? WHERE user_id=?').run(JSON.stringify(lockedCountries), userId);
         db.prepare('INSERT INTO billing_events (event_id, order_id, payload_hash, created_at) VALUES (?,?,?,?)').run(eventId, orderId, fingerprint, Date.now());
         db.prepare("UPDATE billing_orders SET status='FULFILLED', updated_at=? WHERE order_id=?").run(Date.now(), orderId);
@@ -279,10 +290,24 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
 
   // Giới hạn tìm kiếm của người dùng theo gói đang dùng; null = không có gói (admin/trial/tài khoản thủ công) → không áp giới hạn này.
   const limitsFor = (userId) => {
-    const row = db.prepare('SELECT plan, billing_cycle, countries FROM user_plans WHERE user_id = ?').get(userId);
+    const row = db.prepare('SELECT plan, billing_cycle, countries, limit_overrides FROM user_plans WHERE user_id = ?').get(userId);
     const plan = row && readConfig().plans[row.plan];
     if (!plan) return null;
-    return { plan: row.plan, maxCountries: plan.maxCountries || 0, maxConcurrentSearches: plan.maxConcurrentSearches || 0, dailySearches: plan.dailySearches || 0, countries: parseCountries(row.countries) };
+    const overrides = parseOverrides(row.limit_overrides);
+    const pick = (key) => overrides[key] ?? (plan[key] || 0);
+    return { plan: row.plan, maxCountries: pick('maxCountries'), maxConcurrentSearches: pick('maxConcurrentSearches'), dailySearches: pick('dailySearches'), countries: parseCountries(row.countries), planMaxCountries: plan.maxCountries || 0, overrides };
+  };
+  // value null = bỏ ghi đè (theo gói). Trả false nếu người dùng chưa có gói.
+  const setOverrides = (userId, patch) => {
+    const row = db.prepare('SELECT limit_overrides FROM user_plans WHERE user_id = ?').get(userId);
+    if (!row) return false;
+    const next = { ...parseOverrides(row.limit_overrides) };
+    for (const key of OVERRIDE_KEYS) {
+      if (!(key in patch)) continue;
+      if (patch[key] === null) delete next[key]; else if (Number.isInteger(patch[key]) && patch[key] >= 0 && patch[key] <= 100000) next[key] = patch[key];
+    }
+    db.prepare('UPDATE user_plans SET limit_overrides = ? WHERE user_id = ?').run(Object.keys(next).length ? JSON.stringify(next) : null, userId);
+    return true;
   };
   const setCountries = (userId, countries) => {
     const seen = new Set();
@@ -290,5 +315,5 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     return db.prepare('UPDATE user_plans SET countries = ? WHERE user_id = ?').run(JSON.stringify(list), userId).changes > 0;
   };
 
-  return { getConfig: readConfig, createCheckout, status, applyEntitlement, limitsFor, setCountries };
+  return { getConfig: readConfig, createCheckout, status, applyEntitlement, limitsFor, setCountries, setOverrides };
 }

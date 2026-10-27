@@ -611,7 +611,7 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
   res.json({ users: stmt.allUsers.all().map((u) => {
     const use = stmt.getUsage.get(u.id, day) || { new_places: 0, refreshes: 0 };
     const limits = billing.limitsFor(u.id);
-    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, plan: limits?.plan ?? null, maxCountries: limits?.maxCountries ?? 0, countries: limits?.countries ?? [] };
+    return { id: u.id, email: u.email, role: u.role, dailyNew: u.daily_new, dailyRefresh: u.daily_refresh, disabled: Boolean(u.disabled), newUsed: use.new_places, refreshUsed: use.refreshes, plan: limits?.plan ?? null, maxCountries: limits?.maxCountries ?? 0, planMaxCountries: limits?.planMaxCountries ?? 0, maxCountriesCustom: limits ? 'maxCountries' in limits.overrides : false, countries: limits?.countries ?? [] };
   }) });
 });
 app.post('/api/admin/users', requireAdmin, (req, res) => {
@@ -635,6 +635,11 @@ app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
   db.prepare('UPDATE users SET daily_new = ?, daily_refresh = ?, disabled = ?, role = ? WHERE id = ?').run(
     toInt(b.dailyNew, u.daily_new), toInt(b.dailyRefresh, u.daily_refresh, 1000),
     b.disabled === undefined ? u.disabled : (b.disabled ? 1 : 0), b.role === 'admin' || b.role === 'user' ? b.role : u.role, id);
+  if (b.maxCountries !== undefined) { // số quốc gia riêng cho người dùng này; null = theo gói; 0 = không giới hạn
+    const n = b.maxCountries === null ? null : Number(b.maxCountries);
+    if (n !== null && !(Number.isInteger(n) && n >= 0 && n <= 300)) return res.status(400).json({ error: 'Số quốc gia không hợp lệ (0–300)' });
+    if (!billing.setOverrides(id, { maxCountries: n })) return res.status(409).json({ error: 'Người dùng chưa có gói thanh toán' });
+  }
   if (Array.isArray(b.countries)) billing.setCountries(id, b.countries); // admin đổi quốc gia đã khoá của người dùng có gói
   if (b.disabled) stmt.delUserSessions.run(id);
   let newPassword;
