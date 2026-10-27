@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiJson, AdminUserRow } from '../auth/types';
+import { COUNTRIES } from '../data/countries';
 
 type GroupKey = 'ALL' | 'BASIC' | 'ADVANCED' | 'NONE' | 'TRIAL' | 'ADMIN';
 const GROUPS: { key: GroupKey; label: string; badge: string }[] = [
@@ -12,6 +13,16 @@ const GROUPS: { key: GroupKey; label: string; badge: string }[] = [
 ];
 const groupOf = (u: AdminUserRow): GroupKey => u.role === 'admin' ? 'ADMIN' : u.role === 'trial' ? 'TRIAL' : u.plan ?? 'NONE';
 const lim = (n?: number) => (n ? String(n) : '∞');
+// Chọn quốc gia bằng tick; nước đã khoá nhưng không có trong danh sách chuẩn vẫn hiện để không bị mất
+const CountryPicker: React.FC<{ value: string[]; onChange: (v: string[]) => void }> = ({ value, onChange }) => {
+  const all = [...COUNTRIES, ...value.filter(c => !(COUNTRIES as readonly string[]).includes(c))];
+  const toggle = (c: string) => onChange(value.includes(c) ? value.filter(x => x !== c) : [...value, c]);
+  return (
+    <div className="mt-1 grid max-h-36 grid-cols-2 md:grid-cols-4 gap-1 overflow-y-auto rounded border border-slate-700 bg-slate-950/60 p-2">
+      {all.map(c => <label key={c} className="flex cursor-pointer items-center gap-1.5 text-slate-300"><input type="checkbox" checked={value.includes(c)} onChange={() => toggle(c)} />{c}</label>)}
+    </div>
+  );
+};
 const day = (t?: number | null) => (t ? new Date(t).toLocaleDateString('vi-VN') : '—');
 
 // Panel chỉnh sửa theo gói: đổi gói/chu kỳ, giới hạn riêng (trống = theo gói, 0 = không giới hạn), quốc gia, hạn mức ngày.
@@ -22,7 +33,7 @@ const Edit: React.FC<{ u: AdminUserRow; input: string; patch: (id: number, body:
   const [mc, setMc] = useState(opt(u.maxCountriesCustom, u.maxCountries));
   const [cs, setCs] = useState(opt(u.maxConcurrentCustom, u.maxConcurrentSearches));
   const [ds, setDs] = useState(opt(u.dailySearchesCustom, u.dailySearches));
-  const [countries, setCountries] = useState((u.countries || []).join(', '));
+  const [countries, setCountries] = useState<string[]>(u.countries || []);
   const [dn, setDn] = useState(String(u.dailyNew));
   const [dr, setDr] = useState(String(u.dailyRefresh));
   const num = (v: string) => (v.trim() === '' ? null : Number(v));
@@ -32,8 +43,11 @@ const Edit: React.FC<{ u: AdminUserRow; input: string; patch: (id: number, body:
     const hasPlan = plan !== 'NONE' && u.role === 'user';
     if (hasPlan && plan === u.plan) { // đổi gói sẽ xoá ghi đè nên chỉ gửi khi giữ nguyên gói
       body.maxCountries = num(mc); body.maxConcurrentSearches = num(cs); body.dailySearches = num(ds);
-      const list = countries.split(',').map(c => c.trim()).filter(Boolean);
-      if (list.length || (u.countries || []).length) body.countries = list;
+      if (countries.length || (u.countries || []).length) body.countries = countries;
+    }
+    if (needsCountry) {
+      if (!countries.length) { setError('Gói Căn bản cần chọn ít nhất 1 quốc gia'); return; }
+      body.countries = countries;
     }
     const bad = ['maxCountries', 'maxConcurrentSearches', 'dailySearches'].some(k => k in body && body[k] !== null && !(Number.isInteger(body[k]) && (body[k] as number) >= 0));
     if (bad || !Number.isInteger(body.dailyNew) || !Number.isInteger(body.dailyRefresh)) { setError('Giá trị không hợp lệ'); return; }
@@ -41,6 +55,7 @@ const Edit: React.FC<{ u: AdminUserRow; input: string; patch: (id: number, body:
     onClose();
   };
   const changed = u.role === 'user' && plan !== (u.plan ?? 'NONE');
+  const needsCountry = changed && plan === 'BASIC'; // nâng/đổi tay sang Căn bản phải chọn nước (server kiểm tra theo cấu hình gói)
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-3 bg-slate-900/60 text-slate-400">
       {u.role === 'user' && <>
@@ -64,9 +79,11 @@ const Edit: React.FC<{ u: AdminUserRow; input: string; patch: (id: number, body:
           <input type="number" min={0} placeholder="theo gói" value={cs} onChange={e => setCs(e.target.value)} className={`${input} w-full mt-1`} /></label>
         <label>Lượt search/ngày <span className="text-slate-500">(gói: {lim(u.planDailySearches)})</span>
           <input type="number" min={0} placeholder="theo gói" value={ds} onChange={e => setDs(e.target.value)} className={`${input} w-full mt-1`} /></label>
-        <label className="col-span-2 md:col-span-4">Quốc gia được tìm <span className="text-slate-500">(tên tiếng Anh, ngăn cách dấu phẩy)</span>
-          <input value={countries} onChange={e => setCountries(e.target.value)} className={`${input} w-full mt-1`} /></label>
+        <div className="col-span-2 md:col-span-4">Quốc gia được tìm <span className="text-slate-500">({countries.length} đã chọn)</span>
+          <CountryPicker value={countries} onChange={setCountries} /></div>
       </>}
+      {needsCountry && <div className="col-span-2 md:col-span-4">Quốc gia được dùng <span className="text-amber-300">(bắt buộc với gói Căn bản)</span> <span className="text-slate-500">({countries.length} đã chọn)</span>
+        <CountryPicker value={countries} onChange={setCountries} /></div>}
       {changed && <p className="col-span-2 md:col-span-4 text-amber-300">Đổi gói sẽ xoá giới hạn riêng và quốc gia đã khoá, đặt lại hạn mức ngày theo gói mới. Lưu rồi mở lại để chỉnh giới hạn riêng.</p>}
       <div className="col-span-2 md:col-span-4 flex gap-2">
         <button onClick={save} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Lưu</button>
@@ -82,6 +99,7 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const [notice, setNotice] = useState('');
   const [creds, setCreds] = useState<{ email: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [formCountries, setFormCountries] = useState<string[]>([]);
   const [form, setForm] = useState({ email: '', password: '', plan: 'BASIC', billingCycle: 'MONTHLY', role: 'user' });
   const [filter, setFilter] = useState<GroupKey>('ALL');
   const [query, setQuery] = useState('');
@@ -141,14 +159,15 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(''); setNotice(''); setCreds(null);
+    if (form.role === 'user' && form.plan === 'BASIC' && !formCountries.length) { setError('Gói Căn bản cần chọn ít nhất 1 quốc gia'); return; }
     try {
       const r = await apiJson<{ email: string; password: string }>('/admin/users', 'POST', {
         email: form.email, password: form.password || undefined,
-        role: form.role, ...(form.role === 'user' && form.plan !== 'NONE' ? { plan: form.plan, billingCycle: form.billingCycle } : {})
+        role: form.role, ...(form.role === 'user' && form.plan !== 'NONE' ? { plan: form.plan, billingCycle: form.billingCycle, ...(form.plan === 'BASIC' ? { countries: formCountries } : {}) } : {})
       });
       setNotice(`Đã tạo tài khoản ${r.email}. Mật khẩu chỉ hiện một lần — hãy sao chép gửi cho người dùng.`);
       setCreds({ email: r.email, password: r.password });
-      setForm({ ...form, email: '', password: '' });
+      setForm({ ...form, email: '', password: '' }); setFormCountries([]);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Lỗi');
@@ -204,6 +223,8 @@ export const AdminUsersView: React.FC<{ currentUserId: number }> = ({ currentUse
               <option value="MONTHLY">Tháng</option><option value="ANNUAL">Năm</option>
             </select>
           </label>
+          {form.role === 'user' && form.plan === 'BASIC' && <div className="col-span-2 md:col-span-4 text-slate-400">Quốc gia được dùng <span className="text-amber-300">(bắt buộc với gói Căn bản)</span> <span className="text-slate-500">({formCountries.length} đã chọn)</span>
+            <CountryPicker value={formCountries} onChange={setFormCountries} /></div>}
           <p className="col-span-2 md:col-span-4 text-slate-500">Hạn mức ngày và giới hạn search lấy theo cấu hình gói (tab Cấu hình thanh toán); tài khoản gán tay không qua thanh toán.</p>
           <button type="submit" className="col-span-2 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-md">Tạo tài khoản</button>
         </form>

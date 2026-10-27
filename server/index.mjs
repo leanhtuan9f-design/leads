@@ -671,9 +671,10 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
   try {
     stmt.insertUser.run(email, hashPassword(password), role, toInt(req.body?.dailyNew, 200), toInt(req.body?.dailyRefresh, 3, 1000), Date.now());
   } catch { return res.status(409).json({ error: 'Email đã tồn tại' }); }
-  if (req.body?.plan === 'BASIC' || req.body?.plan === 'ADVANCED') {
-    try { billing.assignPlan(stmt.userByEmail.get(email).id, req.body.plan, req.body?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY'); }
-    catch (e) { return res.status(e.statusCode || 500).json({ error: e.message }); }
+  if (role === 'user' && (req.body?.plan === 'BASIC' || req.body?.plan === 'ADVANCED')) {
+    const newId = stmt.userByEmail.get(email).id;
+    try { billing.assignPlan(newId, req.body.plan, req.body?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY', req.body?.countries); }
+    catch (e) { db.prepare('DELETE FROM users WHERE id = ?').run(newId); return res.status(e.statusCode || 500).json({ error: e.message }); } // không để lại tài khoản nửa vời
   }
   res.json({ email, password }); // mật khẩu chỉ hiện một lần
 });
@@ -690,7 +691,7 @@ app.patch('/api/admin/users/:id', requireAdmin, (req, res) => {
   if (b.plan !== undefined) { // gán/đổi/gỡ gói thủ công; null hoặc 'NONE' = gỡ gói
     if (u.role !== 'user') return res.status(409).json({ error: 'Chỉ gán gói cho tài khoản người dùng' });
     const key = b.plan === null || b.plan === 'NONE' ? null : b.plan;
-    try { billing.assignPlan(id, key, b.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY'); }
+    try { billing.assignPlan(id, key, b.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY', b.countries); }
     catch (e) { return res.status(e.statusCode || 500).json({ error: e.message }); }
   }
   for (const k of ['maxConcurrentSearches', 'dailySearches']) {

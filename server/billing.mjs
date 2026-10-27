@@ -348,11 +348,17 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     return true;
   };
   // Admin gán/đổi/gỡ gói thủ công (không qua thanh toán). plan=null → gỡ gói. Đổi sang gói khác thì xoá ghi đè và nước đã khoá.
-  const assignPlan = (userId, planKey, cycle = 'MONTHLY') => {
+  const assignPlan = (userId, planKey, cycle = 'MONTHLY', countries = null) => {
     if (planKey === null) { db.prepare('DELETE FROM user_plans WHERE user_id = ?').run(userId); return true; }
     const quota = readConfig().plans[planKey];
     if (!quota || !['MONTHLY', 'ANNUAL'].includes(cycle)) throw Object.assign(new Error('Gói hoặc chu kỳ không hợp lệ'), { statusCode: 422 });
     const prev = db.prepare('SELECT plan, billing_cycle FROM user_plans WHERE user_id = ?').get(userId);
+    // Gói giới hạn quốc gia (Căn bản): gán mới hoặc đổi sang gói này bắt buộc chọn 1..maxCountries nước
+    const picked = cleanCountries(countries);
+    if (quota.maxCountries > 0 && (!prev || prev.plan !== planKey)) {
+      if (!picked.length) throw Object.assign(new Error('Gói này giới hạn quốc gia: cần chọn ít nhất 1 quốc gia'), { statusCode: 422 });
+      if (picked.length > quota.maxCountries) throw Object.assign(new Error(`Gói này chỉ cho tối đa ${quota.maxCountries} quốc gia`), { statusCode: 422 });
+    }
     const until = Date.now() + PERIOD_MS[cycle]; // gán/đổi gói hoặc chu kỳ: tính hạn mới từ bây giờ
     if (!prev) db.prepare('INSERT INTO user_plans (user_id, plan, billing_cycle, order_id, effective_from, effective_until) VALUES (?,?,?,?,?,?)').run(userId, planKey, cycle, 'ADMIN', Date.now(), until);
     else {
@@ -361,11 +367,15 @@ export function createBillingService({ db, stmt, hashPassword, crm = {}, planQuo
     }
     if (prev && prev.plan !== planKey) db.prepare('UPDATE user_plans SET limit_overrides=NULL, countries=NULL WHERE user_id=?').run(userId);
     if (!prev || prev.plan !== planKey) db.prepare('UPDATE users SET daily_new=?, daily_refresh=? WHERE id=?').run(quota.dailyNew, quota.dailyRefresh, userId);
+    if (picked.length && quota.maxCountries > 0) setCountries(userId, picked);
     return true;
   };
-  const setCountries = (userId, countries) => {
+  const cleanCountries = (countries) => {
     const seen = new Set();
-    const list = (countries || []).map((c) => text(String(c).replace(/\s+/g, ' '), 100)).filter((c) => c && !seen.has(normCountry(c)) && seen.add(normCountry(c))).slice(0, 50);
+    return (Array.isArray(countries) ? countries : []).map((c) => text(String(c).replace(/\s+/g, ' '), 100)).filter((c) => c && !seen.has(normCountry(c)) && seen.add(normCountry(c))).slice(0, 50);
+  };
+  const setCountries = (userId, countries) => {
+    const list = cleanCountries(countries);
     return db.prepare('UPDATE user_plans SET countries = ? WHERE user_id = ?').run(JSON.stringify(list), userId).changes > 0;
   };
 

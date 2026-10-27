@@ -193,9 +193,12 @@ test('admin assignPlan: creates, switches (clearing overrides and countries), re
   const { db, billing } = setup();
   const id = Number(db.prepare('INSERT INTO users (email, pass, role, daily_new, daily_refresh, created_at) VALUES (?,?,?,?,?,?)').run('m@b.com', 'p', 'user', 1, 1, 1).lastInsertRowid);
   assert.equal(billing.limitsFor(id), null);
-  billing.assignPlan(id, 'BASIC', 'MONTHLY');
+  assert.throws(() => billing.assignPlan(id, 'BASIC', 'MONTHLY'), /quốc gia/); // Căn bản bắt buộc chọn nước
+  assert.throws(() => billing.assignPlan(id, 'BASIC', 'MONTHLY', ['Japan', 'China']), /tối đa 1/);
+  assert.equal(billing.limitsFor(id), null);
+  billing.assignPlan(id, 'BASIC', 'MONTHLY', ['Japan']);
   let l = billing.limitsFor(id);
-  assert.deepEqual([l.plan, l.billingCycle, l.manual, l.maxConcurrentSearches], ['BASIC', 'MONTHLY', true, 1]);
+  assert.deepEqual([l.plan, l.billingCycle, l.manual, l.maxConcurrentSearches, l.countries], ['BASIC', 'MONTHLY', true, 1, ['Japan']]);
   const quota = billing.getConfig().plans.BASIC;
   const row = db.prepare('SELECT daily_new, daily_refresh FROM users WHERE id=?').get(id);
   assert.deepEqual([row.daily_new, row.daily_refresh], [quota.dailyNew, quota.dailyRefresh]);
