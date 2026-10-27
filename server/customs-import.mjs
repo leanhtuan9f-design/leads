@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import XLSX from 'xlsx';
-import { openCustomsDb, normalizeName, cleanPort, formatCompanyName } from './customs-data.mjs';
+import { openCustomsDb, normalizeName, cleanPort, formatCompanyName, stripGovEduEmails } from './customs-data.mjs';
 import { backfillProductGroups, inferRankingProducts, normalizeHs } from './customs-products.mjs';
 
 // ---- chuẩn hóa chung ----
@@ -270,8 +270,10 @@ export function importAll(root, { db, docs = false } = {}) {
     for (const d of list) {
       const norm = normalizeName(d.name);
       if (!norm) continue;
+      const mail = stripGovEduEmails(d.email);
+      if (mail.dropAll) { stats.govEduSkipped = (stats.govEduSkipped || 0) + 1; continue; }
       stats.directory++;
-      if (apply) insD.run(sha([d.type, d.country, norm, d.email, d.phone].join('|')), rel, d.type, formatCompanyName(d.name), norm, d.country, d.city, d.address, d.email, d.phone, d.website, d.contact, d.activity, d.confidence);
+      if (apply) insD.run(sha([d.type, d.country, norm, d.email, d.phone].join('|')), rel, d.type, formatCompanyName(d.name), norm, d.country, d.city, d.address, mail.email, d.phone, d.website, d.contact, d.activity, d.confidence);
     }
   };
   const files = walk(root, /\.xlsx?$/i);

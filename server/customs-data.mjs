@@ -107,6 +107,34 @@ export function formatCompanyName(value) {
   });
 }
 
+// Email cơ quan nhà nước/trường học (…@x.gov, @x.gov.vn, @x.edu, @x.edu.au) không phải doanh nghiệp: loại khỏi danh bạ.
+export function isGovEduEmail(email) {
+  const labels = String(email ?? '').trim().toLowerCase().split('@').pop().split('.').filter(Boolean);
+  if (labels.length < 2) return false;
+  const last = labels[labels.length - 1], second = labels[labels.length - 2];
+  return last === 'gov' || last === 'edu' || (last.length === 2 && (second === 'gov' || second === 'edu'));
+}
+// Trả về {email: các email còn lại ('a; b'), removed: có email gov/edu bị bỏ, dropAll: có email nhưng toàn gov/edu}.
+export function stripGovEduEmails(field) {
+  const all = String(field ?? '').split(/[;,\s]+/).filter(Boolean);
+  const kept = all.filter(e => !isGovEduEmail(e));
+  return { email: kept.join('; '), removed: kept.length < all.length, dropAll: all.length > 0 && kept.length === 0 };
+}
+// Xoá doanh nghiệp chỉ có email gov/edu; dòng còn email thường thì chỉ bỏ email gov/edu. Trả {deleted, stripped}.
+export function purgeGovEduEntities(db) {
+  const rows = db.prepare(`SELECT id, email FROM directory_entities WHERE email <> ''`).all();
+  const del = db.prepare('DELETE FROM directory_entities WHERE id = ?');
+  const upd = db.prepare('UPDATE directory_entities SET email = ? WHERE id = ?');
+  let deleted = 0, stripped = 0;
+  db.exec('BEGIN');
+  for (const r of rows) {
+    const x = stripGovEduEmails(r.email);
+    if (x.dropAll) { del.run(r.id); deleted++; } else if (x.removed) { upd.run(x.email, r.id); stripped++; }
+  }
+  db.exec('COMMIT');
+  return { deleted, stripped };
+}
+
 // Tên cảng trong nguồn lẫn rác ("Not Available", "undefined") và nhiều cách viết cho cùng một cảng: làm sạch + gộp alias chính.
 const PORT_ALIASES = [[/cat\s*lai/i, 'Cat Lai'], [/cai\s*mep/i, 'Cai Mep'], [/hai\s*phong|haiphong|lach\s*huyen/i, 'Hai Phong'], [/da\s*nang/i, 'Da Nang'], [/ho\s*chi\s*minh|\bhcm\b|sai\s*gon|saigon/i, 'Ho Chi Minh City']];
 export function cleanPort(value) {

@@ -184,3 +184,21 @@ test('formatCompanyName capitalizes words and keeps legal abbreviations', async 
   assert.equal(f('M/S. T. S. Corporation'), 'M/S. T. S. Corporation');
   assert.equal(f(''), '');
 });
+
+test('gov/edu emails: detected, entities dropped on import, purge keeps businesses with other emails', async () => {
+  const { isGovEduEmail, stripGovEduEmails, purgeGovEduEntities } = await import('./customs-data.mjs');
+  for (const e of ['a@maryland.gov', 'b@hemaya.gov.ae', 'c@umich.edu', 'd@x.edu.au', 'e@gov.vn', 'F@USDA.GOV']) assert.equal(isGovEduEmail(e), true, e);
+  for (const e of ['a@govfoods.com', 'b@education.com', 'c@edu-trading.co', 'd@proecuador.gob.ec', '', 'nodomain']) assert.equal(isGovEduEmail(e), false, e);
+  assert.deepEqual(stripGovEduEmails('a@x.gov; b@shop.com'), { email: 'b@shop.com', removed: true, dropAll: false });
+  assert.deepEqual(stripGovEduEmails('a@x.gov'), { email: '', removed: true, dropAll: true });
+  assert.deepEqual(stripGovEduEmails(''), { email: '', removed: false, dropAll: false });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'customs-'));
+  book(dir, '01.Countries Data/Data_Qatar/importers.xlsx', { S: [['Company', 'Email', 'Phone', 'Website'], ['Gov Office', 'a@state.gov', '1', ''], ['Mixed Co', 'a@state.gov; sales@mixed.com', '2', ''], ['Plain Co', 'hello@plain.com', '3', '']] });
+  const db = openCustomsDb(':memory:');
+  const stats = importAll(dir, { db });
+  assert.equal(stats.govEduSkipped, 1);
+  assert.deepEqual(db.prepare('SELECT name, email FROM directory_entities ORDER BY name').all().map(r => [r.name, r.email]), [['Mixed Co', 'sales@mixed.com'], ['Plain Co', 'hello@plain.com']]);
+  db.prepare(`INSERT INTO directory_entities (dedupe_key,file,entity_type,name,name_norm,country,email) VALUES ('k1','f','contact','Uni','uni','US','x@uni.edu'),('k2','f','contact','Both','both','US','x@uni.edu; y@both.com')`).run();
+  assert.deepEqual(purgeGovEduEntities(db), { deleted: 1, stripped: 1 });
+  assert.equal(db.prepare(`SELECT email FROM directory_entities WHERE name = 'Both'`).get().email, 'y@both.com');
+});
