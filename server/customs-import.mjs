@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import XLSX from 'xlsx';
-import { openCustomsDb, normalizeName, cleanPort, formatCompanyName, stripGovEduEmails } from './customs-data.mjs';
+import { openCustomsDb, normalizeName, cleanPort, formatCompanyName, stripGovEduEmails, classifyDirectoryEmails } from './customs-data.mjs';
 import { backfillProductGroups, inferRankingProducts, normalizeHs } from './customs-products.mjs';
 
 // ---- chuẩn hóa chung ----
@@ -315,7 +315,7 @@ export function importAll(root, { db, docs = false } = {}) {
       if (apply) insF.run(rel, 'document', list.length, Date.now());
     }
   }
-  if (apply) { db.exec('COMMIT'); stats.productGroups = backfillProductGroups(db); stats.inferred = inferRankingProducts(db); }
+  if (apply) { db.exec('COMMIT'); stats.productGroups = backfillProductGroups(db); stats.inferred = inferRankingProducts(db); stats.emailClassified = classifyDirectoryEmails(db); }
   return stats;
 }
 

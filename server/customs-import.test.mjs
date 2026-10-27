@@ -204,6 +204,39 @@ test('gov/edu emails: detected, entities dropped on import, purge keeps business
   assert.equal(db.prepare(`SELECT email FROM directory_entities WHERE name = 'Both'`).get().email, 'y@both.com');
 });
 
+test('email classes: domain/gmail/yahoo/microsoft/free/none, class filter, domain list', async () => {
+  const { classifyEmailField: c, emailDomainClass } = await import('./customs-data.mjs');
+  assert.equal(c('a@gmail.com'), 'gmail');
+  assert.equal(c('a@gmail.com; b@acme.vn'), 'domain');
+  assert.equal(c('a@gmail.com; b@yahoo.com'), 'gmail');
+  assert.equal(c('b@yahoo.co.uk'), 'yahoo');
+  assert.equal(c('x@hotmail.fr'), 'microsoft');
+  assert.equal(c('x@outlook.com'), 'microsoft');
+  assert.equal(c('x@emirates.net.ae'), 'free');
+  assert.equal(c('x@aol.com'), 'free');
+  assert.equal(c(''), 'none');
+  assert.equal(c('broken@gmail.c/'), 'none');
+  assert.equal(emailDomainClass('gmailer.com'), 'domain');
+  const db = openCustomsDb(':memory:');
+  const ins = db.prepare(`INSERT INTO directory_entities (dedupe_key,file,entity_type,name,name_norm,country,email) VALUES (?,?,?,?,?,?,?)`);
+  [['A', 'a@acme.vn'], ['B', 'b@gmail.com'], ['C', 'c@gmail.com; c2@acme.vn'], ['D', 'd@yahoo.com'], ['E', '']].forEach(([n, e], i) => ins.run(`k${i}`, 'f', 'importer', n, n.toLowerCase(), 'US', e));
+  db.exec('UPDATE directory_entities SET email_class = NULL');
+  const api = createCustomsApi(db);
+  const { classifyDirectoryEmails } = await import('./customs-data.mjs');
+  assert.equal(classifyDirectoryEmails(db), 5);
+  const cls = Object.fromEntries(api.emailClasses().classes.map(x => [x.key, x.n]));
+  assert.deepEqual(cls, { domain: 2, gmail: 1, yahoo: 1, microsoft: 0, free: 0, none: 1 });
+  assert.equal(api.emailClasses().total, 5);
+  assert.deepEqual(api.directory({ emailClass: 'gmail' }).rows.map(r => r.name), ['B']);
+  assert.equal(api.directory({ emailClass: 'gmail' }).rows[0].emailClass, 'gmail');
+  assert.equal(api.directory({ emailClass: 'bogus' }).total, 5);
+  const doms = api.emailDomains({}).rows;
+  assert.deepEqual(doms.map(r => r.domain), ['acme.vn', 'gmail.com', 'yahoo.com']);
+  assert.deepEqual(doms.find(r => r.domain === 'gmail.com'), { domain: 'gmail.com', class: 'Gmail', n: 2 });
+  assert.deepEqual(api.emailDomains({ emailClass: 'domain' }).rows.map(r => r.domain), ['acme.vn']);
+  assert.equal(api.emailDomains({ q: 'yah' }).total, 1);
+});
+
 test('directory email-suffix filter and suggestions', () => {
   const db = openCustomsDb(':memory:');
   const ins = db.prepare(`INSERT INTO directory_entities (dedupe_key,file,entity_type,name,name_norm,country,email) VALUES (?,?,?,?,?,?,?)`);

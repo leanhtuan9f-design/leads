@@ -77,6 +77,9 @@ export function openCustomsDb(path = CUSTOMS_DB_PATH) {
     db.prepare(`INSERT OR REPLACE INTO customs_files (path, kind, rows, imported_at) VALUES ('__ports_cleaned__', 'migration', 0, ?)`).run(Date.now());
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_cs_port_in ON customs_shipments(port_in); CREATE INDEX IF NOT EXISTS idx_cs_port_out ON customs_shipments(port_out);');
+  if (!db.prepare('PRAGMA table_info(directory_entities)').all().some(c => c.name === 'email_class')) db.exec('ALTER TABLE directory_entities ADD COLUMN email_class TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_de_email_class ON directory_entities(email_class)');
+  classifyDirectoryEmails(db);
   backfillProductGroups(db);
   return db;
 }
@@ -117,6 +120,34 @@ export function isGovEduEmail(email) {
   const last = labels[labels.length - 1], second = labels[labels.length - 2];
   return AGENCY_TLDS.has(last) || (last.length === 2 && AGENCY_SECOND.has(second));
 }
+// Phân loại email của một doanh nghiệp: 'domain' (có ít nhất một email tên miền riêng) > 'gmail' > 'yahoo' > 'microsoft' > 'free' (webmail/ISP khác) > 'none'.
+export const EMAIL_CLASS_LABELS = { domain: 'Domain riêng', gmail: 'Gmail', yahoo: 'Yahoo', microsoft: 'Hotmail / Outlook', free: 'Free / ISP khác', none: 'Không có email' };
+const FREE_EXACT = new Set(['aol.com', 'icloud.com', 'me.com', 'mac.com', 'protonmail.com', 'proton.me', 'qq.com', '163.com', '126.com', 'sina.com', 'sohu.com', 'foxmail.com', 'mail.ru', 'rambler.ru', 'web.de', 'zoho.com', 'mail.com', 'inbox.com', 'naver.com', 'daum.net', 'hanmail.net', 'rediffmail.com', 'libero.it', 'orange.fr', 'wanadoo.fr', 'free.fr', 't-online.de',
+  'emirates.net.ae', 'eim.ae', 'sbcglobal.net', 'bellsouth.net', 'comcast.net', 'earthlink.net', 'verizon.net', 'qwest.net', 'embarqmail.com', 'mindspring.com', 'charter.net', 'att.net', 'hughes.net', 'cox.net', 'pacbell.net', 'omantel.net.om', 'mptmail.net.mm', 'myanmar.com.mm', 'optonline.net', 'rr.com', 'windstream.net', 'frontier.com', 'centurylink.net', 'swbell.net', 'prodigy.net', 'ameritech.net', 'bigpond.com', 'telus.net', 'shaw.ca', 'rogers.com', 'sympatico.ca', 'btinternet.com', 'virginmedia.com', 'sky.com', 'talktalk.net', 'ntlworld.com']);
+export function emailDomainClass(domain) {
+  const d = String(domain ?? '').toLowerCase();
+  if (d === 'gmail.com' || d === 'googlemail.com') return 'gmail';
+  if (/^(yahoo|ymail|rocketmail)\./.test(d)) return 'yahoo';
+  if (/^(hotmail|outlook|live|msn)\./.test(d)) return 'microsoft';
+  if (FREE_EXACT.has(d) || /^(yandex|gmx)\./.test(d)) return 'free';
+  return 'domain';
+}
+const VALID_DOMAIN = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+export function classifyEmailField(field) {
+  const classes = new Set(String(field ?? '').split(/[;,\s]+/).filter(Boolean).map(e => e.toLowerCase().split('@')[1] ?? '').filter(d => VALID_DOMAIN.test(d)).map(emailDomainClass));
+  return ['domain', 'gmail', 'yahoo', 'microsoft', 'free'].find(c => classes.has(c)) ?? 'none';
+}
+// Điền email_class cho dòng còn NULL (all = tính lại tất cả).
+export function classifyDirectoryEmails(db, { all = false } = {}) {
+  const rows = db.prepare(`SELECT id, email FROM directory_entities ${all ? '' : 'WHERE email_class IS NULL'}`).all();
+  if (!rows.length) return 0;
+  const set = db.prepare('UPDATE directory_entities SET email_class = ? WHERE id = ?');
+  db.exec('BEGIN');
+  for (const r of rows) set.run(classifyEmailField(r.email), r.id);
+  db.exec('COMMIT');
+  return rows.length;
+}
+
 // Trả về {email: các email còn lại ('a; b'), removed: có email gov/edu bị bỏ, dropAll: có email nhưng toàn gov/edu}.
 export function stripGovEduEmails(field) {
   const all = String(field ?? '').split(/[;,\s]+/).filter(Boolean);
@@ -135,6 +166,7 @@ export function purgeGovEduEntities(db) {
     if (x.dropAll) { del.run(r.id); deleted++; } else if (x.removed) { upd.run(x.email, r.id); stripped++; }
   }
   db.exec('COMMIT');
+  if (stripped) classifyDirectoryEmails(db, { all: true });
   return { deleted, stripped };
 }
 
@@ -250,7 +282,8 @@ export function createCustomsApi(db) {
       }
       doms.forEach(d => bump(domains, d)); sufs.forEach(s => bump(suffixes, s));
     }
-    mailStats = { domains: [...domains].sort((a, b) => b[1] - a[1]), suffixes: [...suffixes].sort((a, b) => b[1] - a[1]) };
+    const byCount = (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]);
+    mailStats = { domains: [...domains].sort(byCount), suffixes: [...suffixes].sort(byCount) };
     mailKey = key;
     return mailStats;
   }
@@ -265,9 +298,10 @@ export function createCustomsApi(db) {
     if (query.hasEmail === '1') where.push(`email <> ''`);
     const suffix = emailSuffixCond(query.emailSuffix);
     if (suffix) { where.push(suffix.sql); params.push(...suffix.params); }
+    if (EMAIL_CLASS_LABELS[query.emailClass]) { where.push('email_class = ?'); params.push(String(query.emailClass)); }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const total = one(`SELECT COUNT(*) n FROM directory_entities ${w}`, ...params).n;
-    const rows = db.prepare(`SELECT entity_type type, name, country, city, address, email, phone, website, contact_person contact, activity, confidence FROM directory_entities ${w} ORDER BY name LIMIT ? OFFSET ?`).all(...params, limit, offset);
+    const rows = db.prepare(`SELECT entity_type type, name, country, city, address, email, email_class emailClass, phone, website, contact_person contact, activity, confidence FROM directory_entities ${w} ORDER BY name LIMIT ? OFFSET ?`).all(...params, limit, offset);
     return { total, limit, offset, rows };
   }
 
@@ -328,5 +362,21 @@ export function createCustomsApi(db) {
     return { options: rows.map(r => ({ value: r.name, label: [r.country, view === 'shipments' ? r.role : ''].filter(Boolean).join(' · '), hint: r.n })) };
   }
 
-  return { summary, products, suggest, buyers, shipments, directory };
+  // Số doanh nghiệp theo loại email (cho các tab nhỏ của "Phân loại email").
+  function emailClasses() {
+    const counts = Object.fromEntries(db.prepare('SELECT email_class k, COUNT(*) n FROM directory_entities GROUP BY email_class').all().map(r => [r.k, r.n]));
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    return { total, classes: Object.entries(EMAIL_CLASS_LABELS).map(([key, label]) => ({ key, label, n: counts[key] || 0 })) };
+  }
+
+  // Danh sách tên miền email (mỗi doanh nghiệp tính 1 lần/tên miền) kèm loại; lọc q (chứa chuỗi), class.
+  function emailDomains(query) {
+    const { limit, offset } = page(query);
+    const q = String(query.q ?? '').toLowerCase().replace(/^.*@/, '').replace(/[^a-z0-9.\-]/g, '');
+    const cls = EMAIL_CLASS_LABELS[query.emailClass] ? String(query.emailClass) : '';
+    const all = emailStats().domains.filter(([d]) => (!q || d.includes(q)) && (!cls || emailDomainClass(d) === cls));
+    return { total: all.length, limit, offset, rows: all.slice(offset, offset + limit).map(([domain, n]) => ({ domain, class: EMAIL_CLASS_LABELS[emailDomainClass(domain)], n })) };
+  }
+
+  return { summary, products, suggest, buyers, shipments, directory, emailClasses, emailDomains };
 }

@@ -1166,8 +1166,8 @@ app.get('/api/admin/cache/segments', requireAdmin, (_req, res) => {
 let customsApi = null;
 try { customsApi = createCustomsApi(openCustomsDb()); }
 catch (error) { console.error('Customs DB unavailable:', error.message); }
-for (const name of ['summary', 'products', 'suggest', 'buyers', 'shipments', 'directory']) {
-  app.get(`/api/admin/customs/${name}`, requireAdmin, (req, res) => {
+for (const [route, name] of [['summary'], ['products'], ['suggest'], ['buyers'], ['shipments'], ['directory'], ['email-classes', 'emailClasses'], ['email-domains', 'emailDomains']].map(([r, n]) => [r, n || r])) {
+  app.get(`/api/admin/customs/${route}`, requireAdmin, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (!customsApi) return res.status(503).json({ error: 'Chưa mở được kho Customs Data.' });
     try { res.json(customsApi[name](req.query)); }

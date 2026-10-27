@@ -12,17 +12,22 @@ type Summary = {
 type ProductStat = { key: string; label: string; shipments: number; usd: number | null; shipmentBuyers: number; rankings: number; market: number };
 type Paged<T> = { total: number; limit: number; offset: number; rows: T[] };
 type Row = Record<string, string | number | string[] | null>;
-type View = 'overview' | 'buyers' | 'shipments' | 'directory';
+type View = 'overview' | 'buyers' | 'shipments' | 'directory' | 'email';
+type TableView = 'buyers' | 'shipments' | 'directory';
 
-const VIEWS = ['overview', 'buyers', 'shipments', 'directory'] as const;
+const VIEWS = ['overview', 'buyers', 'shipments', 'directory', 'email'] as const;
+const EMAIL_TABS = ['all', 'domain', 'gmail', 'yahoo', 'microsoft', 'free', 'none', 'domains'] as const;
+type EmailTab = typeof EMAIL_TABS[number];
+const EMAIL_LABEL: Record<string, string> = { domain: 'Domain riêng', gmail: 'Gmail', yahoo: 'Yahoo', microsoft: 'Hotmail / Outlook', free: 'Free / ISP khác', none: 'Không có email' };
+type EmailClasses = { total: number; classes: { key: string; label: string; n: number }[] };
 const TYPE_LABEL: Record<string, string> = {
   importer: 'Nhà nhập khẩu / buyer', supplier: 'Nhà cung cấp', manufacturer: 'Nhà máy', shipper: 'Shipper / forwarder',
   registry: 'Đăng ký doanh nghiệp', vendor: 'Vendor', document: 'Trích từ PDF/DOC (độ tin cậy thấp)', contact: 'Khác', competitor: 'Đối thủ'
 };
-const COLUMNS: Record<Exclude<View, 'overview'>, [string, string][]> = {
+const COLUMNS: Record<TableView, [string, string][]> = {
   buyers: [['name', 'Buyer'], ['country', 'Nước'], ['transactions', 'Giao dịch'], ['usd', 'USD'], ['lastDate', 'Gần nhất'], ['products', 'Sản phẩm'], ['hs', 'HS'], ['sources', 'Nguồn']],
   shipments: [['date', 'Ngày'], ['buyer', 'Buyer'], ['buyerCountry', 'Nước'], ['supplier', 'Nhà cung cấp VN'], ['group', 'Sản phẩm'], ['hs', 'HS'], ['usd', 'USD'], ['qty', 'SL'], ['unit', 'ĐV'], ['portOut', 'Cảng đi'], ['portIn', 'Cảng đến']],
-  directory: [['name', 'Tên'], ['type', 'Loại'], ['country', 'Nước'], ['city', 'Thành phố'], ['email', 'Email'], ['phone', 'Điện thoại'], ['website', 'Website'], ['activity', 'Ngành / ghi chú']]
+  directory: [['name', 'Tên'], ['type', 'Loại'], ['country', 'Nước'], ['city', 'Thành phố'], ['email', 'Email'], ['emailClass', 'Loại email'], ['phone', 'Điện thoại'], ['website', 'Website'], ['activity', 'Ngành / ghi chú']]
 };
 const fmt = (v: unknown) => Array.isArray(v) ? v.join(', ') : typeof v === 'number' ? v.toLocaleString('vi-VN') : String(v ?? '');
 const input = 'rounded border border-slate-700 bg-slate-900 px-2 py-1 text-slate-200 placeholder:text-slate-500';
@@ -83,7 +88,7 @@ async function fetchOptions(field: string, view: string, q: string, signal: Abor
 }
 const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-function Table({ view, products, initialProduct = '', onProductChange }: { view: Exclude<View, 'overview'>; products: ProductStat[]; initialProduct?: string; onProductChange?: (key: string) => void }) {
+function Table({ view, products, initialProduct = '', onProductChange, fixed, initialSuffix = '' }: { view: TableView; products: ProductStat[]; initialProduct?: string; onProductChange?: (key: string) => void; fixed?: Record<string, string>; initialSuffix?: string }) {
   const [q, setQ] = useState('');
   const [country, setCountry] = useState('');
   const [countryText, setCountryText] = useState('');
@@ -95,7 +100,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
   const [productText, setProductText] = useState(() => products.find(p => p.key === initialProduct)?.label ?? '');
   const [type, setType] = useState('');
   const [hasEmail, setHasEmail] = useState(false);
-  const [emailSuffix, setEmailSuffix] = useState('');
+  const [emailSuffix, setEmailSuffix] = useState(initialSuffix);
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<Paged<Row> | null>(null);
   const [error, setError] = useState('');
@@ -118,6 +123,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       if (hasEmail && view === 'directory') p.set('hasEmail', '1');
       if (emailSuffix.trim() && view === 'directory') p.set('emailSuffix', emailSuffix.trim());
       if (product && view !== 'directory') p.set('product', product);
+      if (fixed) for (const [k, v] of Object.entries(fixed)) p.set(k, v);
       try {
         const res = await fetch(`/api/admin/customs/${view}?${p}`, { credentials: 'same-origin', signal: ctl.signal });
         const body = await res.json().catch(() => ({}));
@@ -152,7 +158,7 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       <table className="w-full text-left text-[11px]">
         <thead className="bg-slate-900 text-slate-400"><tr>{COLUMNS[view].map(([, label]) => <th key={label} className="px-2 py-1.5 font-medium whitespace-nowrap">{label}</th>)}</tr></thead>
         <tbody>{data.rows.map((row, i) => <tr key={i} className="border-t border-slate-800 text-slate-200 hover:bg-slate-900/60">
-          {COLUMNS[view].map(([key]) => <td key={key} className="max-w-xs truncate px-2 py-1" title={fmt(key === 'type' ? TYPE_LABEL[String(row.type)] ?? row.type : row[key])}>{fmt(key === 'type' ? TYPE_LABEL[String(row.type)] ?? row.type : row[key])}</td>)}
+          {COLUMNS[view].map(([key]) => { const text = fmt(key === 'type' ? TYPE_LABEL[String(row.type)] ?? row.type : key === 'emailClass' ? EMAIL_LABEL[String(row.emailClass)] ?? '' : row[key]); return <td key={key} className="max-w-xs truncate px-2 py-1" title={text}>{text}</td>; })}
         </tr>)}{data.rows.length === 0 && <tr><td colSpan={COLUMNS[view].length} className="px-2 py-4 text-center text-slate-500">Không có dữ liệu khớp bộ lọc.</td></tr>}</tbody>
       </table>
     </div>}
@@ -162,6 +168,82 @@ function Table({ view, products, initialProduct = '', onProductChange }: { view:
       <button type="button" disabled={offset + limit >= data.total} onClick={() => setOffset(offset + limit)} className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40">Sau</button>
     </div>}
   </div>;
+}
+
+// Danh sách tên miền email: tìm theo chuỗi, lọc theo loại; bấm một tên miền để xem các doanh nghiệp dùng tên miền đó.
+function DomainList({ onPick }: { onPick: (domain: string) => void }) {
+  const [q, setQ] = useState('');
+  const [cls, setCls] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [data, setData] = useState<Paged<{ domain: string; class: string; n: number }> | null>(null);
+  const [error, setError] = useState('');
+  const limit = 50;
+  useEffect(() => { setOffset(0); }, [q, cls]);
+  useEffect(() => {
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
+      const p = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (q.trim()) p.set('q', q.trim());
+      if (cls) p.set('emailClass', cls);
+      try {
+        const res = await fetch(`/api/admin/customs/email-domains?${p}`, { credentials: 'same-origin', signal: ctl.signal });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((body as { error?: string }).error || `Lỗi ${res.status}`);
+        setData(body as typeof data); setError('');
+      } catch (e) { if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : 'Không tải được dữ liệu'); }
+    }, 250);
+    return () => { clearTimeout(t); ctl.abort(); };
+  }, [q, cls, offset]);
+  return <div className="mt-3">
+    <div className="flex flex-wrap items-center gap-2">
+      <input className={`${input} w-64`} placeholder="Tìm tên miền (gmail, .ae, acme…)" value={q} onChange={e => setQ(e.target.value)} aria-label="Tìm tên miền" />
+      <select className={input} value={cls} onChange={e => setCls(e.target.value)} aria-label="Loại tên miền"><option value="">Mọi loại</option>{Object.entries(EMAIL_LABEL).filter(([k]) => k !== 'none').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+      {data && <span className="text-[11px] text-slate-400">{data.total.toLocaleString('vi-VN')} tên miền</span>}
+    </div>
+    {error && <p className="mt-3 text-amber-300" role="status">{error}</p>}
+    {data && <div className="mt-3 overflow-x-auto rounded border border-slate-800"><table className="w-full text-left text-[11px]">
+      <thead className="bg-slate-900 text-slate-400"><tr><th className="px-2 py-1.5 font-medium">Tên miền</th><th className="px-2 py-1.5 font-medium">Loại</th><th className="px-2 py-1.5 font-medium">Doanh nghiệp</th></tr></thead>
+      <tbody>{data.rows.map(r => <tr key={r.domain} className="border-t border-slate-800 text-slate-200 hover:bg-slate-900/60">
+        <td className="px-2 py-1"><button type="button" className="text-sky-300 hover:underline" onClick={() => onPick(r.domain)}>{r.domain}</button></td>
+        <td className="px-2 py-1">{r.class}</td><td className="px-2 py-1 font-mono">{r.n.toLocaleString('vi-VN')}</td>
+      </tr>)}{data.rows.length === 0 && <tr><td colSpan={3} className="px-2 py-4 text-center text-slate-500">Không có tên miền khớp.</td></tr>}</tbody>
+    </table></div>}
+    {data && <div className="mt-2 flex items-center gap-2 text-slate-300">
+      <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))} className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40">Trước</button>
+      <span className="text-[11px] text-slate-400">{data.total ? offset + 1 : 0}–{Math.min(offset + limit, data.total)} / {data.total.toLocaleString('vi-VN')}</span>
+      <button type="button" disabled={offset + limit >= data.total} onClick={() => setOffset(offset + limit)} className="rounded border border-slate-700 px-2 py-1 disabled:opacity-40">Sau</button>
+    </div>}
+  </div>;
+}
+
+// Tab "Phân loại email": các tab nhỏ theo loại email (slug /customs-data/email/<loại>/) và danh sách theo tên miền.
+function EmailView({ products }: { products: ProductStat[] }) {
+  const [routeTab, setTab] = useRouteSegment<EmailTab>('customs-data', ['email'], EMAIL_TABS);
+  const tab = routeTab ?? 'all';
+  const [domain, setDomain] = useState('');
+  const [counts, setCounts] = useState<EmailClasses | null>(null);
+  useEffect(() => {
+    let active = true;
+    apiJson<EmailClasses>('/admin/customs/email-classes').then(r => { if (active) setCounts(r); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+  const n = (key: string) => counts?.classes.find(c => c.key === key)?.n;
+  const btn = (id: EmailTab, label: string, count?: number) => <button key={id} type="button" onClick={() => { setDomain(''); setTab(id); }}
+    className={`rounded px-3 py-1 ${tab === id ? 'bg-slate-700 font-medium text-white' : 'text-slate-400 hover:text-slate-200'}`}>{label}{count != null && <span className="ml-1 font-mono text-[10px] text-slate-500">{count.toLocaleString('vi-VN')}</span>}</button>;
+  return <section className="mt-3">
+    <div className="flex flex-wrap gap-1 rounded bg-slate-900 p-1 w-fit" role="tablist" aria-label="Loại email">
+      {btn('all', 'Tất cả', counts?.total)}
+      {(['domain', 'gmail', 'yahoo', 'microsoft', 'free', 'none'] as const).map(k => btn(k, EMAIL_LABEL[k], n(k)))}
+      {btn('domains', 'Theo domain')}
+    </div>
+    {tab === 'domains'
+      ? <DomainList onPick={d => { setDomain(d); setTab('all'); }} />
+      : <>
+        {domain && <p className="mt-3 flex items-center gap-2 text-[11px] text-slate-300">Đang lọc theo tên miền <strong className="text-white">{domain}</strong>
+          <button type="button" onClick={() => setDomain('')} className="rounded border border-slate-700 px-2 py-0.5 text-slate-300 hover:text-white">Bỏ lọc</button></p>}
+        <Table key={`${tab}:${domain}`} view="directory" products={products} fixed={tab === 'all' ? undefined : { emailClass: tab }} initialSuffix={domain} />
+      </>}
+  </section>;
 }
 
 export function AdminCustomsView() {
@@ -179,7 +261,7 @@ export function AdminCustomsView() {
   return <div className="max-w-6xl text-xs">
     <h2 className="text-sm font-bold text-white">Customs Data</h2>
     <p className="mt-1 text-[11px] text-slate-400">Dữ liệu hải quan/vận đơn thật nhập từ nguồn ngoài, tách khỏi kho Google Maps. Danh bạ doanh nghiệp là bộ riêng, chưa xác minh hoạt động nhập khẩu. Chỉ admin xem được.</p>
-    <div className="mt-3 flex flex-wrap gap-1 rounded bg-slate-900 p-1 w-fit">{tab('overview', 'Tổng quan')}{tab('buyers', 'Buyer hải quan')}{tab('shipments', 'Vận đơn')}{tab('directory', 'Danh bạ doanh nghiệp')}</div>
+    <div className="mt-3 flex flex-wrap gap-1 rounded bg-slate-900 p-1 w-fit">{tab('overview', 'Tổng quan')}{tab('buyers', 'Buyer hải quan')}{tab('shipments', 'Vận đơn')}{tab('directory', 'Danh bạ doanh nghiệp')}{tab('email', 'Phân loại email')}</div>
     {view === 'overview' && <section className="mt-3">
       {error && <p className="text-amber-300" role="status">{error}</p>}
       {!summary && !error && <p className="text-slate-400" role="status">Đang tải…</p>}
@@ -205,6 +287,7 @@ export function AdminCustomsView() {
         </div>
       </>}
     </section>}
-    {view !== 'overview' && <Table key={view} view={view} products={summary?.products ?? []} initialProduct={product} onProductChange={setProduct} />}
+    {view === 'email' && <EmailView products={summary?.products ?? []} />}
+    {view !== 'overview' && view !== 'email' && <Table key={view} view={view} products={summary?.products ?? []} initialProduct={product} onProductChange={setProduct} />}
   </div>;
 }
