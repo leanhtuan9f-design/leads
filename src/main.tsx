@@ -1,6 +1,6 @@
 import {createRoot} from 'react-dom/client';
 import { lazy, Suspense } from 'react';
-import LandingPage from './landing/LandingPage';
+import { LandingPage } from './landing/LandingPage';
 const AuthGate = lazy(() => import('./auth/AuthGate.tsx'));
 import './index.css';
 

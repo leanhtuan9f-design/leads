@@ -17,7 +17,7 @@ const fallbackPrices: Record<PlanKey, { MONTHLY: number; ANNUAL: number }> = {
 
 export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props) {
   const isExistingUser = !trialId;
-  const [form, setForm] = useState({ name: '', email: userEmail.includes('@trial.local') ? '' : userEmail, phone: '', password: '', plan: 'BASIC', billingCycle: 'MONTHLY' });
+  const [form, setForm] = useState({ name: '', email: userEmail.includes('@trial.local') ? '' : userEmail, phone: '', password: '', plan: new URLSearchParams(window.location.search).get('plan') === 'ADVANCED' ? 'ADVANCED' : 'BASIC', billingCycle: new URLSearchParams(window.location.search).get('cycle') === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY' });
   const [catalog, setCatalog] = useState<BillingConfig | null>(null);
   const [accountPlan, setAccountPlan] = useState<AccountPlan | null>(null);
   const [catalogError, setCatalogError] = useState('');
@@ -31,7 +31,7 @@ export function BillingModal({ userEmail, trialId, onClose, onActivated }: Props
     apiJson<AccountPlan>('/account/plan').then((current) => {
       setCatalog({ plans: current.plans, prices: current.prices, features: current.features });
       setAccountPlan(current);
-      if (current.plan.plan === 'ADVANCED') setForm(previous => ({ ...previous, plan: 'ADVANCED' }));
+      if (current.plan.plan === 'ADVANCED' && !new URLSearchParams(window.location.search).has('plan')) setForm(previous => ({ ...previous, plan: 'ADVANCED' }));
     }).catch(() => setCatalogError('Không tải được bảng gói dịch vụ. Bạn vẫn có thể chọn gói mặc định.'));
   }, []);
 
