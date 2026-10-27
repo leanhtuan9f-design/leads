@@ -33,8 +33,9 @@ const MarketConfig = lazyReload(() => import('./components/MarketConfig').then(m
 const ProfileModal = lazyReload(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
 const BillingModal = lazyReload(() => import('./components/BillingModal').then(m => ({ default: m.BillingModal })));
 
-const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v3';
-const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v3';
+const STORAGE_KEY_LEADS = 'gmaps_scraper_leads_v4'; // v4: mã lead không còn chứa placeId; bộ nhớ v3 (mã cũ, dữ liệu chưa che) bị xoá
+const STORAGE_KEY_JOBS = 'gmaps_scraper_jobs_v4';
+try { for (const k of Object.keys(localStorage)) if (/^gmaps_scraper_(leads|jobs)_v3/.test(k)) localStorage.removeItem(k); } catch { /* bỏ qua */ }
 const STORAGE_KEY_PROXIES = 'gmaps_scraper_proxies_v1';
 
 const parseProxies = (text: string): string[] =>

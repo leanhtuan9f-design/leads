@@ -1,5 +1,6 @@
 // Backend quét Google Maps thật: chạy gosom/google-maps-scraper trong Docker, stream kết quả qua SSE.
-import { maskTrialPlace, pickVisibleIds, redactPlace } from './trial-mask.mjs';
+import { maskTrialPlace, pickVisibleIds, redactPlace, opaqueLeadId } from './trial-mask.mjs';
+import { migrateLeadIds } from './lead-id-migration.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
 import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
@@ -485,7 +486,10 @@ const maskItemData = (kind, data, visible) => {
   if (kind === 'lead') return visible.has(data.id) ? maskTrialPlace(data) : redactPlace(data);
   if (!Array.isArray(data.results)) return data;
   const own = new Set(pickVisibleIds(data.results, TRIAL_LEAD_LIMIT));
-  return { ...data, results: data.results.map((p) => (p && typeof p === 'object' ? (own.has(p.id) ? maskTrialPlace(p) : redactPlace(p)) : p)) };
+  const out = { ...data, results: data.results.map((p) => (p && typeof p === 'object' ? (own.has(p.id) ? maskTrialPlace(p) : redactPlace(p)) : p)) };
+  // bản sao lead đã có dùng để loại trùng khi tiếp tục job: không để lộ thông tin gốc
+  if (out.options && Array.isArray(out.options.existingBusinesses)) out.options = { ...out.options, existingBusinesses: out.options.existingBusinesses.map((p) => (p && typeof p === 'object' ? redactPlace(p) : p)) };
+  return out;
 };
 app.get('/api/items/:kind', (req, res) => {
   const kind = ITEM_KINDS[req.params.kind];
@@ -535,6 +539,7 @@ app.post('/api/items/:kind', (req, res) => {
   const uid = req.user.id;
   // Gói miễn phí chỉ thấy bản che: không cho bản che ghi đè lead gốc đã lưu (dữ liệu cũ vẫn dùng được khi nâng gói)
   if (kind === 'lead' && isFreeUser(req.user)) upsert = upsert.filter((x) => !stmt.itemExists.get(uid, kind, x.id));
+  if (kind === 'lead') upsert = upsert.filter((x) => x.id.startsWith('lead_h_')); // mã cũ (lộ placeId) từ bộ nhớ trình duyệt cũ không được ghi lại
   const last = inTx(() => {
     let seq = stmt.itemMaxSeq.get(uid, kind).m;
     for (const x of upsert) stmt.upsertItem.run(uid, kind, x.id, JSON.stringify(x), ++seq);
@@ -559,6 +564,8 @@ app.put('/api/state/:key', (req, res) => {
 
 // Dùng thử có tối đa TRIAL_DAILY_SEARCHES lượt/ngày, mỗi lượt tối đa TRIAL_LEAD_LIMIT lead: nâng hạn mức địa điểm mới của các tài khoản dùng thử cũ (10) để lượt thứ hai trở đi vẫn có kết quả
 db.prepare("UPDATE users SET daily_new = ? WHERE (role = 'trial' OR (role = 'user' AND id NOT IN (SELECT user_id FROM user_plans))) AND daily_new < ?").run(TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT, TRIAL_DAILY_SEARCHES * TRIAL_LEAD_LIMIT);
+
+migrateLeadIds(db); // một lần: đổi mã lead cũ (lead_<placeId>) trong user_items sang mã không lộ placeId
 
 const publicUser = (u) => ({ id: u.id, email: u.email, role: u.role });
 // Chưa có gói (không phải admin) = gói miễn phí: dùng chung luật với dùng thử (10 lượt/ngày, 10 lead che liên hệ)
@@ -798,6 +805,7 @@ class Job {
   }
   emit(type, data) {
     if (this.ended) return;
+    if (type === 'place' && data && typeof data.id === 'string') data = { ...data, id: opaqueLeadId(data.id) }; // client không bao giờ thấy placeId Google trong mã lead
     if (type === 'place' && this.trialBuf) { // dùng thử: giữ lại, chỉ gửi 10 lead tốt nhất khi kết thúc
       this.trialBuf.push(data);
       if (this.trialBuf.length % 5 === 0) this.emit('status', { status: 'running', message: `Đã tìm thấy ${this.trialBuf.length} địa điểm, đang chọn lead đầy đủ thông tin nhất...` });

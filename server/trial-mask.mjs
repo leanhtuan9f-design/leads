@@ -42,6 +42,14 @@ export function maskTrialPlace(place) {
   };
 }
 
+// Mã lead không lộ placeId/cid của Google: lead_<placeId> → lead_h_<24 hex của SHA-256>. Idempotent.
+import { createHash } from 'node:crypto';
+export function opaqueLeadId(id) {
+  const value = String(id ?? '');
+  if (value.startsWith('lead_h_')) return value;
+  return `lead_h_${createHash('sha256').update(value).digest('hex').slice(0, 24)}`;
+}
+
 // Xếp hạng lead đầy đủ thông tin (ưu tiên email) để chọn lead được xem ở gói miễn phí.
 export const leadRank = (p) => (p.email ? 8 : 0) + (p.phone ? 4 : 0) + (p.website ? 4 : 0) + (p.address ? 1 : 0) + (p.rating > 0 ? 1 : 0) + (p.openHoursSummary ? 1 : 0) - (p.possiblyClosed ? 6 : 0);
 
