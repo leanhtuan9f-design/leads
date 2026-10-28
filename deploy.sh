@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /opt/maps
+cd /opt/leads
 git pull --ff-only
 npm install --no-audit --no-fund --legacy-peer-deps
 npm run build

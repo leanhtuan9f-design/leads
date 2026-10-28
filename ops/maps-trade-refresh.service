@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/maps
+WorkingDirectory=/opt/leads
 EnvironmentFile=/etc/maps/trade-refresh.env
-ExecStart=/usr/bin/node /opt/maps/server/trade-refresh-all.mjs
+ExecStart=/usr/bin/node /opt/leads/server/trade-refresh-all.mjs
 TimeoutStartSec=10min
