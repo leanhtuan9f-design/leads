@@ -29,6 +29,7 @@ const AiSettings = lazyReload(() => import('./components/AiSettings').then(m => 
 const BillingSettings = lazyReload(() => import('./components/BillingSettings').then(m => ({ default: m.BillingSettings })));
 const AdminBackgroundView = lazyReload(() => import('./components/AdminBackgroundView').then(m => ({ default: m.AdminBackgroundView })));
 const AdminCustomsView = lazyReload(() => import('./components/AdminCustomsView').then(m => ({ default: m.AdminCustomsView })));
+const CompanyWarehouseView = lazyReload(() => import('./components/CompanyWarehouseView').then(m => ({ default: m.CompanyWarehouseView })));
 const MarketConfig = lazyReload(() => import('./components/MarketConfig').then(m => ({ default: m.MarketConfig })));
 const ProfileModal = lazyReload(() => import('./components/ProfileModal').then(m => ({ default: m.ProfileModal })));
 const BillingModal = lazyReload(() => import('./components/BillingModal').then(m => ({ default: m.BillingModal })));
@@ -56,7 +57,7 @@ interface AppProps {
 
 export const TAB_SLUGS: Record<ActiveTab, string> = {
   leads: 'leads', jobs: 'jobs', analytics: 'analytics', api: 'api-docs', admin: 'admin-users', background: 'background',
-  customs: 'customs-data', aiconfig: 'ai-config', marketconfig: 'market-config', billingconfig: 'billing-config'
+  customs: 'customs-data', companies: 'companies', aiconfig: 'ai-config', marketconfig: 'market-config', billingconfig: 'billing-config'
 };
 
 export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
@@ -65,7 +66,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
   const keyJobs = `${STORAGE_KEY_JOBS}_u${user.id}`;
   const keyProxies = `${STORAGE_KEY_PROXIES}_u${user.id}`;
   const keyTab = `gmaps_scraper_tab_u${user.id}`;
-  const TABS: ActiveTab[] = ['leads', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
+  const TABS: ActiveTab[] = ['leads', 'jobs', 'analytics', 'api', ...(user.role === 'admin' ? (['admin', 'background', 'customs', 'companies', 'aiconfig', 'marketconfig', 'billingconfig'] as ActiveTab[]) : [])];
   const tabFromPath = (): ActiveTab | null => {
     const slug = window.location.pathname.split('/').filter(Boolean)[0] ?? '';
     const tab = (Object.keys(TAB_SLUGS) as ActiveTab[]).find(t => TAB_SLUGS[t] === slug);
@@ -518,6 +519,7 @@ export default function App({ user, quota, onLogout, refreshQuota }: AppProps) {
 
         {activeTab === 'background' && user.role === 'admin' && <AdminBackgroundView onOpenGuide={(guideId) => setActiveGuideId(guideId)} />}
         {activeTab === 'customs' && user.role === 'admin' && <AdminCustomsView />}
+        {activeTab === 'companies' && user.role === 'admin' && <CompanyWarehouseView />}
         {activeTab === 'aiconfig' && user.role === 'admin' && <div className="max-w-xl text-xs"><h2 className="text-sm font-bold text-white mb-1">Cấu hình AI</h2><AiSettings onSaved={() => {}} /></div>}
         {activeTab === 'billingconfig' && user.role === 'admin' && <div className="max-w-3xl text-xs"><BillingSettings /></div>}
         {activeTab === 'marketconfig' && user.role === 'admin' && <MarketConfig />}

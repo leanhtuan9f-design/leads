@@ -4,6 +4,7 @@ import { migrateLeadIds } from './lead-id-migration.mjs';
 import express from 'express';
 import { createWarehouseStats, createWarehouseSegments } from './warehouse-stats.mjs';
 import { openCustomsDb, createCustomsApi } from './customs-data.mjs';
+import { openCompanyDb, mountCompanyApi } from './company-warehouse.mjs';
 import { settleAutoTasks, expandAutoPlan } from './auto-expand.mjs';
 import { spawn, execFile } from 'node:child_process';
 import { mkdirSync, chmodSync, writeFileSync, rmSync, existsSync, openSync, readSync, closeSync, statSync, readFileSync, readdirSync } from 'node:fs';
@@ -1346,6 +1347,11 @@ app.get('/api/admin/cache/segments', requireAdmin, (_req, res) => {
 });
 
 // Customs Data (hải quan thật) và Danh bạ doanh nghiệp: DB riêng customs.db, chỉ admin, không đụng bảng places.
+try { mountCompanyApi(app, requireAdmin, openCompanyDb()); }
+catch (error) {
+  console.error('Company warehouse unavailable:', error.message);
+  app.use('/api/admin/companies', requireAdmin, (_req, res) => res.status(503).json({ error: 'Chưa mở được kho doanh nghiệp.' }));
+}
 let customsApi = null;
 try { customsApi = createCustomsApi(openCustomsDb()); }
 catch (error) { console.error('Customs DB unavailable:', error.message); }

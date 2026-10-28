@@ -72,6 +72,12 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
         {user.role === 'admin' && (
+          <button onClick={() => setActiveTab('companies')} className={navCls(activeTab === 'companies')}>
+            <Database className="w-3.5 h-3.5" />
+            <span>Kho doanh nghiệp</span>
+          </button>
+        )}
+        {user.role === 'admin' && (
           <button onClick={() => setActiveTab('customs')} className={navCls(activeTab === 'customs')}>
             <Ship className="w-3.5 h-3.5" />
             <span>Customs Data</span>

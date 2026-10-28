@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly company warehouse reconciliation
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+Persistent=true
+Unit=maps-company-sync.service
+
+[Install]
+WantedBy=timers.target

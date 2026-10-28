@@ -1,0 +1,18 @@
+[Unit]
+Description=Reconcile Maps and Customs into company warehouse
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/leads
+ExecStart=/usr/bin/python3 /opt/leads/server/company-sync.py
+User=root
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=240M
+TimeoutStartSec=20min
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/maps-data
+PrivateTmp=true
