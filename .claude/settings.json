@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '=== BẮT BUỘC: bản đồ repo (/home/claude/repo-maps.md). Đọc trước khi làm; cập nhật khi xong nhiệm vụ. ===' && cat /home/claude/repo-maps.md"
+            "command": "echo '=== BẮT BUỘC: bản đồ repo (/home/claude/repo-leads.md). Đọc trước khi làm; cập nhật khi xong nhiệm vụ. ===' && cat /home/claude/repo-leads.md"
           }
         ]
       }
