@@ -42,13 +42,13 @@ export function WarehouseStats() {
     <p className="export-stock-caption">{countries ? 'Theo số hồ sơ trong kho, chưa xác minh vai trò nhập khẩu' : 'Hồ sơ thu thập theo nhóm sản phẩm và mã HS'}</p>
     {entries.length ? <ol>{entries.map((entry, index) => <li key={entry.name}>
       <span className="export-stock-rank">{index + 1}</span>
-      <span className="export-stock-label">{countries ? countryLabel(entry.name) : entry.name}{!countries && entry.hsCode ? <small className="export-stock-hs">HS {entry.hsCode}</small> : null}<span className="export-stock-track" aria-hidden="true"><span style={{ width: `${entry.count / entries[0].count * 100}%` }}/></span></span>
+      <a className="export-stock-label export-stock-link" href={`/companies/?${new URLSearchParams(countries ? { country: entry.name } : entry.hsCode ? { hs: entry.hsCode } : { product: entry.name })}`}>{countries ? countryLabel(entry.name) : entry.name}{!countries && entry.hsCode ? <small className="export-stock-hs">HS {entry.hsCode}</small> : null}<span className="export-stock-track" aria-hidden="true"><span style={{ width: `${entry.count / entries[0].count * 100}%` }}/></span></a>
       <strong>{number(entry.count)}<small>doanh nghiệp</small></strong>
     </li>)}</ol> : <p className="export-stock-empty">Chưa có dữ liệu {countries ? 'quốc gia' : 'sản phẩm'} để thống kê.</p>}
   </article>;
 
   return <section id="du-lieu" className="export-section export-container export-stock" aria-labelledby="stock-title">
-    <div className="export-stock-heading"><div><p className="export-kicker">DỮ LIỆU HIỆN CÓ</p><h2 id="stock-title">Khám phá kho doanh nghiệp.</h2><p>Top quốc gia và nhóm sản phẩm có nhiều hồ sơ trong kho, cập nhật tự động từ dữ liệu hiện có.</p></div>
+    <div className="export-stock-heading"><div><p className="export-kicker">DỮ LIỆU HIỆN CÓ</p><h2 id="stock-title">Khám phá doanh nghiệp nhập khẩu tiềm năng.</h2><p>Top quốc gia và nhóm sản phẩm có nhiều hồ sơ trong kho, cập nhật tự động từ dữ liệu hiện có.</p></div>
       {stats && <div className="export-stock-total"><IconBuildingSkyscraper size={25}/><strong>{number(stats.total)}</strong><span>hồ sơ doanh nghiệp trong kho</span></div>}
     </div>
     {failed ? <div className="export-stock-status" role="status">{stats ? 'Tạm thời chưa làm mới được. Đang hiển thị số liệu lần tải gần nhất.' : 'Chưa tải được thống kê dữ liệu.'} <button type="button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button></div> : !stats ? <p className="export-stock-status" role="status">Đang tải thống kê từ kho dữ liệu…</p> : null}

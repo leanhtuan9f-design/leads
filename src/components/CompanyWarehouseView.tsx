@@ -25,7 +25,10 @@ function Pager({ offset, total, onPage }: { offset: number; total: number; onPag
 export function CompanyWarehouseView() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [view, setView] = useState<'list' | 'review'>('list');
-  const [filters, setFilters] = useState({ q: '', country: '', city: '', source: '', role: '', contact: '', product: '', hs: '', linked: '' });
+  const [filters, setFilters] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return { q: '', country: params.get('country') || '', city: '', source: '', role: '', contact: '', product: params.get('product') || '', hs: params.get('hs') || '', linked: '' };
+  });
   const [status, setStatus] = useState('pending'); const [offset, setOffset] = useState(0);
   const [companies, setCompanies] = useState<Paged<Company> | null>(null);
   const [candidates, setCandidates] = useState<Paged<Candidate> | null>(null);
