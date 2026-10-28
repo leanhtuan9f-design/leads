@@ -96,3 +96,38 @@ test('all warehouse HTTP routes require admin and clamp pagination', async () =>
     assert.equal((await fetch(`${base}/api/admin/companies/missing`, { headers: { 'x-test-role': 'admin' } })).status, 404);
   } finally { await new Promise(resolve => server.close(resolve)); db.close(); }
 });
+
+test('set-based filters intersect across linked members without duplicate rows or lost pagination', () => {
+  const db = openCompanyDb(':memory:');
+  try {
+    const add = db.prepare('INSERT INTO companies(id,source,source_key,name,name_norm,country,city,role,created_at,updated_at,merged_into) VALUES(?,?,?,?,?,?,?,?,1,1,?)');
+    add.run('a','maps','a','Alpha','alpha','US','Tampa','location',null);
+    add.run('b','directory','b','Beta','beta','US','Miami','buyer','a');
+    add.run('c','maps','c','Gamma','gamma','CN','Shanghai','location',null);
+    for (const id of ['one','two']) {
+      db.prepare("INSERT INTO company_facts(id,company_id,source,source_key,role,payload,content_hash,product,hs,first_imported_at,imported_at,last_run) VALUES(?,'b','directory',?,'buyer','{}','hash','fruit','081090',1,1,1)").run(id,id);
+      db.prepare("INSERT INTO company_contacts VALUES(?,'b','email','hello@example.org','hello@example.org')").run(id);
+    }
+    const api = createCompanyApi(db);
+    for (const q of [{ q:'beta',source:'maps' },{q:'alpha',city:'Miami',contact:'email'},{role:'buyer',source:'maps',product:'fruit',hs:'0810'},{linked:'1'}]) {
+      const result = api.list(q); assert.equal(result.total,1); assert.deepEqual(result.rows.map(x=>x.id),['a']);
+    }
+    assert.equal(api.list({country:'CN',contact:'email'}).total,0);
+    assert.equal(api.list({q:'beta',offset:1}).total,1); assert.equal(api.list({q:'beta',offset:1}).rows.length,0);
+    db.prepare("UPDATE companies SET merged_into=NULL WHERE id='b'").run();
+    assert.equal(api.list({q:'beta',source:'maps'}).total,0);
+    assert.equal(api.list({q:'beta',contact:'email'}).total,1);
+  } finally { db.close(); }
+});
+
+test('summary cache expires and invalidates on external sync commits', () => {
+  const dir = mkdtempSync(join(tmpdir(),'company-summary-')); const path=join(dir,'warehouse.db');
+  const db=openCompanyDb(path); const writer=new DatabaseSync(path); let time=100;
+  try {
+    const api=createCompanyApi(db,{now:()=>time,summaryTtlMs:30});
+    const first=api.summary(); assert.equal(api.summary(),first);
+    writer.prepare("INSERT INTO companies(id,source,source_key,name,name_norm,role,created_at,updated_at) VALUES('a','maps','a','Alpha','alpha','location',1,1)").run();
+    const changed=api.summary(); assert.notEqual(changed,first); assert.equal(changed.profiles,1); assert.equal(api.summary(),changed);
+    time=131; assert.notEqual(api.summary(),changed);
+  } finally { writer.close();db.close();rmSync(dir,{recursive:true,force:true}); }
+});

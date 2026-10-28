@@ -102,3 +102,12 @@ Không cộng USD/transactions giữa ranking và shipment. Không đếm B/L th
   Tắt timer mới nếu rollback. Không restore đè DB Maps/Customs đang thu thập.
 
 Kết quả live, thời điểm snapshot, commit và trạng thái deploy ghi trong repo-leads.md.
+
+
+## Tối ưu tải trang (2026-10-28)
+
+Bộ lọc tìm tập root ID bằng subquery không tương quan, tách từng bộ lọc để giữ đúng điều kiện khớp trên các member khác nhau. CTE page MATERIALIZED áp dụng limit/offset trước khi lấy metadata nguồn/liên hệ. Index phủ cho tên, thống kê quốc gia, vai trò và HS giảm đọc bảng lớn. Không đổi kiểu tìm chứa chuỗi/Unicode hoặc kết quả gộp.
+
+Summary cache trong process tối đa 30 giây, invalidation ngay khi PRAGMA data_version thay (worker/connection khác ghi), và sau review/undo trong connection API. Bộ lọc dropdown/phân trang/mở trang gửi ngay; chỉ ô text debounce 250 ms. Request cũ bị abort khi đổi bộ lọc hoặc rời màn hình. API vẫn requireAdmin/no-store; không cache dữ liệu vào localStorage/public.
+
+Đo 2026-10-28 trên cùng snapshot: tìm `global best produce` 2.475ms →167ms (~14,8 lần), kết quả/count/IDs giống nhau; summary371ms →222ms, cache0,23ms. HTTPS production: list50 146–153ms, search296–302ms, summary lần đầu742ms/lặp113ms (bao gồm mạng). Browser cold desktop: bảng đầu2,67s, tìm1,05s; đây là đo tại máy chủ, không cam kết tương tự trên mọi đường truyền. Country/HS được kiểm tra thêm trên production. Artifact riêng /tmp/company-speed/.

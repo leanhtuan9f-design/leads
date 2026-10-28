@@ -12,6 +12,9 @@ CREATE INDEX IF NOT EXISTS company_name_country ON companies(country,name_norm);
 CREATE INDEX IF NOT EXISTS company_root ON companies(COALESCE(merged_into,id));
 CREATE INDEX IF NOT EXISTS company_parent ON companies(merged_into);
 CREATE INDEX IF NOT EXISTS company_list ON companies(merged_into,name,id);
+CREATE INDEX IF NOT EXISTS company_search ON companies(name_norm,merged_into,id);
+CREATE INDEX IF NOT EXISTS company_country_summary ON companies(merged_into,country);
+CREATE INDEX IF NOT EXISTS company_role_filter ON companies(role,merged_into,id);
 CREATE TABLE IF NOT EXISTS company_facts (
  id TEXT PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id), source TEXT NOT NULL,
  source_key TEXT NOT NULL, role TEXT NOT NULL, payload TEXT NOT NULL, content_hash TEXT NOT NULL,
@@ -21,6 +24,7 @@ CREATE TABLE IF NOT EXISTS company_facts (
 );
 CREATE INDEX IF NOT EXISTS fact_company ON company_facts(company_id,source,trade_date);
 CREATE INDEX IF NOT EXISTS fact_product ON company_facts(product,company_id);
+CREATE INDEX IF NOT EXISTS fact_hs_filter ON company_facts(hs COLLATE NOCASE,company_id);
 CREATE TABLE IF NOT EXISTS company_contacts (
  fact_id TEXT NOT NULL REFERENCES company_facts(id), company_id TEXT NOT NULL REFERENCES companies(id),
  kind TEXT NOT NULL, value TEXT NOT NULL, normalized TEXT NOT NULL,

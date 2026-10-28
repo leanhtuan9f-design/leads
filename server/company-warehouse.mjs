@@ -12,12 +12,16 @@ export const normalizeCompanyName = v => String(v || '').normalize('NFKD').repla
 const escapeLike = v => String(v).replace(/[\\%_]/g, '\\$&');
 function problem(message, status = 400) { const e = new Error(message); e.status = status; return e; }
 
-export function createCompanyApi(db) {
+export function createCompanyApi(db, { now = Date.now, summaryTtlMs = 30000 } = {}) {
   const one = (sql, ...params) => db.prepare(sql).get(...params);
   const all = (sql, ...params) => db.prepare(sql).all(...params);
   const members = id => all('SELECT id,name,source,role,country,city,confidence,source_key,updated_at FROM companies WHERE COALESCE(merged_into,id)=? ORDER BY source,name', id);
+  let summaryCache;
   function summary() {
-    return {
+    const time = now();
+    const version = one('PRAGMA data_version').data_version;
+    if (summaryCache && summaryCache.version === version && time < summaryCache.expires) return summaryCache.value;
+    const value = {
       ...one('SELECT COUNT(*) profiles,SUM(merged_into IS NULL) roots,SUM(merged_into IS NOT NULL) linked FROM companies'),
       sources: all('SELECT source,COUNT(*) profiles FROM companies GROUP BY source'),
       facts: one('SELECT COUNT(*) n FROM company_facts').n,
@@ -26,27 +30,36 @@ export function createCompanyApi(db) {
       countries: all("SELECT country,COUNT(*) n FROM companies WHERE country<>'' AND merged_into IS NULL GROUP BY country ORDER BY n DESC"),
       products: all("SELECT product,COUNT(DISTINCT company_id) n FROM company_facts WHERE product<>'' GROUP BY product ORDER BY n DESC"),
     };
+    summaryCache = { value, version, expires: time + summaryTtlMs };
+    return value;
   }
   function list(q) {
     const { limit, offset } = page(q); const conditions = ['c.merged_into IS NULL']; const params = [];
-    // Every filter is applied to members of the canonical profile, including reviewed links.
-    const exists = (sql, ...values) => { conditions.push(`EXISTS(SELECT 1 FROM companies m WHERE (m.id=c.id OR m.merged_into=c.id) AND ${sql})`); params.push(...values); };
-    if (q.q) exists("m.name_norm LIKE ? ESCAPE '\\'", `%${escapeLike(normalizeCompanyName(q.q).slice(0, 150))}%`);
-    if (q.country) exists('m.country=?', String(q.country).toUpperCase().slice(0, 2));
-    if (q.city) exists("m.city LIKE ? ESCAPE '\\'", `%${escapeLike(String(q.city).slice(0, 100))}%`);
-    if (q.source) exists('m.source=?', String(q.source));
-    if (q.role) exists('m.role=?', String(q.role));
-    if (q.contact) exists('EXISTS(SELECT 1 FROM company_contacts x WHERE x.company_id=m.id AND x.kind=?)', String(q.contact));
-    if (q.product) exists('EXISTS(SELECT 1 FROM company_facts f WHERE f.company_id=m.id AND f.product=?)', String(q.product));
-    if (q.hs) exists("EXISTS(SELECT 1 FROM company_facts f WHERE f.company_id=m.id AND f.hs LIKE ? ESCAPE '\\')", `${escapeLike(String(q.hs).replace(/\D/g, '').slice(0, 10))}%`);
-    if (q.linked === '1') conditions.push('EXISTS(SELECT 1 FROM companies x WHERE x.merged_into=c.id)');
+    // Resolve matching members to root IDs once, rather than probing every root for
+    // every filter. Separate sets preserve matches across different linked members.
+    const match = (sql, values, join = '') => {
+      conditions.push(`c.id IN (SELECT COALESCE(m.merged_into,m.id) FROM companies m ${join} WHERE ${sql})`);
+      params.push(...values);
+    };
+    if (q.q) match("m.name_norm LIKE ? ESCAPE '\\'", [`%${escapeLike(normalizeCompanyName(q.q).slice(0, 150))}%`]);
+    if (q.country) match('m.country=?', [String(q.country).toUpperCase().slice(0, 2)]);
+    if (q.city) match("m.city LIKE ? ESCAPE '\\'", [`%${escapeLike(String(q.city).slice(0, 100))}%`]);
+    if (q.source) match('m.source=?', [String(q.source)]);
+    if (q.role) match('m.role=?', [String(q.role)]);
+    if (q.contact) match('x.kind=?', [String(q.contact)], 'JOIN company_contacts x ON x.company_id=m.id');
+    if (q.product) match('f.product=?', [String(q.product)], 'JOIN company_facts f ON f.company_id=m.id');
+    if (q.hs) match("f.hs LIKE ? ESCAPE '\\'", [`${escapeLike(String(q.hs).replace(/\D/g, '').slice(0, 10))}%`], 'JOIN company_facts f ON f.company_id=m.id');
+    if (q.linked === '1') conditions.push('c.id IN (SELECT merged_into FROM companies WHERE merged_into IS NOT NULL)');
     const where = conditions.join(' AND ');
     const total = one(`SELECT COUNT(*) n FROM companies c WHERE ${where}`, ...params).n;
-    const rows = all(`SELECT c.id,c.name,c.country,c.city,c.role,c.source,c.confidence,c.updated_at,
+    const rows = all(`WITH page AS MATERIALIZED (
+      SELECT c.id,c.name,c.country,c.city,c.role,c.source,c.confidence,c.updated_at FROM companies c
+      WHERE ${where} ORDER BY c.name,c.id LIMIT ? OFFSET ?
+    ) SELECT c.*,
       (SELECT GROUP_CONCAT(DISTINCT m.source) FROM companies m WHERE (m.id=c.id OR m.merged_into=c.id)) sources,
       (SELECT COUNT(*) FROM companies m WHERE m.merged_into=c.id) linked,
       (SELECT GROUP_CONCAT(DISTINCT x.kind) FROM companies m JOIN company_contacts x ON x.company_id=m.id WHERE (m.id=c.id OR m.merged_into=c.id)) contacts
-      FROM companies c WHERE ${where} ORDER BY c.name,c.id LIMIT ? OFFSET ?`, ...params, limit, offset);
+      FROM page c ORDER BY c.name,c.id`, ...params, limit, offset);
     return { total, limit, offset, rows };
   }
   function detail(id, q = {}) {
@@ -96,7 +109,7 @@ export function createCompanyApi(db) {
       const status = { approve: 'approved', reject: 'rejected', undo: 'pending' }[body.action];
       db.prepare('UPDATE company_candidates SET status=?,revision=?,evidence_changed=0 WHERE id=?').run(status, currentRevision, id);
       db.prepare('INSERT INTO company_reviews(candidate_id,action,actor,reason,at) VALUES(?,?,?,?,?)').run(id, body.action, actor, reason, Date.now());
-      db.exec('COMMIT'); return { ok: true, status };
+      db.exec('COMMIT'); summaryCache = undefined; return { ok: true, status };
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
   return { summary, list, detail, candidates, review,

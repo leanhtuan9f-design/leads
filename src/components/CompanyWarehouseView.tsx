@@ -35,6 +35,7 @@ export function CompanyWarehouseView() {
   const [reviewing, setReviewing] = useState<Candidate | null>(null); const [history, setHistory] = useState<History[]>([]);
   const [reason, setReason] = useState(''); const [saving, setSaving] = useState(false); const reviewToken = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const previousText = useRef('');
   useEffect(() => {
     let active = true;
     apiJson<Summary>('/admin/companies/summary').then(s => { if (active) setSummary(s); }).catch(e => { if (active) setError(e.message); });
@@ -42,15 +43,19 @@ export function CompanyWarehouseView() {
   }, [revision]);
   useEffect(() => {
     let active = true; setLoading(true); setError('');
+    const controller = new AbortController();
+    const text = `${filters.q}|${filters.city}|${filters.hs}`;
+    const delay = view === 'list' && previousText.current !== text && previousText.current !== '' ? 250 : 0;
+    previousText.current = text;
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams(view === 'list' ? filters : { status }); params.set('offset', String(offset));
-        if (view === 'list') { const r = await apiJson<Paged<Company>>(`/admin/companies?${params}`); if (active) setCompanies(r); }
-        else { const r = await apiJson<Paged<Candidate>>(`/admin/companies/candidates?${params}`); if (active) setCandidates(r); }
+        if (view === 'list') { const r = await apiJson<Paged<Company>>(`/admin/companies?${params}`, 'GET', undefined, controller.signal); if (active) setCompanies(r); }
+        else { const r = await apiJson<Paged<Candidate>>(`/admin/companies/candidates?${params}`, 'GET', undefined, controller.signal); if (active) setCandidates(r); }
       } catch (e) { if (active) setError((e as Error).message); }
       finally { if (active) setLoading(false); }
-    }, 250);
-    return () => { active = false; clearTimeout(timer); };
+    }, delay);
+    return () => { active = false; clearTimeout(timer); controller.abort(); };
   }, [filters, status, view, offset, revision]);
   useEffect(() => {
     if (!selected) return;
